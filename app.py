@@ -3,22 +3,29 @@
 Endpoints:
   GET  /                          -> serves static/index.html
   POST /api/recordings            -> receives a browser recording, converts to WAV via FFmpeg
+  GET  /api/recordings            -> lists all stored WAV recordings (newest first)
   GET  /api/recordings/{filename} -> streams a stored WAV file
+  DELETE /api/recordings/{filename} -> deletes a stored WAV file
 """
 
 from __future__ import annotations
 
+import datetime as _dt
+import logging
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
 import uuid
+import wave
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+
+logger = logging.getLogger("ttvturbo")
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
@@ -69,6 +76,81 @@ def _find_executable(name: str) -> str | None:
 def _ffmpeg_available() -> str | None:
     """Return the ffmpeg executable path or None if not found."""
     return _find_executable("ffmpeg")
+
+
+def _read_wav_duration(path: Path) -> float | None:
+    """Return the WAV duration in seconds, read from the real file.
+
+    Returns None if the file is not a valid, readable WAV.
+    """
+    try:
+        with wave.open(str(path), "rb") as wav:
+            frames = wav.getnframes()
+            rate = wav.getframerate()
+            if rate <= 0:
+                return None
+            return frames / float(rate)
+    except (wave.Error, EOFError, OSError) as exc:
+        logger.warning("Skipping corrupted WAV %s: %s", path.name, exc)
+        return None
+
+
+def _is_temp_or_hidden(name: str) -> bool:
+    """Filter out temp/partial/hidden files that should not be listed."""
+    if not name.lower().endswith(".wav"):
+        return True
+    if name.startswith(".") or name.startswith("~"):
+        return True
+    lower = name.lower()
+    for suffix in (".tmp", ".part", ".bak", ".swp"):
+        if lower.endswith(suffix):
+            return True
+    return False
+
+
+def _list_recordings() -> list[dict]:
+    """Scan RECORDINGS_DIR and return metadata for all valid WAVs, newest first."""
+    items: list[dict] = []
+    for entry in RECORDINGS_DIR.iterdir():
+        if not entry.is_file():
+            continue
+        if _is_temp_or_hidden(entry.name):
+            continue
+        duration = _read_wav_duration(entry)
+        if duration is None:
+            continue  # corrupted or unreadable WAV -> logged, skipped
+        stat = entry.stat()
+        created_at = _dt.datetime.fromtimestamp(
+            stat.st_mtime, tz=_dt.timezone.utc
+        ).astimezone().replace(microsecond=0).isoformat()
+        items.append({
+            "filename": entry.name,
+            "created_at": created_at,
+            "duration_seconds": round(duration, 2),
+            "file_size_bytes": stat.st_size,
+            "audio_url": f"/api/recordings/{entry.name}",
+        })
+    items.sort(key=lambda r: r["created_at"], reverse=True)
+    return items
+
+
+def _safe_filename(filename: str) -> str | None:
+    """Return a plain filename if safe, else None.
+
+    Blocks path traversal, absolute paths, hidden/temp files.
+    """
+    if not filename:
+        return None
+    if "/" in filename or "\\" in filename:
+        return None
+    if filename.startswith(".") or filename.startswith("~"):
+        return None
+    safe = Path(filename).name
+    if safe != filename:
+        return None
+    if not safe.lower().endswith(".wav"):
+        return None
+    return safe
 
 
 @app.get("/")
@@ -181,6 +263,11 @@ async def upload_recording(audio: UploadFile = File(...)) -> JSONResponse:
     )
 
 
+@app.get("/api/recordings")
+def list_recordings() -> JSONResponse:
+    return JSONResponse(content={"recordings": _list_recordings()})
+
+
 @app.get("/api/recordings/{filename}")
 def get_recording(filename: str) -> FileResponse:
     # Reject path traversal attempts.
@@ -191,6 +278,21 @@ def get_recording(filename: str) -> FileResponse:
     if not wav_path.is_file():
         raise HTTPException(status_code=404, detail="Recording not found.")
     return FileResponse(wav_path, media_type="audio/wav", filename=safe)
+
+
+@app.delete("/api/recordings/{filename}")
+def delete_recording(filename: str) -> JSONResponse:
+    safe = _safe_filename(filename)
+    if safe is None:
+        raise HTTPException(status_code=400, detail="Invalid filename.")
+    wav_path = RECORDINGS_DIR / safe
+    if not wav_path.is_file():
+        raise HTTPException(status_code=404, detail="Recording not found.")
+    try:
+        wav_path.unlink()
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Could not delete file: {exc}") from exc
+    return JSONResponse(content={"filename": safe, "deleted": True})
 
 
 def main() -> None:
