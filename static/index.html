@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TTVturbo &ndash; Mikrofonaufnahme</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <main class="card">
+    <h1>TTVturbo</h1>
+    <p class="hint">Erlaube den Mikrofonzugriff im Browser, nimm auf und lade die WAV-Datei vom Server.</p>
+
+    <div class="controls">
+      <button id="startBtn" type="button">Aufnahme starten</button>
+      <button id="stopBtn" type="button" disabled>Aufnahme stoppen</button>
+    </div>
+
+    <p id="status" class="status" role="status" aria-live="polite">Bereit.</p>
+    <p id="error" class="error" role="alert" hidden></p>
+
+    <section class="result" id="resultSection" hidden>
+      <h2>Ergebnis</h2>
+      <audio id="player" controls></audio>
+      <p id="meta" class="meta"></p>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
