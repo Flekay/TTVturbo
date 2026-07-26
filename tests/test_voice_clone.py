@@ -116,10 +116,16 @@ def test_voice_clone_status_endpoint(client, isolated_voice_clone):
     resp = client.get("/api/voice-clone/status")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["available"] is True
+    # `available` is no longer hard-coded; it reflects the real GPU
+    # runtime. We only assert the structural contract here, not the
+    # value (which depends on whether torch+CUDA+qwen_tts are installed).
+    assert isinstance(data["available"], bool)
     assert data["busy"] is False
     assert data["active_generation_id"] is None
     assert data["model_id"] == "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
+    # Additive diagnostic fields must be present.
+    for key in ("device", "torch_version", "cuda_available", "reasons", "warnings"):
+        assert key in data
 
 
 # --------------------------------------------------------------------- validation

@@ -69,8 +69,13 @@ class GenerationMetadata(BaseModel):
     created_at: str
     completed_at: Optional[str] = None
     output_duration_seconds: Optional[float] = None
+    output_sample_rate: Optional[int] = None
+    output_file_size_bytes: Optional[int] = None
+    output_sha256: Optional[str] = None
     generation_seconds: Optional[float] = None
     peak_vram_bytes: Optional[int] = None
+    attention_backend: Optional[str] = None
+    worker_exit_code: Optional[int] = None
     quality: dict[str, Any] = Field(default_factory=dict)
     failure_reason: Optional[str] = None
     warnings: list[str] = Field(default_factory=list)
@@ -85,3 +90,20 @@ class VoiceCloneStatusResponse(BaseModel):
     busy: bool
     active_generation_id: Optional[str] = None
     model_id: str = MODEL_ID_DEFAULT
+    # New diagnostic fields (additive only; the frontend ignores unknown
+    # keys). They describe the real GPU/runtime availability, never a
+    # hard-coded value.
+    device: Optional[str] = None
+    python_version: Optional[str] = None
+    torch_version: Optional[str] = None
+    torch_cuda_version: Optional[str] = None
+    cuda_available: bool = False
+    device_name: Optional[str] = None
+    vram_total_bytes: Optional[int] = None
+    vram_free_bytes: Optional[int] = None
+    qwen_tts_importable: bool = False
+    soundfile_ok: bool = False
+    ffmpeg_ok: bool = False
+    data_dir_writable: bool = False
+    reasons: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)

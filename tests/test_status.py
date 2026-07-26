@@ -66,9 +66,38 @@ def test_status_features_recording_available(client, ffmpeg_available):
 def test_status_features_not_implemented_modules(client):
     data = client.get("/api/status").json()
     features = data["features"]
-    assert features["voice_cloning"] == "available"
+    # voice_cloning availability is now driven by the real GPU runtime
+    # diagnostics, not a hard-coded value. It must be one of the two
+    # documented strings; which one depends on the host machine.
+    assert features["voice_cloning"] in ("available", "unavailable")
     assert features["vod_analysis"] == "not_implemented"
     assert features["video_editor"] == "not_implemented"
+
+
+def test_status_exposes_voice_clone_runtime_diagnostics(client):
+    """The /api/status response must carry the real GPU/runtime
+    diagnostics under voice_clone_runtime (additive, never breaks the
+    frontend)."""
+    data = client.get("/api/status").json()
+    assert "voice_clone_runtime" in data
+    vc = data["voice_clone_runtime"]
+    for key in (
+        "available",
+        "device",
+        "torch_version",
+        "torch_cuda_version",
+        "cuda_available",
+        "device_name",
+        "vram_total_bytes",
+        "vram_free_bytes",
+        "qwen_tts_importable",
+        "reasons",
+        "warnings",
+    ):
+        assert key in vc, key
+    assert isinstance(vc["available"], bool)
+    assert isinstance(vc["cuda_available"], bool)
+    assert isinstance(vc["reasons"], list)
 
 
 def test_status_does_not_expose_server_paths(client):

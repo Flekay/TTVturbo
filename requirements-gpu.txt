@@ -1,0 +1,47 @@
+# GPU-only dependencies for the Qwen3-TTS voice-clone worker subprocess.
+#
+# These packages are ONLY needed by `voice_clone.runtime` (the worker
+# subprocess spawned by `voice_clone.service`). The FastAPI app itself
+# (`app.py`) never imports them, so a machine without a CUDA GPU can run
+# the dashboard and the recording pipeline without this file.
+#
+# Verified on the target hardware (see spikes/qwen_tts/REPORT.md,
+# status REAL_MODEL_VERIFIED):
+#
+#   * GPU:  NVIDIA GeForce RTX 5070 (12 GB VRAM, Blackwell)
+#   * OS:   Windows
+#   * Python: 3.12.10
+#
+# IMPORTANT: the default PyPI wheel of `torch` is CPU-only on Windows.
+# Installing `torch` from the regular index silently disables CUDA and
+# the runtime will report `cuda_available=false`. The CUDA build MUST be
+# pulled from the cu128 index. Use the exact command below, which pins
+# the verified wheel:
+#
+#   python -m pip install -r requirements-gpu.txt \
+#       --extra-index-url https://download.pytorch.org/whl/cu128
+#
+# Verified package versions (from spikes/qwen_tts/REPORT.md):
+#
+#   qwen-tts      == 0.1.1
+#   torch         == 2.11.0+cu128
+#   transformers  == 4.57.3
+#   accelerate    == 1.12.0
+#
+# `safetensors` is required by `transformers` to load the model weights.
+# The spike did not pin a specific version; it was pulled in transitively
+# by `transformers==4.57.3` and worked. We do NOT invent a pin here - the
+# version resolved by `transformers==4.57.3` is the verified one.
+#
+# `flash-attn` is intentionally NOT pinned: on RTX 50-series (Blackwell)
+# prebuilt wheels are unreliable. The runtime probes flash_attention_2
+# first and falls back to sdpa automatically; a flash-attn failure never
+# produces a fake result.
+
+qwen-tts==0.1.1
+torch==2.11.0+cu128
+transformers==4.57.3
+accelerate==1.12.0
+# Let transformers pull a compatible safetensors wheel; do not force a
+# version that has not been tested on the RTX 5070.
+safetensors>=0.4.0

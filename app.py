@@ -284,6 +284,22 @@ def get_status() -> JSONResponse:
             "vod_analysis": "not_implemented",
             "video_editor": "not_implemented",
         },
+        # Additive voice-clone runtime diagnostics. The frontend ignores
+        # unknown keys; these fields let the dashboard show the real GPU
+        # availability instead of a hard-coded value.
+        "voice_clone_runtime": {
+            "available": vc_status["available"],
+            "device": vc_status["device"],
+            "torch_version": vc_status["torch_version"],
+            "torch_cuda_version": vc_status["torch_cuda_version"],
+            "cuda_available": vc_status["cuda_available"],
+            "device_name": vc_status["device_name"],
+            "vram_total_bytes": vc_status["vram_total_bytes"],
+            "vram_free_bytes": vc_status["vram_free_bytes"],
+            "qwen_tts_importable": vc_status["qwen_tts_importable"],
+            "reasons": vc_status["reasons"],
+            "warnings": vc_status["warnings"],
+        },
     })
 
 
@@ -525,6 +541,23 @@ def delete_voice_clone_generation(generation_id: str) -> JSONResponse:
     if not deleted:
         raise HTTPException(status_code=404, detail="Generation not found.")
     return JSONResponse(content={"id": generation_id, "deleted": True})
+
+
+@app.get("/api/voice-clone/generations/{generation_id}/log")
+def get_voice_clone_log(generation_id: str) -> JSONResponse:
+    """Return a short, sanitized tail of the worker log.
+
+    The full log stays on disk; the API only ever returns a bounded
+    excerpt so a runaway worker cannot exhaust memory. Absolute paths
+    are scrubbed.
+    """
+    try:
+        excerpt = voice_clone_service.worker_log_excerpt(generation_id)
+    except VoiceCloneValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if excerpt is None:
+        raise HTTPException(status_code=404, detail="No worker log for this generation.")
+    return JSONResponse(content={"id": generation_id, "log": excerpt})
 
 
 # --------------------------------------------------------------------------- #

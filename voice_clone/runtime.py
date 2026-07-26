@@ -332,10 +332,70 @@ def _read_ref_duration(ref_audio: str) -> float:
     return float(len(data)) / float(sr)
 
 
-def _save_wav(wav: np.ndarray, sr: int, output_path: str) -> None:
-    parent = os.path.dirname(os.path.abspath(output_path)) or "."
+def _save_wav_part(wav: np.ndarray, sr: int, part_path: str) -> None:
+    """Write the WAV to a `.part` path so the final `output.wav` only ever
+    appears once it has been validated and atomically renamed.
+
+    The ``.part`` suffix does not let soundfile infer the container format,
+    so we pass ``format="WAV"`` explicitly.
+    """
+    parent = os.path.dirname(os.path.abspath(part_path)) or "."
     os.makedirs(parent, exist_ok=True)
-    sf.write(output_path, np.asarray(wav), sr)
+    sf.write(part_path, np.asarray(wav), sr, format="WAV")
+
+
+def _finalize_output(part_path: str, output_path: str) -> dict[str, Any]:
+    """Validate the `.part` file in place, compute metrics, then atomically
+    rename it to the final `output.wav`. Returns the metric fields to merge
+    into the metadata. Raises on any validation failure (the `.part` file is
+    removed in that case so no invalid output remains).
+    """
+    if not os.path.isfile(part_path):
+        raise RuntimeError(f"part file missing after generation: {part_path}")
+
+    try:
+        data, sr = sf.read(part_path, always_2d=True)
+    except Exception as exc:
+        try:
+            os.unlink(part_path)
+        except OSError:
+            pass
+        raise RuntimeError(f"output WAV is not readable with soundfile: {exc}") from exc
+
+    if data.size == 0:
+        os.unlink(part_path)
+        raise RuntimeError("output WAV has zero samples")
+
+    duration = float(data.shape[0]) / float(sr)
+    if duration <= MIN_OUTPUT_SECONDS:
+        os.unlink(part_path)
+        raise RuntimeError(
+            f"output too short: {duration:.3f}s <= {MIN_OUTPUT_SECONDS}s"
+        )
+
+    mono = data[:, 0] if data.ndim > 1 else data
+    if not np.all(np.isfinite(mono)):
+        os.unlink(part_path)
+        raise RuntimeError("output contains NaN or infinity samples")
+
+    peak = float(np.max(np.abs(mono))) if mono.size else 0.0
+    if not np.isfinite(peak):
+        os.unlink(part_path)
+        raise RuntimeError("output peak is outside the valid float range")
+    if peak == 0.0:
+        os.unlink(part_path)
+        raise RuntimeError("output is fully silent (all zeros)")
+
+    sha = file_sha256(part_path)
+    file_size = os.path.getsize(part_path)
+    # Atomic rename. On Windows, os.replace overwrites an existing target.
+    os.replace(part_path, output_path)
+    return {
+        "output_sample_rate": int(sr),
+        "output_duration_seconds": round(duration, 4),
+        "output_file_size_bytes": int(file_size),
+        "output_sha256": sha,
+    }
 
 
 def _run_job(job: dict) -> int:
@@ -353,8 +413,13 @@ def _run_job(job: dict) -> int:
         "created_at": job["created_at"],
         "completed_at": None,
         "output_duration_seconds": None,
+        "output_sample_rate": None,
+        "output_file_size_bytes": None,
+        "output_sha256": None,
         "generation_seconds": None,
         "peak_vram_bytes": None,
+        "attention_backend": None,
+        "worker_exit_code": None,
         "quality": job.get("quality", {}),
         "failure_reason": None,
         "warnings": job.get("warnings", []),
@@ -368,18 +433,25 @@ def _run_job(job: dict) -> int:
 
     ref_audio = job["reference_audio"]
     output_path = job["output_path"]
+    part_path = output_path + ".part"
+    # Never inherit a stale .part file from a previous crashed run.
+    try:
+        os.unlink(part_path)
+    except OSError:
+        pass
+
     runtime = QwenTTSRuntime(
         model_id=job.get("model_id", MODEL_ID_DEFAULT),
         device=job.get("device", DEVICE_DEFAULT),
         dtype=job.get("dtype", DTYPE_DEFAULT),
     )
 
+    exit_code = 1
     try:
         write_status(GenerationStatus.LOADING_MODEL)
         runtime.load()
         base_payload["model_revision"] = runtime.model_revision
-
-        ref_duration = _read_ref_duration(ref_audio)
+        base_payload["attention_backend"] = runtime.attention_backend
 
         write_status(GenerationStatus.GENERATING)
         prompt = runtime.create_prompt(ref_audio=ref_audio, ref_text=job["reference_text"])
@@ -394,22 +466,26 @@ def _run_job(job: dict) -> int:
         runtime.sample_rate = int(sr)
         runtime.output_duration_seconds = float(len(wav)) / float(sr)
 
-        _save_wav(wav, sr, output_path)
+        # 1. Write to .part
+        _save_wav_part(wav, sr, part_path)
 
+        # 2. Validate + atomic rename
         write_status(GenerationStatus.VALIDATING_OUTPUT)
-        errors, warnings = validate_output(output_path, ref_audio)
-        for w in warnings:
-            base_payload["warnings"].append(w)
+        metrics = _finalize_output(part_path, output_path)
+        base_payload.update(metrics)
 
         completed_at = _now_iso()
         base_payload["completed_at"] = completed_at
-        base_payload["output_duration_seconds"] = round(runtime.output_duration_seconds, 4)
         base_payload["generation_seconds"] = round(runtime.generation_seconds, 4)
         base_payload["peak_vram_bytes"] = int(runtime.peak_vram_bytes)
         base_payload["model_revision"] = runtime.model_revision
 
+        # 3. Cross-check against the reference (byte-identity, etc.).
+        errors, warnings = validate_output(output_path, ref_audio)
+        for w in warnings:
+            base_payload["warnings"].append(w)
+
         if errors:
-            # Failed output validation: do NOT leave a seemingly-valid WAV.
             try:
                 os.unlink(output_path)
             except OSError:
@@ -419,23 +495,41 @@ def _run_job(job: dict) -> int:
                 completed_at=completed_at,
                 failure_reason="; ".join(errors),
             )
-            return 1
+            exit_code = 1
+            return exit_code
 
         write_status(GenerationStatus.READY, completed_at=completed_at)
-        return 0
+        exit_code = 0
+        return exit_code
     except Exception as exc:  # noqa: BLE001 - surface any model failure honestly
-        # Remove any partial output so a FAILED job has no seemingly-valid WAV.
-        try:
-            os.unlink(output_path)
-        except OSError:
-            pass
+        # Remove any partial or final output so a FAILED job has no WAV.
+        for p in (part_path, output_path):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
         write_status(
             GenerationStatus.FAILED,
             completed_at=_now_iso(),
             failure_reason=f"{type(exc).__name__}: {exc}",
         )
-        return 1
+        exit_code = 1
+        return exit_code
     finally:
+        # Always record the worker exit code so the service can diagnose
+        # a crash even if the metadata write above raced.
+        try:
+            current = base_payload
+            current["worker_exit_code"] = exit_code
+            # Best-effort final metadata refresh so worker_exit_code is
+            # persisted even when the try-block returned early.
+            if os.path.isfile(metadata_path):
+                with open(metadata_path, "r", encoding="utf-8") as fh:
+                    persisted = json.load(fh)
+                persisted["worker_exit_code"] = exit_code
+                _atomic_write_json(metadata_path, persisted)
+        except Exception:  # pragma: no cover - defensive
+            pass
         runtime.release()
 
 
