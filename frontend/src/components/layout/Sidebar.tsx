@@ -1,4 +1,4 @@
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 import { ChevronLeft, ChevronRight, Circle, CircleCheck, CircleDot } from "lucide-react";
 import { ROUTE_SECTIONS, type RouteMeta } from "../../router.routes";
 import { useUIStore } from "../../stores/uiStore";
@@ -21,6 +21,7 @@ export function Sidebar() {
   const collapsed = useUIStore((s) => s.sidebarCollapsed);
   const toggle = useUIStore((s) => s.toggleSidebar);
   const { status, data } = useBackendStatus();
+  const location = useLocation();
 
   const version = data?.version ?? "—";
 
@@ -50,16 +51,20 @@ export function Sidebar() {
             {section.items.map((route) => {
               const Icon = route.icon;
               const badge = routeStatusBadge(route.status);
+              const isActive = location.pathname === route.path;
               const link = (
                 <NavLink
                   to={route.path}
-                  className={({ isActive }) =>
-                    `sidebar__link${isActive ? " is-active" : ""}`
-                  }
+                  className={`sidebar__link${isActive ? " is-active" : ""}`}
                   aria-label={route.label}
                 >
                   <Icon className="sidebar__link-icon" aria-hidden="true" />
                   <span className="sidebar__link-label">{route.label}</span>
+                  {!collapsed && route.status !== "available" && (
+                    <Badge variant={badge.variant} title={badge.label}>
+                      {badge.label}
+                    </Badge>
+                  )}
                 </NavLink>
               );
               return collapsed ? (
@@ -67,22 +72,8 @@ export function Sidebar() {
                   {link}
                 </Tooltip>
               ) : (
-                <div key={route.path} style={{ position: "relative" }}>
+                <div key={route.path}>
                   {link}
-                  {route.status !== "available" && (
-                    <span
-                      style={{
-                        position: "absolute",
-                        right: 8,
-                        top: "50%",
-                        transform: "translateY(-50%)",
-                      }}
-                    >
-                      <Badge variant={badge.variant} title={badge.label}>
-                        {badge.label}
-                      </Badge>
-                    </span>
-                  )}
                 </div>
               );
             })}
