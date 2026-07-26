@@ -1,0 +1,16 @@
+# Spike-only dependencies for Qwen3-TTS voice clone runtime.
+# Install into a clean Python 3.12 environment (recommended by upstream).
+#
+#   python -m venv .venv-qwen-tts
+#   .venv-qwen-tts\Scripts\activate
+#   pip install -U -r spikes/qwen_tts/requirements.txt
+#
+# flash-attn is intentionally NOT pinned here: on RTX 50-series (Blackwell)
+# prebuilt wheels are unreliable. The runtime probes flash_attention_2 and
+# falls back to sdpa automatically.
+
+qwen-tts>=0.1.0
+torch>=2.5.0
+soundfile>=0.12.1
+numpy>=1.26
+psutil>=5.9
