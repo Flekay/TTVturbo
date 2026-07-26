@@ -8,7 +8,6 @@ atomar file-based persistence. No FastAPI, no React, no Qwen3-TTS imports.
 from __future__ import annotations
 
 from .library import (
-    DEFAULT_HOLDOUT_PATH,
     DEFAULT_PACK_PATH,
     ScriptLibrary,
 )
@@ -36,7 +35,6 @@ from .service import VoiceProfileService
 from .storage import VoiceProfileStorage
 
 __all__ = [
-    "DEFAULT_HOLDOUT_PATH",
     "DEFAULT_LOCALE",
     "DEFAULT_PACK_PATH",
     "EXPECTED_PACK_PROMPT_COUNT",

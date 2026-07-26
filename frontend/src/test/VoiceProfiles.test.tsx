@@ -44,10 +44,6 @@ describe("VoiceProfilesPage", () => {
       pack: { pack_id: "pack1", locale: "de-DE", prompt_count: 0, title: "Test" },
       prompts: [],
     });
-    mock.setResponse("GET /api/voice-profiles/holdout-scripts", 200, {
-      pack: { pack_id: "holdout1", locale: "de-DE", prompt_count: 0, title: "Holdout" },
-      prompts: [],
-    });
   });
 
   afterEach(() => {

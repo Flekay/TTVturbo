@@ -36,7 +36,7 @@ const recommendedDurationSchema = z.object({
   max: z.number(),
 });
 
-/** A single recording prompt from the script pack / holdout. */
+/** A single recording prompt from the script pack. */
 export const voiceScriptSchema = z.object({
   id: z.string(),
   order: z.number(),
@@ -56,7 +56,7 @@ export const voiceScriptPackMetaSchema = z.object({
   prompt_count: z.number(),
 });
 
-/** Response shape of GET /scripts and GET /holdout-scripts. */
+/** Response shape of GET /scripts. */
 export const voiceScriptPackSchema = z.object({
   pack: voiceScriptPackMetaSchema,
   prompts: z.array(voiceScriptSchema),

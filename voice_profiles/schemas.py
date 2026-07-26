@@ -110,7 +110,7 @@ class ScriptPrompt(BaseModel):
 
 
 class ScriptPack(BaseModel):
-    """Top-level shape of a pack/holdout JSON file.
+    """Top-level shape of a pack JSON file.
 
     Mirrors the real files under ``config/voice_lab/...`` which use
     ``pack_id`` / ``title`` / ``prompt_count`` / ``kind`` / ``description``

@@ -435,50 +435,6 @@
   color: var(--color-text-muted);
 }
 
-/* Holdout panel */
-.vp-holdout {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  padding: var(--space-5);
-  background-color: var(--color-bg-panel);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-}
-
-.vp-holdout__notice {
-  font-size: 13px;
-  color: var(--color-warning);
-  background-color: rgba(229, 172, 69, 0.1);
-  border: 1px solid rgba(229, 172, 69, 0.3);
-  border-radius: var(--radius-sm);
-  padding: var(--space-3);
-}
-
-.vp-holdout__list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.vp-holdout__item {
-  padding: var(--space-3);
-  background-color: var(--color-bg-elevated);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  font-size: 13px;
-  word-break: break-word;
-}
-
-.vp-holdout__item-meta {
-  font-size: 11px;
-  color: var(--color-text-muted);
-  margin-bottom: var(--space-1);
-}
-
 /* Name dialog (create / rename) */
 .vp-name-dialog {
   position: relative;

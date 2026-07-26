@@ -25,16 +25,6 @@ const script2 = {
   tags: [],
   recording_notes: null,
 };
-const holdoutScript = {
-  id: "h1",
-  order: 1,
-  style: "holdout",
-  category: "qa",
-  text: "Holdout-Text für spätere Prüfung.",
-  recommended_duration_seconds: { min: 5, max: 8 },
-  tags: [],
-  recording_notes: null,
-};
 
 const progress = {
   total: 2,
@@ -95,10 +85,6 @@ beforeEach(() => {
   mock.setResponse("GET /api/voice-profiles/scripts", 200, {
     pack: { pack_id: "pack1", locale: "de-DE", prompt_count: 2, title: "Test" },
     prompts: [script1, script2],
-  });
-  mock.setResponse("GET /api/voice-profiles/holdout-scripts", 200, {
-    pack: { pack_id: "holdout1", locale: "de-DE", prompt_count: 1, title: "Holdout" },
-    prompts: [holdoutScript],
   });
 });
 
@@ -197,24 +183,6 @@ describe("VoiceProfilesPanel — prompts", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Prompt 1: Hallo und willkommen." })).toBeInTheDocument();
     });
-  });
-
-  it("renders holdouts without record actions", async () => {
-    const user = userEvent.setup();
-    renderPanel();
-    await user.click(
-      await screen.findByRole("button", { name: "Profil Meine Stimme auswählen" }),
-    );
-    await waitFor(() => {
-      expect(screen.getByText("Holdout-Skripte")).toBeInTheDocument();
-    });
-    expect(
-      screen.getByText("Nur zur späteren Qualitätsprüfung. Nicht als Referenz aufnehmen."),
-    ).toBeInTheDocument();
-    expect(screen.getByText("Holdout-Text für spätere Prüfung.")).toBeInTheDocument();
-    // No "Jetzt aufnehmen" button inside the holdout section.
-    const holdoutSection = screen.getByText("Holdout-Skripte").closest("section")!;
-    expect(within(holdoutSection).queryByRole("button", { name: /Jetzt aufnehmen/ })).toBeNull();
   });
 });
 

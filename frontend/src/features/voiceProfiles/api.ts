@@ -24,13 +24,6 @@ export function fetchVoiceScripts(signal?: AbortSignal): Promise<VoiceScriptPack
   });
 }
 
-export function fetchHoldoutScripts(signal?: AbortSignal): Promise<VoiceScriptPack> {
-  return apiClient.get(`${BASE}/holdout-scripts`, {
-    schema: voiceScriptPackSchema,
-    signal,
-  });
-}
-
 export function fetchVoiceProfiles(signal?: AbortSignal): Promise<VoiceProfileListResponse> {
   return apiClient.get(BASE, {
     schema: voiceProfileListResponseSchema,

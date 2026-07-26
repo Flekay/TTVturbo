@@ -164,24 +164,6 @@ def build_router(service: VoiceProfileService, quality_analyzer=None) -> APIRout
             }
         )
 
-    @router.get("/holdout-scripts")
-    def list_holdout_scripts() -> JSONResponse:
-        svc = state["service"]
-        try:
-            prompts = svc.library.get_holdout_prompts()
-            meta = svc.library.get_holdout_metadata()
-        except Exception:  # noqa: BLE001
-            logger.exception("holdout library unavailable")
-            return _error_response(
-                500, "script_library_unavailable", "Holdout library could not be loaded."
-            )
-        return JSONResponse(
-            content={
-                "pack": _pack_meta(meta),
-                "prompts": [_prompt_to_dict(p) for p in prompts],
-            }
-        )
-
     # ----------------------------------------------------------------- profiles
     @router.get("")
     def list_profiles() -> JSONResponse:
@@ -298,7 +280,6 @@ def build_service(
     recordings_dir,
     voice_profiles_dir,
     pack_path=None,
-    holdout_path=None,
 ) -> VoiceProfileService:
     """Build the single VoiceProfileService instance used by the app.
 
@@ -308,7 +289,6 @@ def build_service(
     """
     library = ScriptLibrary(
         pack_path=pack_path or ScriptLibrary().pack_path,
-        holdout_path=holdout_path or ScriptLibrary().holdout_path,
     )
     storage = VoiceProfileStorage(voice_profiles_dir)
     service = VoiceProfileService(

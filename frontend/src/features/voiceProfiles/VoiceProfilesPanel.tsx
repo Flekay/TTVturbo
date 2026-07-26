@@ -12,14 +12,12 @@ import { ProfileList } from "./ProfileList";
 import { PromptBrowser } from "./PromptBrowser";
 import { PromptRecordingPanel } from "./PromptRecordingPanel";
 import { RecordingPackProgress } from "./RecordingPackProgress";
-import { HoldoutPanel } from "./HoldoutPanel";
 import {
   useAcceptReviewMutation,
   useAttachReferenceMutation,
   useCreateVoiceProfileMutation,
   useDeleteVoiceProfileMutation,
   useDetachReferenceMutation,
-  useHoldoutScriptsQuery,
   usePatchVoiceProfileMutation,
   useVoiceProfileQuery,
   useVoiceProfilesQuery,
@@ -154,7 +152,6 @@ export function VoiceProfilesPanel() {
   const toast = useToast();
   const profilesQuery = useVoiceProfilesQuery();
   const scriptsQuery = useVoiceScriptsQuery();
-  const holdoutQuery = useHoldoutScriptsQuery();
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedScriptId, setSelectedScriptId] = useState<string | null>(null);
@@ -193,7 +190,6 @@ export function VoiceProfilesPanel() {
 
   const profiles = profilesQuery.data?.profiles ?? [];
   const scripts = scriptsQuery.data?.prompts ?? [];
-  const holdouts = holdoutQuery.data?.prompts ?? [];
   const selectedProfile = profileQuery.data ?? null;
   // The backend stores references as a dict keyed by script_id. Convert to
   // an array for the components that iterate over them.
@@ -475,20 +471,6 @@ export function VoiceProfilesPanel() {
                 Wähle einen Prompt aus der Liste, um die verknüpfte Referenz zu sehen.
               </p>
             )}
-
-            <section style={{ marginTop: 16 }}>
-              <HoldoutPanel
-                scripts={holdouts}
-                isLoading={holdoutQuery.isLoading}
-                isError={holdoutQuery.isError}
-                errorMessage={
-                  holdoutQuery.error instanceof Error
-                    ? holdoutQuery.error.message
-                    : undefined
-                }
-                onRetry={() => void holdoutQuery.refetch()}
-              />
-            </section>
           </div>
         )}
       </div>

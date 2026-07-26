@@ -203,7 +203,7 @@ class VoiceProfileService:
 
         refs: dict[str, Any] = profile_dict.get("references", {}) or {}
         # Only references whose script id is in the recording pack count
-        # toward progress. Holdout ids are ignored.
+        # toward progress.
         pack_refs = [r for r in refs.values() if r.get("script_id") in pack_ids]
 
         recorded = len(pack_refs)
@@ -300,13 +300,6 @@ class VoiceProfileService:
         if not isinstance(script_id, str) or not script_id:
             raise VoiceProfileValidationError("script_id is required")
         prompt = self.library.get_prompt(script_id)  # raises VoiceScriptNotFoundError
-
-        # Holdout scripts may not be attached as pack references. They are
-        # reserved for later evaluation.
-        if self.library.is_holdout_id(script_id):
-            raise VoiceProfileValidationError(
-                f"script id {script_id!r} is a holdout prompt and cannot be attached"
-            )
 
         resolved = self._resolve_recording(recording_filename)
         sha256 = self._file_sha256(resolved)

@@ -134,14 +134,6 @@ class TestScriptsEndpoints:
         assert "recommended_duration_seconds" in p0
         assert isinstance(p0["recommended_duration_seconds"], dict)
 
-    def test_list_holdout_scripts_returns_real_holdout(self, client, isolated_voice_profiles):
-        resp = client.get("/api/voice-profiles/holdout-scripts")
-        assert resp.status_code == 200
-        body = resp.json()
-        # The real holdout has 8 prompts.
-        assert len(body["prompts"]) == 8
-        assert body["pack"]["prompt_count"] == 8
-
 
 # ---------------------------------------------------------------------------
 # Profile CRUD

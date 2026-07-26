@@ -269,9 +269,7 @@ Voice Profiles verwalten strukturierte Referenzaufnahmen für Voice Clones:
 
 1. Ein Profil erstellen (Name + Locale, z. B. `de-DE`).
 2. Das Profil enthält 88 Aufnahmeskripte aus dem Voice Pack
-   (`config/voice_lab/scripts/de-DE/ttvturbo_voice_pack_v1.json`)
-   sowie 8 Holdout-Skripte für die spätere Qualitätsprüfung
-   (`config/voice_lab/tests/de-DE/ttvturbo_voice_holdout_v1.json`).
+   (`config/voice_lab/scripts/de-DE/ttvturbo_voice_pack_v1.json`).
 3. Pro Skript eine geführte Aufnahme starten: der exakte Skripttext wird
    im Aufnahmen-Tab angezeigt, nach erfolgreichem Upload wird die WAV
    automatisch mit dem Profil verknüpft.
@@ -310,7 +308,6 @@ bleiben beim Löschen eines Profils erhalten.
 | GET     | `/api/voice-clone/generations/{id}/audio` | WAV-Output einer fertigen Generierung |
 | DELETE  | `/api/voice-clone/generations/{id}` | löscht eine Generierung (Verzeichnis)  |
 | GET     | `/api/voice-profiles/scripts` | listet die 88 Aufnahmeskripte des Voice Packs |
-| GET     | `/api/voice-profiles/holdout-scripts` | listet die 8 Holdout-Skripte |
 | GET     | `/api/voice-profiles`         | listet alle nicht-archivierten Profile        |
 | POST    | `/api/voice-profiles`         | erstellt ein neues Profil                     |
 | GET     | `/api/voice-profiles/{id}`    | einzelnes Profil mit Referenzen und Fortschritt |

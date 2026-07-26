@@ -90,21 +90,6 @@ def pack_path(tmp_path: Path) -> Path:
 
 
 @pytest.fixture()
-def holdout_path(tmp_path: Path) -> Path:
-    prompts = [_prompt("de-DE-holdout-001", 1, style="holdout")]
-    path = tmp_path / "holdout.json"
-    path.write_text(
-        json.dumps(_pack_json(prompts, prompt_count=1,
-                              pack_id="ttvturbo-de-de-holdout-v1",
-                              title="TTVturbo German Voice Holdout v1",
-                              kind="holdout"),
-                   ensure_ascii=False),
-        encoding="utf-8",
-    )
-    return path
-
-
-@pytest.fixture()
 def recordings_dir(tmp_path: Path) -> Path:
     return tmp_path / "recordings"
 
@@ -115,8 +100,8 @@ def data_dir(tmp_path: Path) -> Path:
 
 
 @pytest.fixture()
-def library(pack_path: Path, holdout_path: Path) -> ScriptLibrary:
-    return ScriptLibrary(pack_path=pack_path, holdout_path=holdout_path)
+def library(pack_path: Path) -> ScriptLibrary:
+    return ScriptLibrary(pack_path=pack_path)
 
 
 @pytest.fixture()
@@ -387,15 +372,6 @@ class TestScriptTextFromLibrary:
                 profile["id"], "does-not-exist", wav_file, _quality("GOOD")
             )
 
-    def test_holdout_script_cannot_be_attached(
-        self, service: VoiceProfileService, wav_file: str
-    ) -> None:
-        profile = service.create_profile("Stimme")
-        with pytest.raises(VoiceProfileValidationError):
-            service.attach_reference(
-                profile["id"], "de-DE-holdout-001", wav_file, _quality("GOOD")
-            )
-
 
 class TestQualityValidation:
     def test_quality_not_dict(self, service: VoiceProfileService,
@@ -585,43 +561,6 @@ class TestProgress:
         assert p["percentage"] == 100.0
         assert p["pack_complete"] is True
         assert p["clone_ready"] is True
-
-    def test_holdout_does_not_affect_progress(
-        self, service: VoiceProfileService, recordings_dir: Path, make_real_wav
-    ) -> None:
-        # Build a separate service whose pack includes a holdout id; the
-        # library here already has de-DE-holdout-001 in the holdout file.
-        # We cannot attach it (blocked), so we instead write a profile
-        # directly to disk with a holdout reference and verify the service
-        # ignores it for progress.
-        profile = service.create_profile("Stimme")
-        # Sneak a holdout reference into the on-disk profile via the storage
-        # layer, bypassing attach_reference.
-        raw = service.storage.load_profile(profile["id"])
-        raw["references"]["de-DE-holdout-001"] = {
-            "script_id": "de-DE-holdout-001",
-            "script_text": "holdout",
-            "category": "style",
-            "style": "holdout",
-            "recording_filename": "ignored.wav",
-            "recording_sha256": "x",
-            "quality": {},
-            "quality_class": "GOOD",
-            "status": "ACCEPTED",
-            "review_accepted": True,
-            "attached_at": "2026-01-01T00:00:00+00:00",
-            "updated_at": "2026-01-01T00:00:00+00:00",
-        }
-        service.storage.save_profile(raw)
-        out = service.get_profile(profile["id"])
-        # Holdout reference is still present in references...
-        assert "de-DE-holdout-001" in out["references"]
-        # ...but does not count toward pack progress.
-        assert out["progress"]["total"] == 3
-        assert out["progress"]["accepted"] == 0
-        assert out["progress"]["recorded"] == 0
-        assert out["progress"]["missing"] == 3
-        assert out["progress"]["pack_complete"] is False
 
 
 # ===========================================================================

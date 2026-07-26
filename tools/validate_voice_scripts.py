@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Validator for the TTVturbo German voice script pack.
 
-Prueft die Aufnahme- und Holdout-JSON-Dateien auf Struktur, Eindeutigkeit
+Prueft die Aufnahme-JSON-Datei auf Struktur, Eindeutigkeit
 und Plausibilitaet. Siehe README/Spezifikation fuer die genaue Pruefliste.
 
 Exitcodes:
@@ -20,12 +20,10 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 RECORDING_PATH = ROOT / "config" / "voice_lab" / "scripts" / "de-DE" / "ttvturbo_voice_pack_v1.json"
-HOLDOUT_PATH = ROOT / "config" / "voice_lab" / "tests" / "de-DE" / "ttvturbo_voice_holdout_v1.json"
 
 SUPPORTED_SCHEMA_VERSIONS = {1}
 EXPECTED_LOCALE = "de-DE"
 EXPECTED_RECORDING_COUNT = 88
-EXPECTED_HOLDOUT_COUNT = 8
 
 STYLE_CATEGORIES = [
     "neutral",
@@ -194,76 +192,25 @@ def validate_recording(data: dict[str, Any], path: Path) -> None:
     _check_unique_texts(prompts, path)
 
 
-def validate_holdout(data: dict[str, Any], path: Path) -> None:
-    _check_common_structure(data, path, "holdout")
-    prompts = data["prompts"]
-    if len(prompts) != EXPECTED_HOLDOUT_COUNT:
-        raise ValidationFailure(
-            f"{path}: erwartet {EXPECTED_HOLDOUT_COUNT} Holdout-Skripte, got {len(prompts)}."
-        )
-    for idx, prompt in enumerate(prompts):
-        _check_prompt(prompt, path, idx)
-        if prompt.get("category") != "holdout":
-            raise ValidationFailure(
-                f"{path}: Holdout-Prompt {prompt.get('id')} hat falsche category "
-                f"{prompt.get('category')!r}."
-            )
-    _check_ids_and_orders(prompts, path)
-    _check_unique_texts(prompts, path)
-
-
-def validate_cross(recording: dict[str, Any], holdout: dict[str, Any]) -> None:
-    rec_texts = {p["text"] for p in recording["prompts"]}
-    holdout_texts = {p["text"] for p in holdout["prompts"]}
-    overlap = rec_texts & holdout_texts
-    if overlap:
-        raise ValidationFailure(
-            f"Holdout-Texte duerfen nicht in Aufnahmeskripten vorkommen: {sorted(overlap)}"
-        )
-
-
-def validate_files(
-    recording_path: Path = RECORDING_PATH,
-    holdout_path: Path = HOLDOUT_PATH,
-) -> list[str]:
+def validate_files(recording_path: Path = RECORDING_PATH) -> list[str]:
     errors: list[str] = []
 
-    for path in (recording_path, holdout_path):
-        if not path.is_file():
-            errors.append(f"Datei fehlt: {path}")
+    if not recording_path.is_file():
+        errors.append(f"Datei fehlt: {recording_path}")
 
     if errors:
         return errors
 
     recording: dict[str, Any] | None = None
-    holdout: dict[str, Any] | None = None
 
-    for path, sink in ((recording_path, "recording"), (holdout_path, "holdout")):
-        try:
-            data = _load_json(path)
-        except ValidationFailure as exc:
-            errors.append(str(exc))
-            continue
-        if sink == "recording":
-            recording = data
-        else:
-            holdout = data
+    try:
+        recording = _load_json(recording_path)
+    except ValidationFailure as exc:
+        errors.append(str(exc))
 
     if recording is not None:
         try:
             validate_recording(recording, recording_path)
-        except ValidationFailure as exc:
-            errors.append(str(exc))
-
-    if holdout is not None:
-        try:
-            validate_holdout(holdout, holdout_path)
-        except ValidationFailure as exc:
-            errors.append(str(exc))
-
-    if recording is not None and holdout is not None:
-        try:
-            validate_cross(recording, holdout)
         except ValidationFailure as exc:
             errors.append(str(exc))
 
@@ -283,7 +230,7 @@ def main() -> int:
             print(f"  - {err}", file=sys.stderr)
         return 1
 
-    print("Validierung erfolgreich: 88 Aufnahmeskripte, 8 Holdout-Skripte.")
+    print(f"Validierung erfolgreich: {EXPECTED_RECORDING_COUNT} Aufnahmeskripte.")
     return 0
 
 

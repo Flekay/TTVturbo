@@ -30,7 +30,6 @@ export {
   voiceProfilesQueryKey,
   voiceProfileQueryKey,
   voiceProfileScriptsQueryKey,
-  voiceProfileHoldoutsQueryKey,
 } from "./hooks";
 
 // Re-export the default component for convenience.

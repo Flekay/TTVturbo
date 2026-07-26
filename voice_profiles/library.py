@@ -1,18 +1,18 @@
 """Script library loader for the voice-profile backend core.
 
-Loads the recording-pack and holdout JSON files that live under
-``config/voice_lab/...``. Both file paths are injected through the
+Loads the recording-pack JSON file that lives under
+``config/voice_lab/...``. The file path is injected through the
 constructor so unit tests can point at temporary fixtures.
 
 The loader is strict:
 
 * the top-level ``schema_version`` must be a supported value;
-* prompt ids must be unique within a file;
+* prompt ids must be unique within the file;
 * if ``expected_prompt_count`` is present, the prompt list length must match;
 * every prompt must match :class:`ScriptPrompt`.
 
 No prompt text is duplicated in Python: the loader only returns what is
-declared in the JSON files.
+declared in the JSON file.
 """
 
 from __future__ import annotations
@@ -36,27 +36,19 @@ from .schemas import (
 logger = logging.getLogger("ttvturbo.voice_profiles.library")
 
 
-# Default production paths. They are intentionally *not* imported at module
-# import time; the constructor resolves them lazily so tests that never touch
+# Default production path. It is intentionally *not* imported at module
+# import time; the constructor resolves it lazily so tests that never touch
 # the real config tree can run without it.
 DEFAULT_PACK_PATH = Path("config/voice_lab/scripts/de-DE/ttvturbo_voice_pack_v1.json")
-DEFAULT_HOLDOUT_PATH = Path("config/voice_lab/tests/de-DE/ttvturbo_voice_holdout_v1.json")
 
 
 class ScriptLibrary:
-    """In-memory loader for the recording pack and the holdout set."""
+    """In-memory loader for the recording pack."""
 
-    def __init__(
-        self,
-        pack_path: Path = DEFAULT_PACK_PATH,
-        holdout_path: Path = DEFAULT_HOLDOUT_PATH,
-    ) -> None:
+    def __init__(self, pack_path: Path = DEFAULT_PACK_PATH) -> None:
         self.pack_path = Path(pack_path)
-        self.holdout_path = Path(holdout_path)
         self._pack: Optional[ScriptPack] = None
-        self._holdout: Optional[ScriptPack] = None
         self._pack_by_id: dict[str, ScriptPrompt] = {}
-        self._holdout_by_id: dict[str, ScriptPrompt] = {}
 
     # ------------------------------------------------------------------ loading
     def _load_file(self, path: Path) -> ScriptPack:
@@ -106,10 +98,6 @@ class ScriptLibrary:
             pack = self._load_file(self.pack_path)
             self._pack = pack
             self._pack_by_id = {p.id: p for p in pack.prompts}
-        if self._holdout is None:
-            holdout = self._load_file(self.holdout_path)
-            self._holdout = holdout
-            self._holdout_by_id = {p.id: p for p in holdout.prompts}
 
     # ------------------------------------------------------------------ public API
     def get_recording_prompts(self) -> list[ScriptPrompt]:
@@ -118,19 +106,11 @@ class ScriptLibrary:
         assert self._pack is not None
         return list(self._pack.prompts)
 
-    def get_holdout_prompts(self) -> list[ScriptPrompt]:
-        """Return the holdout prompts in declaration order."""
-        self._ensure_loaded()
-        assert self._holdout is not None
-        return list(self._holdout.prompts)
-
     def get_prompt(self, prompt_id: str) -> ScriptPrompt:
-        """Return a single prompt by id, searching pack then holdout."""
+        """Return a single prompt by id."""
         self._ensure_loaded()
         if prompt_id in self._pack_by_id:
             return self._pack_by_id[prompt_id]
-        if prompt_id in self._holdout_by_id:
-            return self._holdout_by_id[prompt_id]
         raise VoiceScriptNotFoundError(f"unknown script id: {prompt_id}")
 
     def get_pack_metadata(self) -> dict:
@@ -140,19 +120,6 @@ class ScriptLibrary:
         data = self._pack.model_dump()
         data.pop("prompts", None)
         return data
-
-    def get_holdout_metadata(self) -> dict:
-        """Return the holdout metadata (everything except the prompt list)."""
-        self._ensure_loaded()
-        assert self._holdout is not None
-        data = self._holdout.model_dump()
-        data.pop("prompts", None)
-        return data
-
-    def is_holdout_id(self, prompt_id: str) -> bool:
-        """True if the id belongs to the holdout set."""
-        self._ensure_loaded()
-        return prompt_id in self._holdout_by_id
 
     def is_pack_id(self, prompt_id: str) -> bool:
         """True if the id belongs to the recording pack."""

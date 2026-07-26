@@ -4,7 +4,6 @@ import {
   attachReference,
   createVoiceProfile,
   deleteVoiceProfile,
-  fetchHoldoutScripts,
   fetchVoiceProfile,
   fetchVoiceProfiles,
   fetchVoiceScripts,
@@ -30,7 +29,6 @@ import type {
 export const voiceProfilesQueryKey = ["voice-profiles"] as const;
 export const voiceProfileQueryKey = (id: string) => ["voice-profiles", id] as const;
 export const voiceProfileScriptsQueryKey = ["voice-profile-scripts"] as const;
-export const voiceProfileHoldoutsQueryKey = ["voice-profile-holdouts"] as const;
 
 export function useVoiceProfilesQuery() {
   return useQuery({
@@ -55,15 +53,6 @@ export function useVoiceScriptsQuery() {
   return useQuery({
     queryKey: voiceProfileScriptsQueryKey,
     queryFn: ({ signal }) => fetchVoiceScripts(signal),
-    staleTime: 60_000,
-    retry: 1,
-  });
-}
-
-export function useHoldoutScriptsQuery() {
-  return useQuery({
-    queryKey: voiceProfileHoldoutsQueryKey,
-    queryFn: ({ signal }) => fetchHoldoutScripts(signal),
     staleTime: 60_000,
     retry: 1,
   });
