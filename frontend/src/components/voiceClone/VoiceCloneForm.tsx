@@ -44,7 +44,12 @@ export function VoiceCloneForm({ onGenerationCreated, activePhaseLabel }: VoiceC
   const toast = useToast();
 
   const recordings = recordingsQuery.data?.recordings ?? [];
-  const busy = statusQuery.data?.busy ?? false;
+  const statusData = statusQuery.data;
+  const available = statusData?.available ?? false;
+  const busy = statusData?.busy ?? false;
+  const runtimeReasons = statusData?.reasons ?? [];
+  const runtimeWarnings = statusData?.warnings ?? [];
+  const activeGenerationId = statusData?.active_generation_id ?? null;
 
   const [referenceFilename, setReferenceFilename] = useState<string>("");
   const [referenceText, setReferenceText] = useState<string>("");
@@ -71,6 +76,7 @@ export function VoiceCloneForm({ onGenerationCreated, activePhaseLabel }: VoiceC
 
   const targetTooLong = targetText.length > MAX_TARGET_CHARS;
   const canSubmit =
+    available &&
     !busy &&
     !!referenceFilename &&
     !!referenceText.trim() &&
@@ -133,6 +139,34 @@ export function VoiceCloneForm({ onGenerationCreated, activePhaseLabel }: VoiceC
 
   return (
     <form className="voice-clone-form" onSubmit={handleSubmit}>
+      {!available && (
+        <div className="voice-clone-form__unavailable" role="alert">
+          <AlertTriangle size={14} />
+          <div>
+            <strong>Voice Clone ist aktuell nicht verfügbar.</strong>
+            {runtimeReasons.length > 0 ? (
+              <ul className="voice-clone-form__reasons">
+                {runtimeReasons.map((r, i) => (
+                  <li key={i}>{r}</li>
+                ))}
+              </ul>
+            ) : (
+              <p>Generierungen können erst gestartet werden, wenn das Backend Qwen3-TTS bereitstellt.</p>
+            )}
+            {runtimeWarnings.length > 0 && (
+              <ul className="voice-clone-form__warnings" role="note">
+                {runtimeWarnings.map((w, i) => (
+                  <li key={i}>{w}</li>
+                ))}
+              </ul>
+            )}
+            <p className="voice-clone-form__unavailable-note">
+              Aufnahmen und bestehende Generierungen bleiben weiterhin nutzbar.
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="voice-clone-form__row">
         <label htmlFor="voice-clone-reference" className="voice-clone-form__label">
           Referenzaufnahme
@@ -159,7 +193,7 @@ export function VoiceCloneForm({ onGenerationCreated, activePhaseLabel }: VoiceC
           <audio
             controls
             preload="none"
-            src={`${selectedRecording.audio_url}?t=${Date.now()}`}
+            src={selectedRecording.audio_url}
             aria-label={`Referenz ${selectedRecording.filename} abspielen`}
           />
           <div className="voice-clone-form__quality">
@@ -277,6 +311,9 @@ export function VoiceCloneForm({ onGenerationCreated, activePhaseLabel }: VoiceC
         {busy && (
           <span className="voice-clone-form__busy-note">
             Eine zweite Generierung ist blockiert, bis die aktuelle fertig ist.
+            {activeGenerationId && (
+              <> Aktive Generierung: <code style={{ fontFamily: "var(--font-mono)" }}>{activeGenerationId.slice(0, 12)}</code></>
+            )}
           </span>
         )}
         {canSubmit && !busy && (

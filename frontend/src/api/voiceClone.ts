@@ -4,6 +4,7 @@ import {
   deleteGenerationResponseSchema,
   generationListSchema,
   generationMetadataSchema,
+  qualityMetricsSchema,
   voiceCloneStatusSchema,
 } from "../types/schemas";
 import type {
@@ -61,10 +62,11 @@ export async function fetchReferenceQuality(
   filename: string,
   signal?: AbortSignal,
 ): Promise<QualityMetrics> {
-  // The endpoint returns the full analysis result dict; we parse it loosely.
-  const data = await apiClient.get<unknown>(
-    `/api/voice-clone/analyze-reference/${encodeURIComponent(filename)}`,
-    { signal },
-  );
-  return data as QualityMetrics;
+  // The endpoint returns the full analysis result dict; we validate it with
+  // the Zod schema so an invalid server response becomes a controlled ApiError
+  // instead of an uncontrolled React crash.
+  return apiClient.get(`/api/voice-clone/analyze-reference/${encodeURIComponent(filename)}`, {
+    schema: qualityMetricsSchema,
+    signal,
+  });
 }

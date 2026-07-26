@@ -11,10 +11,11 @@ import {
   useVoiceCloneStatusQuery,
 } from "../hooks/useVoiceClone";
 import type { GenerationStatus } from "../types/voiceClone";
+import type { KnownGenerationStatus } from "../types/schemas";
 
 type VoiceLabTab = "recordings" | "voice-clone" | "generations";
 
-const ACTIVE_STATUSES = new Set<GenerationStatus>([
+const ACTIVE_STATUSES = new Set<KnownGenerationStatus>([
   "QUEUED",
   "VALIDATING_REFERENCE",
   "LOADING_MODEL",
@@ -22,7 +23,7 @@ const ACTIVE_STATUSES = new Set<GenerationStatus>([
   "VALIDATING_OUTPUT",
 ]);
 
-const PHASE_LABELS: Record<GenerationStatus, string> = {
+const PHASE_LABELS: Record<KnownGenerationStatus, string> = {
   QUEUED: "Warteschlange",
   VALIDATING_REFERENCE: "Referenz wird geprüft",
   LOADING_MODEL: "Modell wird geladen",

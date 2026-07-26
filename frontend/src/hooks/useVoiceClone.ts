@@ -7,10 +7,23 @@ import {
   fetchReferenceQuality,
   fetchVoiceCloneStatus,
 } from "../api/voiceClone";
+import { KNOWN_GENERATION_STATUSES, type KnownGenerationStatus } from "../types/schemas";
 import type { CreateGenerationRequest } from "../types/voiceClone";
 
 export const voiceCloneStatusQueryKey = ["voice-clone-status"] as const;
 export const generationsQueryKey = ["voice-clone-generations"] as const;
+
+const ACTIVE_STATUSES: ReadonlySet<KnownGenerationStatus> = new Set<KnownGenerationStatus>([
+  "QUEUED",
+  "VALIDATING_REFERENCE",
+  "LOADING_MODEL",
+  "GENERATING",
+  "VALIDATING_OUTPUT",
+]);
+
+function isActiveStatus(status: string | undefined): boolean {
+  return !!status && ACTIVE_STATUSES.has(status as KnownGenerationStatus);
+}
 
 export function useReferenceQualityQuery(filename: string | null) {
   return useQuery({
@@ -23,16 +36,22 @@ export function useReferenceQualityQuery(filename: string | null) {
 }
 
 /** Poll the voice-clone module status. While a generation is busy the
- * frontend refreshes this frequently so the user sees live phase changes. */
+ * frontend refreshes this frequently so the user sees live phase changes.
+ * When the tab is in the background, polling is paused to avoid unnecessary
+ * network traffic and re-renders. */
 export function useVoiceCloneStatusQuery() {
   return useQuery({
     queryKey: voiceCloneStatusQueryKey,
     queryFn: ({ signal }) => fetchVoiceCloneStatus(signal),
     refetchInterval: (query) => {
       const data = query.state.data;
-      return data?.busy ? 2000 : 15000;
+      // Only poll aggressively while a generation is active. When idle, stop
+      // polling entirely; the query is refetched on demand (e.g. after a
+      // mutation invalidates it).
+      return data?.busy ? 2000 : false;
     },
-    staleTime: 1_000,
+    refetchIntervalInBackground: false,
+    staleTime: 5_000,
     retry: 1,
   });
 }
@@ -43,14 +62,14 @@ export function useGenerationsQuery() {
     queryFn: ({ signal }) => fetchGenerations(signal),
     refetchInterval: (query) => {
       const data = query.state.data;
-      const anyActive = data?.generations.some((g) =>
-        ["QUEUED", "VALIDATING_REFERENCE", "LOADING_MODEL", "GENERATING", "VALIDATING_OUTPUT"].includes(
-          g.status,
-        ),
-      );
-      return anyActive ? 2000 : 15000;
+      const anyActive = data?.generations.some((g) => isActiveStatus(g.status));
+      // Poll while at least one generation is active; stop once all are in a
+      // terminal state (READY/FAILED/unknown). The list is still refetched on
+      // mutations and manual refetches.
+      return anyActive ? 2000 : false;
     },
-    staleTime: 1_000,
+    refetchIntervalInBackground: false,
+    staleTime: 5_000,
     retry: 1,
   });
 }
@@ -62,14 +81,10 @@ export function useGenerationQuery(id: string | null) {
     queryFn: ({ signal }) => fetchGeneration(id as string, signal),
     refetchInterval: (query) => {
       const data = query.state.data;
-      const active = data
-        ? ["QUEUED", "VALIDATING_REFERENCE", "LOADING_MODEL", "GENERATING", "VALIDATING_OUTPUT"].includes(
-            data.status,
-          )
-        : false;
-      return active ? 2000 : false;
+      return isActiveStatus(data?.status) ? 2000 : false;
     },
-    staleTime: 1_000,
+    refetchIntervalInBackground: false,
+    staleTime: 5_000,
     retry: 1,
   });
 }
@@ -95,3 +110,5 @@ export function useDeleteGenerationMutation() {
     },
   });
 }
+
+export { KNOWN_GENERATION_STATUSES };

@@ -45,7 +45,11 @@ export const recordingDeleteResponseSchema = z.object({
   deleted: z.boolean(),
 });
 
-export const generationStatusSchema = z.enum([
+/**
+ * Known generation statuses. The schema accepts any string so the UI can
+ * render a neutral badge for unknown future statuses instead of crashing.
+ */
+export const KNOWN_GENERATION_STATUSES = [
   "QUEUED",
   "VALIDATING_REFERENCE",
   "LOADING_MODEL",
@@ -53,13 +57,25 @@ export const generationStatusSchema = z.enum([
   "VALIDATING_OUTPUT",
   "READY",
   "FAILED",
-]);
+] as const;
+
+export type KnownGenerationStatus = (typeof KNOWN_GENERATION_STATUSES)[number];
+
+export const generationStatusSchema = z.string();
 
 export const voiceCloneStatusSchema = z.object({
   available: z.boolean(),
   busy: z.boolean(),
   active_generation_id: z.string().nullable(),
   model_id: z.string(),
+  // Optional extended runtime fields. The backend may omit them until the
+  // runtime integration is in place; the frontend must not assume they exist.
+  device: z.string().nullable().optional(),
+  device_name: z.string().nullable().optional(),
+  torch_version: z.string().nullable().optional(),
+  cuda_available: z.boolean().optional(),
+  reasons: z.array(z.string()).optional(),
+  warnings: z.array(z.string()).optional(),
 });
 
 export const generationMetadataSchema = z.object({
@@ -80,6 +96,11 @@ export const generationMetadataSchema = z.object({
   quality: z.record(z.string(), z.unknown()),
   failure_reason: z.string().nullable(),
   warnings: z.array(z.string()),
+  // Optional technical details, rendered only when the backend supplies them.
+  output_sha256: z.string().nullable().optional(),
+  sample_rate: z.number().nullable().optional(),
+  worker_exitcode: z.number().nullable().optional(),
+  device_name: z.string().nullable().optional(),
 });
 
 export const generationListSchema = z.object({
@@ -94,4 +115,61 @@ export const createGenerationResponseSchema = z.object({
 export const deleteGenerationResponseSchema = z.object({
   id: z.string(),
   deleted: z.boolean(),
+});
+
+export const qualityClassSchema = z.enum(["EXCELLENT", "GOOD", "REVIEW", "REJECT"]);
+
+export const qualityMetricsSchema = z.object({
+  technical: z.object({
+    sample_rate: z.number(),
+    channels: z.number(),
+    frame_count: z.number(),
+    duration_seconds: z.number(),
+    subtype: z.string().nullable(),
+    format: z.string().nullable(),
+  }),
+  levels: z.object({
+    peak_dbfs: z.number().nullable(),
+    rms_dbfs: z.number().nullable(),
+    dc_offset: z.number(),
+    clipping_sample_count: z.number(),
+    clipping_sample_ratio: z.number(),
+  }),
+  silence: z.object({
+    leading_silence_ms: z.number(),
+    trailing_silence_ms: z.number(),
+    total_silence_ratio: z.number(),
+    voice_ratio: z.number(),
+    frame_count_total: z.number(),
+    frame_count_silent: z.number(),
+    frame_count_active: z.number(),
+  }),
+  noise: z.object({
+    estimated_noise_floor_dbfs: z.number().nullable(),
+    estimated_snr_db: z.number().nullable(),
+    active_frames_used: z.number(),
+  }),
+  dropouts: z.object({
+    dropout_count: z.number(),
+    dropout_total_ms: z.number(),
+    longest_dropout_ms: z.number(),
+  }),
+  integrity: z.object({
+    has_nan: z.boolean(),
+    has_infinity: z.boolean(),
+  }),
+  quality: qualityClassSchema,
+  reasons: z.array(z.string()),
+  warnings: z.array(z.string()),
+  voice_clone_reference: z.object({
+    eligible: z.boolean(),
+    quality: qualityClassSchema,
+    reasons: z.array(z.string()),
+    warnings: z.array(z.string()),
+  }),
+});
+
+/** Best-effort error response schema. Many FastAPI errors return `{detail: ...}`. */
+export const errorResponseSchema = z.object({
+  detail: z.union([z.string(), z.array(z.any())]),
 });

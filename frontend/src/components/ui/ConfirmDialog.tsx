@@ -1,5 +1,5 @@
 import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog";
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { Button } from "../ui/Button";
 
 interface ConfirmDialogProps {
@@ -27,6 +27,18 @@ export function ConfirmDialog({
   busy,
   destructive = true,
 }: ConfirmDialogProps) {
+  const cancelRef = useRef<HTMLButtonElement | null>(null);
+
+  // When the dialog opens, move focus to the safe (cancel) action so that an
+  // accidental Enter keypress cannot trigger the destructive action.
+  useEffect(() => {
+    if (!open) return;
+    const id = window.setTimeout(() => {
+      cancelRef.current?.focus();
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [open]);
+
   return (
     <AlertDialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <AlertDialogPrimitive.Portal>
@@ -36,8 +48,13 @@ export function ConfirmDialog({
           onEscapeKeyDown={(e) => {
             // Escape cancels (safe default); never confirm on escape.
             e.preventDefault();
-            onCancel?.();
-            onOpenChange(false);
+            if (!busy) onCancel?.();
+          }}
+          onOpenAutoFocus={(e) => {
+            // Radix would focus the first focusable element; we explicitly
+            // focus the cancel button below via effect, so suppress the default
+            // to avoid a focus jump.
+            e.preventDefault();
           }}
         >
           <AlertDialogPrimitive.Title className="dialog__title">
@@ -47,24 +64,25 @@ export function ConfirmDialog({
             {description}
           </AlertDialogPrimitive.Description>
           <div className="dialog__actions">
-            <AlertDialogPrimitive.Cancel asChild>
-              <Button
-                variant="secondary"
-                onClick={() => onCancel?.()}
-                disabled={busy}
-              >
-                {cancelLabel}
-              </Button>
-            </AlertDialogPrimitive.Cancel>
-            <AlertDialogPrimitive.Action asChild>
-              <Button
-                variant={destructive ? "danger" : "primary"}
-                onClick={onConfirm}
-                loading={busy}
-              >
-                {confirmLabel}
-              </Button>
-            </AlertDialogPrimitive.Action>
+            <Button
+              ref={cancelRef}
+              variant="secondary"
+              onClick={() => {
+                if (!busy) onCancel?.();
+              }}
+              disabled={busy}
+            >
+              {cancelLabel}
+            </Button>
+            <Button
+              variant={destructive ? "danger" : "primary"}
+              onClick={() => {
+                if (!busy) onConfirm();
+              }}
+              loading={busy}
+            >
+              {confirmLabel}
+            </Button>
           </div>
         </AlertDialogPrimitive.Content>
       </AlertDialogPrimitive.Portal>

@@ -1,11 +1,11 @@
-export type GenerationStatus =
-  | "QUEUED"
-  | "VALIDATING_REFERENCE"
-  | "LOADING_MODEL"
-  | "GENERATING"
-  | "VALIDATING_OUTPUT"
-  | "READY"
-  | "FAILED";
+import type { KnownGenerationStatus } from "./schemas";
+
+/**
+ * Generation status. The known statuses are typed explicitly; unknown future
+ * statuses are still representable as strings so the UI can render a neutral
+ * badge instead of crashing.
+ */
+export type GenerationStatus = KnownGenerationStatus | (string & {});
 
 export type QualityClass = "EXCELLENT" | "GOOD" | "REVIEW" | "REJECT";
 
@@ -14,6 +14,13 @@ export interface VoiceCloneStatusResponse {
   busy: boolean;
   active_generation_id: string | null;
   model_id: string;
+  // Optional extended runtime fields.
+  device?: string | null;
+  device_name?: string | null;
+  torch_version?: string | null;
+  cuda_available?: boolean;
+  reasons?: string[];
+  warnings?: string[];
 }
 
 export interface QualityMetrics {
@@ -84,6 +91,11 @@ export interface GenerationMetadata {
   quality: Partial<QualityMetrics> & { quality?: QualityClass };
   failure_reason: string | null;
   warnings: string[];
+  // Optional technical details, present only when the backend supplies them.
+  output_sha256?: string | null;
+  sample_rate?: number | null;
+  worker_exitcode?: number | null;
+  device_name?: string | null;
 }
 
 export interface GenerationListResponse {

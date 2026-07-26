@@ -46,7 +46,7 @@ export function RecordingCard({ recording, onDeleteRequest, deleting }: Recordin
   const confirmDelete = useUIStore((s) => s.confirmDelete);
   const [busy, setBusy] = useState(false);
 
-  const audioSrc = `${recording.audio_url}?t=${Date.now()}`;
+  const audioSrc = recording.audio_url;
 
   const handleDelete = () => {
     if (confirmDelete) {

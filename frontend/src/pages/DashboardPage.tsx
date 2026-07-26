@@ -159,7 +159,7 @@ export function DashboardPage() {
                 <audio
                   className="recent-item__audio"
                   controls
-                  src={`${rec.audio_url}?t=${Date.now()}`}
+                  src={rec.audio_url}
                   preload="none"
                   aria-label={`Audio-Player für ${rec.filename}`}
                 />

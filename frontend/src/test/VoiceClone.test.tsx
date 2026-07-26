@@ -330,6 +330,10 @@ describe("VoiceLabPage - Generierungen tab", () => {
     const user = await switchToTab("Generierungen");
     expect(await screen.findByText(/Zu loeschen/i)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /gen-read löschen/i }));
+    // A confirmation dialog opens; the delete is only dispatched after the
+    // user explicitly confirms.
+    expect(await screen.findByText("Generierung endgültig löschen?")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Endgültig löschen" }));
     await waitFor(() => {
       expect(
         mock.calls.some(
@@ -337,6 +341,40 @@ describe("VoiceLabPage - Generierungen tab", () => {
         ),
       ).toBe(true);
     });
+  });
+
+  it("opens a confirmation dialog and does not delete on cancel", async () => {
+    const gen = {
+      id: "gen-ready-001",
+      status: "READY",
+      reference_recording: "abc123.wav",
+      reference_sha256: "abc",
+      reference_text: "Ref",
+      target_text: "Nicht loeschen",
+      language: "German",
+      model_id: "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+      model_revision: "rev123",
+      created_at: "2026-01-01T12:00:00+00:00",
+      completed_at: "2026-01-01T12:01:00+00:00",
+      output_duration_seconds: 4.8,
+      generation_seconds: 7.2,
+      peak_vram_bytes: 10100000000,
+      quality: { quality: "GOOD" },
+      failure_reason: null,
+      warnings: [],
+    };
+    mock.setResponse("GET /api/voice-clone/generations", 200, { generations: [gen] });
+    renderVoiceLab();
+    await waitFor(() => expect(screen.getByText("abc123.wav")).toBeInTheDocument());
+    const user = await switchToTab("Generierungen");
+    expect(await screen.findByText(/Nicht loeschen/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /gen-read löschen/i }));
+    expect(await screen.findByText("Generierung endgültig löschen?")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Abbrechen" }));
+    await waitFor(() => {
+      expect(screen.queryByText("Generierung endgültig löschen?")).toBeNull();
+    });
+    expect(mock.calls.some((c) => c.method === "DELETE")).toBe(false);
   });
 
   it("blocks delete while a generation is active", async () => {
