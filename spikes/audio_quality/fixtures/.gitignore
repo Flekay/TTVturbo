@@ -1,0 +1,4 @@
+# Generated fixtures and analysis artifacts are not committed.
+# Regenerate via:  python make_report_fixtures.py
+*.wav
+*.analysis.json
