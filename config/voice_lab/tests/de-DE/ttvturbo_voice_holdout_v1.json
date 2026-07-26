@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "pack_id": "ttvturbo-de-de-holdout-v1",
+  "locale": "de-DE",
+  "kind": "holdout",
+  "title": "TTVturbo German Voice Holdout v1",
+  "description": "Acht separate Holdout-Skripte zur ausschließlichen Bewertung synthetisch erzeugter Sprache. Nicht als Aufnahmevorlage verwenden.",
+  "prompt_count": 8,
+  "prompts": [
+    {
+      "id": "de-DE-holdout-001",
+      "order": 1,
+      "category": "holdout",
+      "style": "neutral",
+      "text": "Manchmal genügt ein einziger klarer Satz, um eine ganze Idee verständlich zu machen.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-holdout-002",
+      "order": 2,
+      "category": "holdout",
+      "style": "neutral",
+      "text": "Wer langsam anfängt, kommt oft am Ende weiter, als er sich selbst zugetraut hat.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-holdout-003",
+      "order": 3,
+      "category": "holdout",
+      "style": "neutral",
+      "text": "Die besten Entscheidungen trifft man meistens mit kühlem Kopf und klarem Blick.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-holdout-004",
+      "order": 4,
+      "category": "holdout",
+      "style": "neutral",
+      "text": "Ein guter Plan hält auch dann stand, wenn etwas Unerwartetes dazwischenkommt.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-holdout-005",
+      "order": 5,
+      "category": "holdout",
+      "style": "neutral",
+      "text": "Wahre Qualität zeigt sich erst, wenn man genauer hinsieht und sorgfältig vergleicht.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-holdout-006",
+      "order": 6,
+      "category": "holdout",
+      "style": "neutral",
+      "text": "Wer nichts wagt, bekommt auch keine Chance, etwas wirklich Neues zu lernen.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-holdout-007",
+      "order": 7,
+      "category": "holdout",
+      "style": "neutral",
+      "text": "Manche Lösungen wirken erst dann sinnvoll, wenn man sie in Ruhe betrachtet.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-holdout-008",
+      "order": 8,
+      "category": "holdout",
+      "style": "neutral",
+      "text": "Wer andere ernst nimmt, wird meistens selbst auch ein Stück weit ernster genommen.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    }
+  ]
+}
