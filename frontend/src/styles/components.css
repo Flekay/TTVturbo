@@ -967,6 +967,21 @@
   font-size: 12px;
 }
 
+.voice-clone-form__mode {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.voice-clone-form__profile-ref-text {
+  margin: var(--space-1) 0 0;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  font-style: italic;
+  border-left: 2px solid var(--color-border);
+  padding-left: var(--space-2);
+}
+
 /* Generation list */
 .generation-list {
   display: flex;
@@ -1096,5 +1111,37 @@
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+/* Guided recording banner (Voice Lab -> Aufnahmen) */
+.guided-recording-banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background-color: var(--color-bg-elevated);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-3);
+}
+
+.guided-recording-banner__info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: 13px;
+}
+
+.guided-recording-banner__text {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  line-height: 1.4;
+}
+
+.guided-recording-banner__hint {
+  color: var(--color-text-muted);
+  font-size: 12px;
 }
 

@@ -97,6 +97,11 @@ export interface GenerationMetadata {
   output_sample_rate?: number | null;
   worker_exit_code?: number | null;
   device_name?: string | null;
+  // Voice-profile mode metadata. Present only for generations started from
+  // an accepted profile reference. Older generations do not have these.
+  voice_profile_id?: string | null;
+  voice_profile_name?: string | null;
+  voice_profile_script_id?: string | null;
 }
 
 export interface GenerationListResponse {
@@ -104,11 +109,15 @@ export interface GenerationListResponse {
 }
 
 export interface CreateGenerationRequest {
-  reference_recording: string;
-  reference_text: string;
+  // Manual (legacy) mode.
+  reference_recording?: string;
+  reference_text?: string;
   target_text: string;
   language?: string;
   allow_quality_warning?: boolean;
+  // Profile mode (mutually exclusive with manual fields).
+  voice_profile_id?: string;
+  voice_profile_script_id?: string;
 }
 
 export interface CreateGenerationResponse {

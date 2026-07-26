@@ -9,8 +9,11 @@ sie über ein React-Dashboard bereit.
 
 ```
 TTVturbo/
-├── app.py                # FastAPI-Backend: Aufnahmen, Voice Clone, Status, SPA-Auslieferung
+├── app.py                # FastAPI-Backend: Aufnahmen, Voice Clone, Voice Profiles, Status, SPA-Auslieferung
+├── voice_profiles_api.py # Voice-Profile FastAPI-Router + Service-Factory
 ├── recordings/           # erzeugte WAV-Dateien (real)
+├── voice_profiles/       # Voice-Profile-Kern (Library, Storage, Service, Schemas)
+├── voice_profiles_data/  # persistierte Profile (JSON, konfigurierbar via TTVTURBO_VOICE_PROFILES_DIR)
 ├── voice_clone/          # Qwen3-TTS Voice-Clone-Modul (Service, Runtime, Qualitätsanalyse, Diagnostics)
 ├── static/               # Legacy-Testfrontend (Fallback, wenn frontend/dist fehlt)
 ├── tests/                # pytest-Backendtests
@@ -202,8 +205,8 @@ Fake-Daten oder funktionslose Aktionen.
 
 ## Voice-Lab-Funktion
 
-Das Voice Lab besteht aus drei Tabs: **Aufnahmen**, **Voice Clone** und
-**Generierungen**.
+Das Voice Lab besteht aus vier Tabs: **Aufnahmen**, **Voice Profiles**,
+**Voice Clone** und **Generierungen**.
 
 ### Aufnahmen
 
@@ -223,6 +226,9 @@ im `useRecorder`-Hook.
 
 ### Voice Clone (Qwen3-TTS)
 
+Voice Clone unterstützt zwei Modi:
+
+**Manuelle Referenz** (klassisch):
 1. Referenzaufnahme aus der Bibliothek wählen.
 2. Der Server analysiert die technische Qualität der Referenz
    (Pegel, Stille, SNR, Dropouts, Clipping, NaN/Inf) und stuft sie als
@@ -231,21 +237,58 @@ im `useRecorder`-Hook.
    eingeben.
 4. Bei `REVIEW` muss die Qualitätswarnung explizit bestätigt werden;
    bei `REJECT` ist die Generierung blockiert.
-5. Beim Start wird ein eigener Subprocess mit dem
-   `Qwen/Qwen3-TTS-12Hz-1.7B-Base`-Modell auf der RTX 5070 gestartet.
-   Der Status (QUEUED → VALIDATING_REFERENCE → LOADING_MODEL →
-   GENERATING → VALIDATING_OUTPUT → READY/FAILED) wird live im Dashboard
-   gepollt.
-6. Es läuft höchstens eine Generierung gleichzeitig (Server-Lock). Eine
-   zweite Anfrage wird mit HTTP 409 abgelehnt.
-7. Nach Abschluss erscheint die Generierung im Tab **Generierungen** mit
-   Audio-Player, Download und Löschen-Button.
-8. Generierungen, die beim Server-Neustart in einem transienten Status
-   waren, werden automatisch auf `FAILED` mit Begründung gesetzt und
-   partielle Outputs werden entfernt.
+
+**Aus Voice-Profil**:
+1. Ein Voice-Profil und eine akzeptierte Referenz daraus wählen.
+2. Der Server löst die WAV-Datei und den Skripttext automatisch auf; der
+   Client kann beides nicht überschreiben.
+3. Nur Zieltext eingeben (max. 300 Zeichen).
+
+In beiden Modi gilt:
+- Beim Start wird ein eigener Subprocess mit dem
+  `Qwen/Qwen3-TTS-12Hz-1.7B-Base`-Modell auf der RTX 5070 gestartet.
+  Der Status (QUEUED → VALIDATING_REFERENCE → LOADING_MODEL →
+  GENERATING → VALIDATING_OUTPUT → READY/FAILED) wird live im Dashboard
+  gepollt.
+- Es läuft höchstens eine Generierung gleichzeitig (Server-Lock). Eine
+  zweite Anfrage wird mit HTTP 409 abgelehnt.
+- Nach Abschluss erscheint die Generierung im Tab **Generierungen** mit
+  Audio-Player, Download und Löschen-Button.
+- Generierungen, die beim Server-Neustart in einem transienten Status
+  waren, werden automatisch auf `FAILED` mit Begründung gesetzt und
+  partielle Outputs werden entfernt.
 
 Die Voice-Clone-Artefakte liegen unter `voice_clones/<id>/` mit
 `metadata.json` und `output.wav`. Path-Traversal ist auch hier blockiert.
+
+### Voice Profiles
+
+Voice Profiles verwalten strukturierte Referenzaufnahmen für Voice Clones:
+
+1. Ein Profil erstellen (Name + Locale, z. B. `de-DE`).
+2. Das Profil enthält 88 Aufnahmeskripte aus dem Voice Pack
+   (`config/voice_lab/scripts/de-DE/ttvturbo_voice_pack_v1.json`)
+   sowie 8 Holdout-Skripte für die spätere Qualitätsprüfung
+   (`config/voice_lab/tests/de-DE/ttvturbo_voice_holdout_v1.json`).
+3. Pro Skript eine geführte Aufnahme starten: der exakte Skripttext wird
+   im Aufnahmen-Tab angezeigt, nach erfolgreichem Upload wird die WAV
+   automatisch mit dem Profil verknüpft.
+4. Der Server analysiert jede Referenz mit dem echten
+   `voice_clone.quality`-Analyzer und stuft sie als `ACCEPTED`, `REVIEW`
+   oder `REJECTED` ein. `REVIEW`-Referenzen können manuell akzeptiert
+   werden.
+5. Der Fortschrittsbalken zeigt akzeptierte/review/abgelehnte/fehlende
+   Referenzen sowie `clone-ready` (mindestens eine akzeptierte Referenz)
+   und `pack vollständig` (alle 88 akzeptiert).
+6. Im Voice-Clone-Tab kann direkt aus einem Profil generiert werden,
+   ohne Referenztext manuell eingeben zu müssen.
+7. Aufnahmen, die von einem Profil referenziert werden, können nicht
+   gelöscht werden (HTTP 409 mit Profil-Liste). Die Verknüpfung muss
+   zuerst entfernt werden.
+
+Profile liegen als JSON-Dateien unter `voice_profiles_data/` (konfigurierbar
+über `TTVTURBO_VOICE_PROFILES_DIR`). Die zugrunde liegenden WAV-Dateien
+bleiben beim Löschen eines Profils erhalten.
 
 ## API-Endpunkte
 
@@ -264,6 +307,16 @@ Die Voice-Clone-Artefakte liegen unter `voice_clones/<id>/` mit
 | GET     | `/api/voice-clone/generations/{id}` | einzelne Generierung (Metadaten)        |
 | GET     | `/api/voice-clone/generations/{id}/audio` | WAV-Output einer fertigen Generierung |
 | DELETE  | `/api/voice-clone/generations/{id}` | löscht eine Generierung (Verzeichnis)  |
+| GET     | `/api/voice-profiles/scripts` | listet die 88 Aufnahmeskripte des Voice Packs |
+| GET     | `/api/voice-profiles/holdout-scripts` | listet die 8 Holdout-Skripte |
+| GET     | `/api/voice-profiles`         | listet alle nicht-archivierten Profile        |
+| POST    | `/api/voice-profiles`         | erstellt ein neues Profil                     |
+| GET     | `/api/voice-profiles/{id}`    | einzelnes Profil mit Referenzen und Fortschritt |
+| PATCH   | `/api/voice-profiles/{id}`    | Profil umbenennen oder archivieren/wiederherstellen |
+| DELETE  | `/api/voice-profiles/{id}`    | Profil löschen (WAVs bleiben erhalten)        |
+| PUT     | `/api/voice-profiles/{id}/references/{script_id}` | Aufnahme als Referenz zuweisen (Server analysiert Qualität) |
+| DELETE  | `/api/voice-profiles/{id}/references/{script_id}` | Referenz-Verknüpfung entfernen |
+| POST    | `/api/voice-profiles/{id}/references/{script_id}/accept-review` | REVIEW-Referenz explizit akzeptieren |
 
 `/api/status` liefert u. a. App-Version, Laufzeit, Aufnahmeanzahl,
 Gesamtdauer, belegten Speicher, freien Speicher und den Featurestatus.
@@ -312,7 +365,11 @@ Getestet werden u. a.:
 - Voice-Clone-Restart-Recovery (transiente Status werden FAILED)
 - Voice-Clone-Output-Validierung (silent, byte-identisch mit Referenz)
 - Voice-Clone-E2E (gated via `TTVTURBO_RUN_QWEN_TTS_E2E=1`, lädt das echte Modell)
-- Dashboard-, Voice-Lab-, Voice-Clone-Tab- und Generierungen-Tab-Tests (Vitest + RTL)
+- Voice-Profile-CRUD (Erstellen, Lesen, Umbenennen, Archivieren, Löschen)
+- Voice-Profile-Referenzen (Zuweisen mit Server-Qualitätsanalyse, Trennen, Review-Akzeptieren)
+- Aufnahme-Löschschutz bei Profil-Referenzierung (HTTP 409)
+- Voice-Clone-Profilmodus (Generierung aus akzeptierter Profilreferenz)
+- Dashboard-, Voice-Lab-, Voice-Clone-Tab-, Voice-Profiles-Tab- und Generierungen-Tab-Tests (Vitest + RTL)
 
 ## Bekannte Einschränkungen
 
@@ -343,7 +400,9 @@ Real implementiert:
 - TanStack Query Cache invalidation
 - Voice Clone (Qwen3-TTS) mit Subprocess, Qualitätsanalyse, Status-Polling,
   Restart-Recovery, Konflikt-Lock
-- Voice Lab mit Tabs (Aufnahmen, Voice Clone, Generierungen)
+- Voice Profiles mit 88 Aufnahmeskripten, geführter Aufnahme, Server-
+  Qualitätsanalyse, Fortschritts-Tracking und Profilmodus für Voice Clone
+- Voice Lab mit Tabs (Aufnahmen, Voice Profiles, Voice Clone, Generierungen)
 - Vitest- und pytest-Tests
 
 Noch nicht implementiert:
