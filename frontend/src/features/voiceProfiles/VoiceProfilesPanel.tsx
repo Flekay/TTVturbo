@@ -172,11 +172,19 @@ export function VoiceProfilesPanel({ onStartPromptRecording }: VoiceProfilesPane
   const detachMutation = useDetachReferenceMutation();
   const acceptMutation = useAcceptReviewMutation();
 
-  // Auto-select the first non-archived profile when the list loads.
+  // Auto-select the first non-archived profile when the list loads, and drop
+  // a selection that no longer exists in the freshest list (e.g. the profile
+  // was deleted out-of-band). Without this, the detail query would keep
+  // 404-ing on a stale id.
   useEffect(() => {
-    if (profilesQuery.data && selectedId === null) {
+    if (!profilesQuery.data) return;
+    const ids = new Set(profilesQuery.data.profiles.map((p) => p.id));
+    if (selectedId === null) {
       const first = profilesQuery.data.profiles.find((p) => !p.archived);
       if (first) setSelectedId(first.id);
+    } else if (!ids.has(selectedId)) {
+      const first = profilesQuery.data.profiles.find((p) => !p.archived);
+      setSelectedId(first?.id ?? null);
     }
   }, [profilesQuery.data, selectedId]);
 
@@ -265,11 +273,15 @@ export function VoiceProfilesPanel({ onStartPromptRecording }: VoiceProfilesPane
 
   const handleDeleteConfirm = () => {
     if (!deleteTarget) return;
-    deleteMutation.mutate(deleteTarget.id, {
+    const targetId = deleteTarget.id;
+    // Pick the next profile from the *current* list (excluding the one being
+    // deleted) so we don't briefly re-select the deleted id while the list
+    // refetch is in flight — that would trigger a 404 on the detail query.
+    const remaining = profiles.filter((p) => p.id !== targetId);
+    const next = remaining.find((p) => !p.archived) ?? remaining[0] ?? null;
+    deleteMutation.mutate(targetId, {
       onSuccess: () => {
         toast.show({ title: "Profil gelöscht", variant: "success" });
-        if (selectedId === deleteTarget.id) setSelectedId(null);
-        setDeleteTarget(null);
       },
       onError: (err) =>
         toast.show({
@@ -277,6 +289,13 @@ export function VoiceProfilesPanel({ onStartPromptRecording }: VoiceProfilesPane
           description: err instanceof Error ? err.message : "Unbekannter Fehler",
           variant: "error",
         }),
+      onSettled: () => {
+        // Always close the modal. Select the next profile directly (computed
+        // above) instead of falling through to the auto-select effect, which
+        // would read stale list data and re-pick the just-deleted id.
+        setSelectedId(next?.id ?? null);
+        setDeleteTarget(null);
+      },
     });
   };
 
@@ -505,7 +524,7 @@ export function VoiceProfilesPanel({ onStartPromptRecording }: VoiceProfilesPane
       <ConfirmDialog
         open={deleteTarget !== null}
         onOpenChange={(open) => {
-          if (!open) setDeleteTarget(null);
+          if (!open && !deleteMutation.isPending) setDeleteTarget(null);
         }}
         title="Profil löschen?"
         description={

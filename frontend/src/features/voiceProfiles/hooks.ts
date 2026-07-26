@@ -95,8 +95,11 @@ export function useDeleteVoiceProfileMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => deleteVoiceProfile(id),
-    onSuccess: () => {
+    onSettled: (_data, _error, id) => {
+      // Always refresh the list and drop the per-profile cache, whether the
+      // delete succeeded or failed (a 404 means it was already gone).
       queryClient.invalidateQueries({ queryKey: voiceProfilesQueryKey });
+      queryClient.removeQueries({ queryKey: voiceProfileQueryKey(id) });
     },
   });
 }

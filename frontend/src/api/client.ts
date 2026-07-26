@@ -39,6 +39,35 @@ function isFormData(value: unknown): value is FormData {
   return typeof FormData !== "undefined" && value instanceof FormData;
 }
 
+/**
+ * Pull a human-readable message out of a parsed error body.
+ *
+ * The backend normalises errors as `{"detail": {"code": "...", "message": "..."}}`
+ * (see `_error_response` in voice_profiles_api.py). Other endpoints may return a
+ * plain string, FastAPI's default `{"detail": "..."}` shape, or a non-JSON body.
+ */
+function extractErrorMessage(parsed: unknown, fallback: string): string {
+  if (typeof parsed === "string" && parsed.trim()) return parsed;
+  if (parsed && typeof parsed === "object") {
+    const detail = (parsed as { detail?: unknown }).detail;
+    if (typeof detail === "string" && detail.trim()) return detail;
+    if (detail && typeof detail === "object") {
+      const message = (detail as { message?: unknown }).message;
+      if (typeof message === "string" && message.trim()) return message;
+      // e.g. FastAPI validation errors: detail is a list of field errors.
+      try {
+        const stringified = JSON.stringify(detail);
+        if (stringified && stringified !== "{}" && stringified !== "[]") {
+          return stringified;
+        }
+      } catch {
+        // ignore cyclic / non-serialisable values
+      }
+    }
+  }
+  return fallback;
+}
+
 export async function apiRequest<T>(
   path: string,
   options: RequestOptions & { schema?: ZodSchema<T> },
@@ -105,12 +134,7 @@ export async function apiRequest<T>(
   }
 
   if (!response.ok) {
-    const detail =
-      typeof parsed === "object" && parsed && "detail" in parsed
-        ? String((parsed as { detail: unknown }).detail)
-        : typeof parsed === "string"
-          ? parsed
-          : response.statusText;
+    const detail = extractErrorMessage(parsed, response.statusText);
     throw new ApiError(detail || `Request failed: ${response.status}`, response.status, parsed);
   }
 

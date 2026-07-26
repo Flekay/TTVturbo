@@ -706,17 +706,137 @@ def spa_fallback(full_path: str) -> FileResponse:
     return _spa_index()
 
 
+def _frontend_needs_build() -> bool:
+    """True if frontend/dist is missing or stale relative to frontend/src."""
+    index_html = FRONTEND_DIST_DIR / "index.html"
+    if not index_html.is_file():
+        return True
+    src_dir = BASE_DIR / "frontend" / "src"
+    if not src_dir.is_dir():
+        return False
+    built_mtime = index_html.stat().st_mtime
+    for root, _dirs, files in os.walk(src_dir):
+        for name in files:
+            if name.endswith((".ts", ".tsx", ".js", ".jsx", ".css", ".html")):
+                p = Path(root) / name
+                try:
+                    if p.stat().st_mtime > built_mtime:
+                        return True
+                except OSError:
+                    continue
+    # package.json / vite config / tsconfig changes also invalidate the build.
+    for cfg in ("package.json", "vite.config.ts", "vite.config.js", "tsconfig.json"):
+        p = BASE_DIR / "frontend" / cfg
+        if p.is_file():
+            try:
+                if p.stat().st_mtime > built_mtime:
+                    return True
+            except OSError:
+                continue
+    return False
+
+
+def _build_frontend_if_needed() -> None:
+    """Build the React frontend on startup if dist is missing or stale.
+
+    Silent no-op when npm is unavailable or the frontend directory is absent;
+    the existing SPA-fallback warning still fires for a missing dist.
+    """
+    frontend_dir = BASE_DIR / "frontend"
+    if not (frontend_dir / "package.json").is_file():
+        return
+    npm = shutil.which("npm")
+    if npm is None:
+        return
+    if not _frontend_needs_build():
+        return
+    print("Building frontend (frontend/dist is missing or stale)...", file=sys.stderr)
+    try:
+        result = subprocess.run(
+            [npm, "run", "build"],
+            cwd=str(frontend_dir),
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError as exc:
+        print(f"WARNING: frontend build failed to start: {exc}", file=sys.stderr)
+        return
+    if result.returncode != 0:
+        print("WARNING: frontend build failed.", file=sys.stderr)
+        if result.stderr:
+            print(result.stderr, file=sys.stderr)
+        return
+    if (FRONTEND_DIST_DIR / "index.html").is_file():
+        print("Frontend build complete.", file=sys.stderr)
+    else:
+        print("WARNING: frontend build reported success but dist/index.html is missing.", file=sys.stderr)
+
+
+def _free_port_if_stale(port: int) -> None:
+    """Kill any leftover process still bound to ``port`` before we bind.
+
+    A previous `python app.py` that was killed via terminal-close (instead of
+    Ctrl+C) can leave a uvicorn worker holding the port, which makes the next
+    start fail with EADDRINUSE. We only kill processes whose command line
+    clearly looks like our own app (contains "app.py"), so unrelated services
+    on the same port are left alone and surfaced as a clear error instead.
+    """
+    try:
+        import psutil
+    except ImportError:
+        return  # psutil is in requirements.txt; if missing, just attempt the bind.
+    try:
+        owning_pids = {
+            c.pid for c in psutil.net_connections(kind="inet")
+            if c.status == psutil.CONN_LISTEN and c.laddr.port == port and c.pid
+        }
+    except (psutil.AccessDenied, psutil.NoSuchProcess, OSError):
+        return
+    for pid in owning_pids:
+        try:
+            proc = psutil.Process(pid)
+        except psutil.NoSuchProcess:
+            continue
+        try:
+            cmdline = " ".join(proc.cmdline())
+        except (psutil.AccessDenied, psutil.NoSuchProcess):
+            cmdline = ""
+        # Only kill processes that are clearly our own app. Anything else on
+        # the port is left alone and the bind error below will tell the user.
+        if "app.py" not in cmdline:
+            continue
+        print(
+            f"Killing stale process {pid} on port {port} "
+            f"({proc.name()}: {cmdline or '<cmdline unavailable>'})",
+            file=sys.stderr,
+        )
+        try:
+            proc.terminate()
+            proc.wait(timeout=5)
+        except psutil.TimeoutExpired:
+            try:
+                proc.kill()
+                proc.wait(timeout=5)
+            except psutil.NoSuchProcess:
+                pass
+        except psutil.NoSuchProcess:
+            pass
+
+
 def main() -> None:
     import uvicorn
 
     if _ffmpeg_available() is None:
         print("WARNING: ffmpeg not found on PATH. WAV conversion will fail.", file=sys.stderr)
+    _build_frontend_if_needed()
     if not (FRONTEND_DIST_DIR / "index.html").is_file():
         print(
             "WARNING: frontend/dist not built. Run `npm --prefix frontend run build`.",
             file=sys.stderr,
         )
 
+    _free_port_if_stale(8765)
     uvicorn.run(app, host="127.0.0.1", port=8765, log_level="info")
 
 
