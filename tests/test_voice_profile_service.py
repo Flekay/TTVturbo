@@ -188,16 +188,16 @@ class TestDeleteProfile:
         with pytest.raises(VoiceProfileNotFoundError):
             service.delete_profile(str(uuid.uuid4()))
 
-    def test_delete_keeps_wav(self, service: VoiceProfileService,
-                              wav_file: str, recordings_dir: Path) -> None:
+    def test_delete_removes_wav(self, service: VoiceProfileService,
+                                wav_file: str, recordings_dir: Path) -> None:
         profile = service.create_profile("Stimme")
         service.attach_reference(
             profile["id"], "de-DE-neutral-001", wav_file, _quality("GOOD")
         )
         assert (recordings_dir / wav_file).is_file()
         service.delete_profile(profile["id"])
-        # The WAV must still exist.
-        assert (recordings_dir / wav_file).is_file()
+        # The WAV must be deleted with the profile.
+        assert not (recordings_dir / wav_file).exists()
 
 
 class TestUnknownUuid:

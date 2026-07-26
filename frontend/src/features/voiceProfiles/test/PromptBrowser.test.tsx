@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { fireEvent, screen } from "@testing-library/react";
 import { renderWithProviders } from "../../../test/test-utils";
 import { PromptBrowser } from "../PromptBrowser";
@@ -46,8 +46,13 @@ function renderBrowser(props: Partial<Parameters<typeof PromptBrowser>[0]> = {})
     <PromptBrowser
       scripts={scripts}
       references={references}
-      selectedScriptId={null}
-      onSelectScript={() => {}}
+      profileId="p1"
+      onAttachReference={() => {}}
+      onDetachReference={() => {}}
+      onAcceptReview={() => {}}
+      attachPendingScriptId={null}
+      detachPendingScriptId={null}
+      acceptPendingScriptId={null}
       {...props}
     />,
   );
@@ -56,17 +61,15 @@ function renderBrowser(props: Partial<Parameters<typeof PromptBrowser>[0]> = {})
 describe("PromptBrowser", () => {
   it("renders scripts sorted by order", () => {
     renderBrowser();
-    const items = screen.getAllByRole("button", { name: /Prompt \d+/ });
-    // Three prompt rows (filter buttons also match btn class but not the name pattern).
+    const items = screen.getAllByRole("article", { name: /Prompt \d+/ });
     expect(items.length).toBe(3);
-    // First item should be order 1 ("Erstes Skript Hallo.")
     expect(items[0]).toHaveAttribute("aria-label", "Prompt 1: Erstes Skript Hallo.");
   });
 
   it("filters by status MISSING", () => {
     renderBrowser();
     fireEvent.click(screen.getByRole("button", { name: "Fehlend" }));
-    const items = screen.getAllByRole("button", { name: /Prompt \d+/ });
+    const items = screen.getAllByRole("article", { name: /Prompt \d+/ });
     // Only s2 has no reference (MISSING).
     expect(items.length).toBe(1);
     expect(items[0]).toHaveAttribute("aria-label", "Prompt 1: Zweites Skript.");
@@ -75,7 +78,7 @@ describe("PromptBrowser", () => {
   it("filters by status ACCEPTED", () => {
     renderBrowser();
     fireEvent.click(screen.getByRole("button", { name: "Akzeptiert" }));
-    const items = screen.getAllByRole("button", { name: /Prompt \d+/ });
+    const items = screen.getAllByRole("article", { name: /Prompt \d+/ });
     expect(items.length).toBe(1);
     expect(items[0]).toHaveAttribute("aria-label", "Prompt 1: Erstes Skript Hallo.");
   });
@@ -83,7 +86,7 @@ describe("PromptBrowser", () => {
   it("filters by status REJECTED", () => {
     renderBrowser();
     fireEvent.click(screen.getByRole("button", { name: "Abgelehnt" }));
-    const items = screen.getAllByRole("button", { name: /Prompt \d+/ });
+    const items = screen.getAllByRole("article", { name: /Prompt \d+/ });
     expect(items.length).toBe(1);
     expect(items[0]).toHaveAttribute("aria-label", "Prompt 1: Drittes Skript.");
   });
@@ -92,7 +95,7 @@ describe("PromptBrowser", () => {
     renderBrowser();
     const search = screen.getByLabelText("Prompt-Text durchsuchen");
     fireEvent.change(search, { target: { value: "Erstes" } });
-    const items = screen.getAllByRole("button", { name: /Prompt \d+/ });
+    const items = screen.getAllByRole("article", { name: /Prompt \d+/ });
     expect(items.length).toBe(1);
     expect(items[0]).toHaveAttribute("aria-label", "Prompt 1: Erstes Skript Hallo.");
   });
@@ -100,16 +103,17 @@ describe("PromptBrowser", () => {
   it("filters by style", () => {
     renderBrowser();
     fireEvent.change(screen.getByLabelText("Stil filtern"), { target: { value: "formal" } });
-    const items = screen.getAllByRole("button", { name: /Prompt \d+/ });
+    const items = screen.getAllByRole("article", { name: /Prompt \d+/ });
     expect(items.length).toBe(1);
   });
 
-  it("calls onSelectScript when a prompt is clicked", () => {
-    const onSelect = vi.fn();
-    renderBrowser({ onSelectScript: onSelect });
-    fireEvent.click(screen.getByRole("button", { name: "Prompt 1: Erstes Skript Hallo." }));
-    expect(onSelect).toHaveBeenCalledTimes(1);
-    expect(onSelect).toHaveBeenCalledWith("s1");
+  it("calls onDetachReference with the script id when detach is clicked", () => {
+    const onDetach = vi.fn();
+    renderBrowser({ onDetachReference: onDetach });
+    // s1 has a reference -> its inline panel renders a "Verknüpfung entfernen" button.
+    fireEvent.click(screen.getAllByRole("button", { name: /Verknüpfung entfernen/ })[0]);
+    expect(onDetach).toHaveBeenCalledTimes(1);
+    expect(onDetach).toHaveBeenCalledWith(expect.stringMatching(/^s[13]$/));
   });
 
   it("shows an empty result message when no scripts match", () => {

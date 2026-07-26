@@ -277,7 +277,23 @@ class VoiceProfileService:
         with self._lock:
             # load_profile raises NotFound if the profile does not exist; that
             # is the contract we want here too.
-            self.storage.load_profile(profile_id)
+            payload = self.storage.load_profile(profile_id)
+            # Recordings are created per-profile and never shared between
+            # profiles, so it is safe (and expected) to delete the WAV files
+            # alongside the profile metadata. Missing files are ignored.
+            refs: dict = payload.get("references", {}) or {}
+            for ref in refs.values():
+                filename = ref.get("recording_filename")
+                if not filename:
+                    continue
+                wav_path = self.recordings_dir / Path(filename).name
+                try:
+                    wav_path.unlink(missing_ok=True)
+                except OSError as exc:  # pragma: no cover - defensive
+                    logger.warning(
+                        "failed to delete recording %s while deleting profile %s: %s",
+                        wav_path, profile_id, exc,
+                    )
             return self.storage.delete_profile(profile_id)
 
     # ------------------------------------------------------------------ references

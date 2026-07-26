@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { ChevronRight } from "lucide-react";
-import { Button } from "../../components/ui/Button";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { ErrorState } from "../../components/ui/ErrorState";
@@ -10,7 +8,6 @@ import { useToast } from "../../components/ui/ToastProvider";
 import { ProfileHeader } from "./ProfileHeader";
 import { ProfileList } from "./ProfileList";
 import { PromptBrowser } from "./PromptBrowser";
-import { PromptRecordingPanel } from "./PromptRecordingPanel";
 import { RecordingPackProgress } from "./RecordingPackProgress";
 import {
   useAcceptReviewMutation,
@@ -25,32 +22,12 @@ import {
 } from "./hooks";
 import type {
   VoiceProfile,
-  VoiceScript,
 } from "./types";
 
 type NameDialogMode =
   | { kind: "create" }
   | { kind: "rename"; profile: VoiceProfile }
   | null;
-
-function findNextScript(
-  scripts: VoiceScript[],
-  references: { script_id: string; status: string }[],
-): VoiceScript | null {
-  const refMap = new Map(references.map((r) => [r.script_id, r.status]));
-  const ordered = [...scripts].sort((a, b) => a.order - b.order);
-  for (const priority of ["__missing__", "REVIEW", "REJECTED"] as const) {
-    for (const s of ordered) {
-      const status = refMap.get(s.id);
-      if (priority === "__missing__") {
-        if (!status) return s;
-      } else if (status === priority) {
-        return s;
-      }
-    }
-  }
-  return null;
-}
 
 function NameDialog({
   mode,
@@ -154,7 +131,6 @@ export function VoiceProfilesPanel() {
   const scriptsQuery = useVoiceScriptsQuery();
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [selectedScriptId, setSelectedScriptId] = useState<string | null>(null);
   const [nameDialog, setNameDialog] = useState<NameDialogMode>(null);
   const [deleteTarget, setDeleteTarget] = useState<VoiceProfile | null>(null);
 
@@ -183,11 +159,6 @@ export function VoiceProfilesPanel() {
     }
   }, [profilesQuery.data, selectedId]);
 
-  // Reset script selection when switching profiles.
-  useEffect(() => {
-    setSelectedScriptId(null);
-  }, [selectedId]);
-
   const profiles = profilesQuery.data?.profiles ?? [];
   const scripts = scriptsQuery.data?.prompts ?? [];
   const selectedProfile = profileQuery.data ?? null;
@@ -196,19 +167,6 @@ export function VoiceProfilesPanel() {
   const references = useMemo(
     () => (selectedProfile?.references ? Object.values(selectedProfile.references) : []),
     [selectedProfile?.references],
-  );
-  const selectedScript = useMemo(
-    () => scripts.find((s) => s.id === selectedScriptId) ?? null,
-    [scripts, selectedScriptId],
-  );
-  const selectedReference = useMemo(
-    () => references.find((r) => r.script_id === selectedScriptId) ?? null,
-    [references, selectedScriptId],
-  );
-
-  const nextScript = useMemo(
-    () => findNextScript(scripts, references),
-    [scripts, references],
   );
 
   const handleNameSubmit = (name: string) => {
@@ -278,10 +236,10 @@ export function VoiceProfilesPanel() {
     });
   };
 
-  const handleDetach = () => {
-    if (!selectedProfile || !selectedScript) return;
+  const handleDetach = (scriptId: string) => {
+    if (!selectedProfile) return;
     detachMutation.mutate(
-      { profileId: selectedProfile.id, scriptId: selectedScript.id },
+      { profileId: selectedProfile.id, scriptId },
       {
         onError: (err) =>
           toast.show({
@@ -293,12 +251,12 @@ export function VoiceProfilesPanel() {
     );
   };
 
-  const handleAttachReference = (recordingFilename: string) => {
-    if (!selectedProfile || !selectedScript) return;
+  const handleAttachReference = (scriptId: string, recordingFilename: string) => {
+    if (!selectedProfile) return;
     attachMutation.mutate(
       {
         profileId: selectedProfile.id,
-        scriptId: selectedScript.id,
+        scriptId,
         request: { recording_filename: recordingFilename },
       },
       {
@@ -315,10 +273,10 @@ export function VoiceProfilesPanel() {
     );
   };
 
-  const handleAcceptReview = () => {
-    if (!selectedProfile || !selectedScript) return;
+  const handleAcceptReview = (scriptId: string) => {
+    if (!selectedProfile) return;
     acceptMutation.mutate(
-      { profileId: selectedProfile.id, scriptId: selectedScript.id },
+      { profileId: selectedProfile.id, scriptId },
       {
         onError: (err) =>
           toast.show({
@@ -403,27 +361,7 @@ export function VoiceProfilesPanel() {
             </section>
 
             <section style={{ marginTop: 16 }}>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 8,
-                  flexWrap: "wrap",
-                }}
-              >
-                <h3 className="vp-section-title">Prompts</h3>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => {
-                    if (nextScript) setSelectedScriptId(nextScript.id);
-                  }}
-                  disabled={!nextScript}
-                >
-                  <ChevronRight size={14} /> Nächstes fehlendes Skript
-                </Button>
-              </div>
+              <h3 className="vp-section-title">Prompts</h3>
               {scriptsQuery.isLoading ? (
                 <LoadingState message="Lade Skripte …" />
               ) : scriptsQuery.isError ? (
@@ -445,32 +383,28 @@ export function VoiceProfilesPanel() {
                 <PromptBrowser
                   scripts={scripts}
                   references={references}
-                  selectedScriptId={selectedScriptId}
-                  onSelectScript={setSelectedScriptId}
-                />
-              )}
-            </section>
-
-            {selectedScript ? (
-              <section style={{ marginTop: 16 }}>
-                <h3 className="vp-section-title">Ausgewählter Prompt</h3>
-                <PromptRecordingPanel
-                  script={selectedScript}
-                  reference={selectedReference ?? null}
                   profileId={selectedProfile.id}
                   onAttachReference={handleAttachReference}
                   onDetachReference={handleDetach}
                   onAcceptReview={handleAcceptReview}
-                  attachPending={attachMutation.isPending}
-                  detachPending={detachMutation.isPending}
-                  acceptPending={acceptMutation.isPending}
+                  attachPendingScriptId={
+                    attachMutation.isPending
+                      ? attachMutation.variables?.scriptId ?? null
+                      : null
+                  }
+                  detachPendingScriptId={
+                    detachMutation.isPending
+                      ? detachMutation.variables?.scriptId ?? null
+                      : null
+                  }
+                  acceptPendingScriptId={
+                    acceptMutation.isPending
+                      ? acceptMutation.variables?.scriptId ?? null
+                      : null
+                  }
                 />
-              </section>
-            ) : (
-              <p className="page__description" style={{ marginTop: 16 }}>
-                Wähle einen Prompt aus der Liste, um die verknüpfte Referenz zu sehen.
-              </p>
-            )}
+              )}
+            </section>
           </div>
         )}
       </div>
@@ -493,9 +427,7 @@ export function VoiceProfilesPanel() {
         title="Profil löschen?"
         description={
           <>
-            Das Profil wird gelöscht.
-            <br />
-            Die zugrunde liegenden WAV-Aufnahmen bleiben erhalten.
+            Das Profil und alle verknüpften WAV-Aufnahmen werden gelöscht.
           </>
         }
         confirmLabel="Löschen"

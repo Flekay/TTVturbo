@@ -162,27 +162,9 @@ describe("VoiceProfilesPanel — prompts", () => {
       await screen.findByRole("button", { name: "Profil Meine Stimme auswählen" }),
     );
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Prompt 1: Hallo und willkommen." })).toBeInTheDocument();
+      expect(screen.getByRole("article", { name: "Prompt 1: Hallo und willkommen." })).toBeInTheDocument();
     });
-    expect(screen.getByRole("button", { name: "Prompt 2: Vielen Dank und auf Wiedersehen." })).toBeInTheDocument();
-  });
-
-  it("selects the next missing script when no references are accepted", async () => {
-    const user = userEvent.setup();
-    const profileNoRefs = {
-      ...profileWithRefs,
-      references: {},
-      progress: { ...progress, accepted: 0, missing: 2, review: 0, recorded: 0, percentage: 0 },
-    };
-    setProfileResponse(profileNoRefs);
-    renderPanel();
-    await user.click(
-      await screen.findByRole("button", { name: "Profil Meine Stimme auswählen" }),
-    );
-    await user.click(await screen.findByRole("button", { name: /Nächstes fehlendes Skript/ }));
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Prompt 1: Hallo und willkommen." })).toBeInTheDocument();
-    });
+    expect(screen.getByRole("article", { name: "Prompt 2: Vielen Dank und auf Wiedersehen." })).toBeInTheDocument();
   });
 });
 
@@ -214,8 +196,6 @@ describe("VoiceProfilesPanel — references", () => {
     await user.click(
       await screen.findByRole("button", { name: "Profil Meine Stimme auswählen" }),
     );
-    // Select the REVIEW script (s2).
-    await user.click(await screen.findByRole("button", { name: "Prompt 2: Vielen Dank und auf Wiedersehen." }));
     // The accept-review endpoint returns the updated profile.
     const updatedProfile = {
       ...profileWithRefs,
@@ -249,7 +229,6 @@ describe("VoiceProfilesPanel — references", () => {
     await user.click(
       await screen.findByRole("button", { name: "Profil Meine Stimme auswählen" }),
     );
-    await user.click(await screen.findByRole("button", { name: "Prompt 1: Hallo und willkommen." }));
     // The detach endpoint returns the updated profile (without the reference).
     const updatedProfile = {
       ...profileWithRefs,
@@ -261,7 +240,10 @@ describe("VoiceProfilesPanel — references", () => {
       200,
       updatedProfile,
     );
-    const detachBtn = await screen.findByRole("button", { name: /Verknüpfung entfernen/ });
+    // Target the detach button inside the s1 prompt item specifically, since
+    // every prompt with a reference renders its own inline detach button.
+    const s1Item = await screen.findByRole("article", { name: "Prompt 1: Hallo und willkommen." });
+    const detachBtn = within(s1Item).getByRole("button", { name: /Verknüpfung entfernen/ });
     await user.click(detachBtn);
     await waitFor(() => {
       expect(
@@ -276,7 +258,7 @@ describe("VoiceProfilesPanel — references", () => {
 });
 
 describe("VoiceProfilesPanel — delete dialog", () => {
-  it("opens a dialog that explains WAV files are preserved", async () => {
+  it("opens a dialog that explains WAV files are deleted with the profile", async () => {
     const user = userEvent.setup();
     renderPanel();
     await user.click(
@@ -284,7 +266,7 @@ describe("VoiceProfilesPanel — delete dialog", () => {
     );
     await user.click(screen.getByRole("button", { name: /Löschen/ }));
     expect(await screen.findByText("Profil löschen?")).toBeInTheDocument();
-    expect(screen.getByText(/Die zugrunde liegenden WAV-Aufnahmen bleiben erhalten/)).toBeInTheDocument();
+    expect(screen.getByText(/verknüpften WAV-Aufnahmen werden gelöscht/)).toBeInTheDocument();
   });
 
   it("does not delete when the dialog is cancelled", async () => {

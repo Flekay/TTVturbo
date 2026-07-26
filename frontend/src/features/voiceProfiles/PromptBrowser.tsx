@@ -1,12 +1,17 @@
 import { useMemo, useState } from "react";
-import { ReferenceStatusBadge } from "./ReferenceStatus";
+import { PromptRecordingPanel } from "./PromptRecordingPanel";
 import type { PromptFilter, VoiceProfileReference, VoiceScript } from "./types";
 
 interface PromptBrowserProps {
   scripts: VoiceScript[];
   references: VoiceProfileReference[];
-  selectedScriptId: string | null;
-  onSelectScript: (id: string) => void;
+  profileId: string;
+  onAttachReference: (scriptId: string, recordingFilename: string) => void;
+  onDetachReference: (scriptId: string) => void;
+  onAcceptReview: (scriptId: string) => void;
+  attachPendingScriptId: string | null;
+  detachPendingScriptId: string | null;
+  acceptPendingScriptId: string | null;
 }
 
 const FILTER_LABELS: Record<PromptFilter, string> = {
@@ -19,16 +24,16 @@ const FILTER_LABELS: Record<PromptFilter, string> = {
 
 const FILTERS: PromptFilter[] = ["ALL", "MISSING", "ACCEPTED", "REVIEW", "REJECTED"];
 
-function truncate(text: string, max = 80): string {
-  const clean = text.replace(/\s+/g, " ").trim();
-  return clean.length > max ? `${clean.slice(0, max)}…` : clean;
-}
-
 export function PromptBrowser({
   scripts,
   references,
-  selectedScriptId,
-  onSelectScript,
+  profileId,
+  onAttachReference,
+  onDetachReference,
+  onAcceptReview,
+  attachPendingScriptId,
+  detachPendingScriptId,
+  acceptPendingScriptId,
 }: PromptBrowserProps) {
   const [filter, setFilter] = useState<PromptFilter>("ALL");
   const [styleFilter, setStyleFilter] = useState<string>("");
@@ -140,39 +145,22 @@ export function PromptBrowser({
         </p>
       ) : (
         <ul className="vp-prompt-browser__list" aria-label="Prompts">
-          {visibleScripts.map((script, index) => {
-            const ref = refByScript.get(script.id);
-            const active = script.id === selectedScriptId;
-            const tag = script.style ?? script.category ?? "";
-            return (
-              <li key={script.id}>
-                <button
-                  type="button"
-                  className={[
-                    "vp-prompt-item",
-                    active ? "vp-prompt-item--active" : "",
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
-                  onClick={() => onSelectScript(script.id)}
-                  aria-pressed={active}
-                  aria-label={`Prompt ${index + 1}: ${truncate(script.text, 40)}`}
-                >
-                  <span className="vp-prompt-item__order">{index + 1}</span>
-                  <span className="vp-prompt-item__tag">{tag}</span>
-                  <span className="vp-prompt-item__text">{truncate(script.text)}</span>
-                  <span className="vp-prompt-item__status">
-                    <ReferenceStatusBadge status={ref?.status ?? null} />
-                    {ref && (
-                      <span className="vp-prompt-item__order" title={ref.recording_filename}>
-                        {ref.recording_filename}
-                      </span>
-                    )}
-                  </span>
-                </button>
-              </li>
-            );
-          })}
+          {visibleScripts.map((script, index) => (
+            <li key={script.id}>
+              <PromptRecordingPanel
+                script={script}
+                reference={refByScript.get(script.id) ?? null}
+                profileId={profileId}
+                index={index}
+                onAttachReference={(filename) => onAttachReference(script.id, filename)}
+                onDetachReference={() => onDetachReference(script.id)}
+                onAcceptReview={() => onAcceptReview(script.id)}
+                attachPending={attachPendingScriptId === script.id}
+                detachPending={detachPendingScriptId === script.id}
+                acceptPending={acceptPendingScriptId === script.id}
+              />
+            </li>
+          ))}
         </ul>
       )}
     </div>

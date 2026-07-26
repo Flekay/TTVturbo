@@ -418,7 +418,7 @@ async def upload_recording(audio: UploadFile = File(...)) -> JSONResponse:
             status_code=415,
             detail=f"Unsupported file extension: {suffix or '(none)'}.",
         )
-    content_type = (audio.content_type or "").lower()
+    content_type = (audio.content_type or "").lower().split(";", 1)[0].strip()
     # Allow through if the type is missing/unknown but the extension is allowed.
     if content_type and content_type not in ALLOWED_UPLOAD_MIME_TYPES:
         raise HTTPException(
