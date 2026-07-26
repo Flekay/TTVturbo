@@ -1,8 +1,16 @@
-"""Minimal local browser app for real microphone recordings.
+"""TTVturbo local dashboard backend.
+
+Provides:
+  * a real microphone recording pipeline (browser -> FFmpeg -> WAV),
+  * a recordings library (list / play / download / delete),
+  * a real `/api/status` endpoint with computed system values,
+  * serving of the built React frontend (frontend/dist) including
+    SPA fallback for unknown non-API routes.
 
 Endpoints:
-  GET  /                          -> serves static/index.html
-  POST /api/recordings            -> receives a browser recording, converts to WAV via FFmpeg
+  GET  /                          -> SPA index (frontend/dist/index.html)
+  GET  /api/status                -> real system + recordings status
+  POST /api/recordings            -> receives a browser recording, converts to WAV
   GET  /api/recordings            -> lists all stored WAV recordings (newest first)
   GET  /api/recordings/{filename} -> streams a stored WAV file
   DELETE /api/recordings/{filename} -> deletes a stored WAV file
@@ -17,6 +25,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
 import wave
 from pathlib import Path
@@ -29,14 +38,40 @@ logger = logging.getLogger("ttvturbo")
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
+FRONTEND_DIST_DIR = BASE_DIR / "frontend" / "dist"
 RECORDINGS_DIR = BASE_DIR / "recordings"
 RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
 
-app = FastAPI(title="TTVturbo")
+APP_NAME = "TTVturbo"
+APP_VERSION = "0.1.0"
+START_TIME_MONOTONIC = time.monotonic()
 
-# Serve the static frontend (index.html, app.js, style.css) at /.
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+# Upload guardrails.
+MAX_UPLOAD_BYTES = 64 * 1024 * 1024  # 64 MiB
+ALLOWED_UPLOAD_MIME_TYPES = {
+    "audio/webm",
+    "audio/ogg",
+    "audio/mp4",
+    "audio/mpeg",
+    "audio/wav",
+    "audio/x-wav",
+    "audio/aac",
+    "application/octet-stream",
+}
+ALLOWED_UPLOAD_EXTENSIONS = {".webm", ".ogg", ".mp4", ".m4a", ".mp3", ".wav", ".aac"}
 
+app = FastAPI(title=APP_NAME)
+
+# Keep the legacy static/ folder mounted for backwards compatibility with
+# the old vanilla test frontend (and any external references). The React
+# dashboard is served from frontend/dist via the SPA fallback below.
+if STATIC_DIR.is_dir():
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+# --------------------------------------------------------------------------- #
+# FFmpeg helpers
+# --------------------------------------------------------------------------- #
 
 def _find_executable(name: str) -> str | None:
     """Find an executable by name.
@@ -77,6 +112,10 @@ def _ffmpeg_available() -> str | None:
     """Return the ffmpeg executable path or None if not found."""
     return _find_executable("ffmpeg")
 
+
+# --------------------------------------------------------------------------- #
+# WAV / recordings helpers
+# --------------------------------------------------------------------------- #
 
 def _read_wav_duration(path: Path) -> float | None:
     """Return the WAV duration in seconds, read from the real file.
@@ -134,6 +173,28 @@ def _list_recordings() -> list[dict]:
     return items
 
 
+def _recordings_summary() -> dict:
+    """Compute real aggregate values over the recordings directory."""
+    recordings = _list_recordings()
+    total_duration = sum(r["duration_seconds"] for r in recordings)
+    total_size = sum(r["file_size_bytes"] for r in recordings)
+    return {
+        "count": len(recordings),
+        "total_duration_seconds": round(total_duration, 2),
+        "total_size_bytes": total_size,
+    }
+
+
+def _free_storage_bytes() -> int:
+    """Return real free disk space for the recordings partition."""
+    try:
+        usage = shutil.disk_usage(RECORDINGS_DIR)
+        return int(usage.free)
+    except OSError as exc:
+        logger.warning("Could not determine free disk space: %s", exc)
+        return 0
+
+
 def _safe_filename(filename: str) -> str | None:
     """Return a plain filename if safe, else None.
 
@@ -153,13 +214,65 @@ def _safe_filename(filename: str) -> str | None:
     return safe
 
 
-@app.get("/")
-def index() -> FileResponse:
-    index_html = STATIC_DIR / "index.html"
+# --------------------------------------------------------------------------- #
+# SPA serving
+# --------------------------------------------------------------------------- #
+
+def _spa_index() -> FileResponse:
+    index_html = FRONTEND_DIST_DIR / "index.html"
     if not index_html.is_file():
-        raise HTTPException(status_code=404, detail="static/index.html not found")
+        raise HTTPException(
+            status_code=404,
+            detail="frontend not built. Run `npm --prefix frontend run build`.",
+        )
     return FileResponse(index_html, media_type="text/html")
 
+
+@app.get("/")
+def index() -> FileResponse:
+    """Serve the SPA entry point.
+
+    If the React frontend has not been built yet, fall back to the legacy
+    static test page so the recording pipeline keeps working during
+    development.
+    """
+    if (FRONTEND_DIST_DIR / "index.html").is_file():
+        return _spa_index()
+    legacy = STATIC_DIR / "index.html"
+    if legacy.is_file():
+        return FileResponse(legacy, media_type="text/html")
+    raise HTTPException(status_code=404, detail="index.html not found")
+
+
+# --------------------------------------------------------------------------- #
+# API: status
+# --------------------------------------------------------------------------- #
+
+@app.get("/api/status")
+def get_status() -> JSONResponse:
+    """Return real, computed system and recordings status."""
+    ffmpeg = _ffmpeg_available()
+    return JSONResponse(content={
+        "status": "online",
+        "app_name": APP_NAME,
+        "version": APP_VERSION,
+        "uptime_seconds": round(time.monotonic() - START_TIME_MONOTONIC, 1),
+        "recordings": _recordings_summary(),
+        "storage": {
+            "free_bytes": _free_storage_bytes(),
+        },
+        "features": {
+            "recording": "available" if ffmpeg is not None else "unavailable",
+            "voice_cloning": "not_implemented",
+            "vod_analysis": "not_implemented",
+            "video_editor": "not_implemented",
+        },
+    })
+
+
+# --------------------------------------------------------------------------- #
+# API: recordings
+# --------------------------------------------------------------------------- #
 
 @app.post("/api/recordings")
 async def upload_recording(audio: UploadFile = File(...)) -> JSONResponse:
@@ -173,20 +286,45 @@ async def upload_recording(audio: UploadFile = File(...)) -> JSONResponse:
     if not audio.filename:
         raise HTTPException(status_code=400, detail="No filename provided.")
 
-    # Preserve the original extension so FFmpeg can demux correctly.
-    suffix = Path(audio.filename).suffix.lower() or ".webm"
+    # Validate extension and content type before touching disk.
+    suffix = Path(audio.filename).suffix.lower()
+    if suffix not in ALLOWED_UPLOAD_EXTENSIONS:
+        raise HTTPException(
+            status_code=415,
+            detail=f"Unsupported file extension: {suffix or '(none)'}.",
+        )
+    content_type = (audio.content_type or "").lower()
+    # Allow through if the type is missing/unknown but the extension is allowed.
+    if content_type and content_type not in ALLOWED_UPLOAD_MIME_TYPES:
+        raise HTTPException(
+            status_code=415,
+            detail=f"Unsupported content type: {content_type}.",
+        )
+
     recording_id = uuid.uuid4().hex
+    suffix = suffix or ".webm"
     tmp_in = Path(tempfile.gettempdir()) / f"ttvturbo_{recording_id}{suffix}"
     wav_name = f"{recording_id}.wav"
     wav_path = RECORDINGS_DIR / wav_name
 
     try:
+        total = 0
         with tmp_in.open("wb") as fh:
             while True:
                 chunk = await audio.read(1 << 20)  # 1 MiB
                 if not chunk:
                     break
+                total += len(chunk)
+                if total > MAX_UPLOAD_BYTES:
+                    fh.close()
+                    tmp_in.unlink(missing_ok=True)
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"Upload exceeds {MAX_UPLOAD_BYTES} bytes.",
+                    )
                 fh.write(chunk)
+    except HTTPException:
+        raise
     except Exception as exc:  # pragma: no cover - disk error path
         tmp_in.unlink(missing_ok=True)
         raise HTTPException(status_code=500, detail=f"Failed to store upload: {exc}") from exc
@@ -274,6 +412,8 @@ def get_recording(filename: str) -> FileResponse:
     safe = Path(filename).name
     if safe != filename:
         raise HTTPException(status_code=400, detail="Invalid filename.")
+    if not safe.lower().endswith(".wav"):
+        raise HTTPException(status_code=400, detail="Invalid filename.")
     wav_path = RECORDINGS_DIR / safe
     if not wav_path.is_file():
         raise HTTPException(status_code=404, detail="Recording not found.")
@@ -295,13 +435,52 @@ def delete_recording(filename: str) -> JSONResponse:
     return JSONResponse(content={"filename": safe, "deleted": True})
 
 
+# --------------------------------------------------------------------------- #
+# SPA fallback (must be registered AFTER all API routes and /static mount).
+# --------------------------------------------------------------------------- #
+
+@app.api_route(
+    "/{full_path:path}",
+    methods=["GET", "HEAD"],
+    include_in_schema=False,
+)
+def spa_fallback(full_path: str) -> FileResponse:
+    """Serve the React SPA for any unknown non-API route.
+
+    Rules:
+      * `/api/*` is never handled here (returns 404 JSON, no SPA fallback).
+      * Real files inside `frontend/dist` (JS/CSS/assets) are served directly.
+      * Everything else falls back to `index.html` so client-side routing
+        works on direct visits and reloads.
+    """
+    if full_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="Not found.")
+
+    # Serve a real built asset if it exists.
+    if full_path:
+        candidate = (FRONTEND_DIST_DIR / full_path).resolve()
+        try:
+            candidate.relative_to(FRONTEND_DIST_DIR.resolve())
+        except ValueError:
+            raise HTTPException(status_code=404, detail="Not found.")
+        if candidate.is_file():
+            return FileResponse(candidate)
+
+    return _spa_index()
+
+
 def main() -> None:
     import uvicorn
 
     if _ffmpeg_available() is None:
         print("WARNING: ffmpeg not found on PATH. WAV conversion will fail.", file=sys.stderr)
+    if not (FRONTEND_DIST_DIR / "index.html").is_file():
+        print(
+            "WARNING: frontend/dist not built. Run `npm --prefix frontend run build`.",
+            file=sys.stderr,
+        )
 
-    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="info")
+    uvicorn.run(app, host="127.0.0.1", port=8765, log_level="info")
 
 
 if __name__ == "__main__":

@@ -74,15 +74,15 @@ def main() -> None:
         fail(f"FastAPI app could not be constructed: {exc}")
     ok("FastAPI app constructs.")
 
-    # 2. Start page loads.
+    # 2. Start page loads. The React dashboard is served from frontend/dist
+    #    when built; otherwise the legacy static test page is served.
     resp = client.get("/")
     if resp.status_code != 200:
         fail(f"GET / returned {resp.status_code}.")
     body = resp.text
-    for needle in ["Aufnahme starten", "Aufnahme stoppen", "app.js", "style.css"]:
-        if needle not in body:
-            fail(f"Start page missing expected content: {needle!r}.")
-    ok("Start page (GET /) loads and contains required UI elements.")
+    if "id=\"root\"" not in body and "Aufnahme starten" not in body:
+        fail("Start page missing expected content (neither React root nor legacy UI).")
+    ok("Start page (GET /) loads and serves a frontend.")
 
     # 3. Upload endpoint accepts a real audio file.
     with tempfile.TemporaryDirectory() as tmp:

@@ -220,3 +220,8 @@ __marimo__/
 # TTVturbo generated recordings
 recordings/*.wav
 
+# Frontend build artifacts and dependencies
+frontend/node_modules/
+frontend/dist/
+frontend/tsconfig.tsbuildinfo
+
