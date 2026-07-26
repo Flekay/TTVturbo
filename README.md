@@ -9,8 +9,9 @@ sie über ein React-Dashboard bereit.
 
 ```
 TTVturbo/
-├── app.py                # FastAPI-Backend: Aufnahmen, Status, SPA-Auslieferung
+├── app.py                # FastAPI-Backend: Aufnahmen, Voice Clone, Status, SPA-Auslieferung
 ├── recordings/           # erzeugte WAV-Dateien (real)
+├── voice_clone/          # Qwen3-TTS Voice-Clone-Modul (Service, Runtime, Qualitätsanalyse)
 ├── static/               # Legacy-Testfrontend (Fallback, wenn frontend/dist fehlt)
 ├── tests/                # pytest-Backendtests
 ├── requirements.txt
@@ -137,6 +138,11 @@ Fake-Daten oder funktionslose Aktionen.
 
 ## Voice-Lab-Funktion
 
+Das Voice Lab besteht aus drei Tabs: **Aufnahmen**, **Voice Clone** und
+**Generierungen**.
+
+### Aufnahmen
+
 1. Mikrofonberechtigung im Browser erlauben.
 2. Audiogerät auswählen.
 3. Aufnahme starten / stoppen.
@@ -151,6 +157,32 @@ Der Recorder kapselt Berechtigungsanfrage, Geräteauswahl, MediaRecorder,
 Dauer, Live-Pegel (Web Audio `AnalyserNode`), Blob-Erzeugung und Upload
 im `useRecorder`-Hook.
 
+### Voice Clone (Qwen3-TTS)
+
+1. Referenzaufnahme aus der Bibliothek wählen.
+2. Der Server analysiert die technische Qualität der Referenz
+   (Pegel, Stille, SNR, Dropouts, Clipping, NaN/Inf) und stuft sie als
+   `EXCELLENT`, `GOOD`, `REVIEW` oder `REJECT` ein.
+3. Exakt gesprochenen Referenztext und neuen Zieltext (max. 300 Zeichen)
+   eingeben.
+4. Bei `REVIEW` muss die Qualitätswarnung explizit bestätigt werden;
+   bei `REJECT` ist die Generierung blockiert.
+5. Beim Start wird ein eigener Subprocess mit dem
+   `Qwen/Qwen3-TTS-12Hz-1.7B-Base`-Modell auf der RTX 5070 gestartet.
+   Der Status (QUEUED → VALIDATING_REFERENCE → LOADING_MODEL →
+   GENERATING → VALIDATING_OUTPUT → READY/FAILED) wird live im Dashboard
+   gepollt.
+6. Es läuft höchstens eine Generierung gleichzeitig (Server-Lock). Eine
+   zweite Anfrage wird mit HTTP 409 abgelehnt.
+7. Nach Abschluss erscheint die Generierung im Tab **Generierungen** mit
+   Audio-Player, Download und Löschen-Button.
+8. Generierungen, die beim Server-Neustart in einem transienten Status
+   waren, werden automatisch auf `FAILED` mit Begründung gesetzt und
+   partielle Outputs werden entfernt.
+
+Die Voice-Clone-Artefakte liegen unter `voice_clones/<id>/` mit
+`metadata.json` und `output.wav`. Path-Traversal ist auch hier blockiert.
+
 ## API-Endpunkte
 
 | Methode | Pfad                          | Beschreibung                                  |
@@ -161,6 +193,13 @@ im `useRecorder`-Hook.
 | GET     | `/api/recordings`             | listet WAVs (neueste zuerst)                  |
 | GET     | `/api/recordings/{filename}`  | liefert eine gespeicherte WAV-Datei           |
 | DELETE  | `/api/recordings/{filename}`  | löscht eine gespeicherte WAV-Datei            |
+| GET     | `/api/voice-clone/status`     | Voice-Clone-Modulstatus (verfügbar, busy, Modell) |
+| GET     | `/api/voice-clone/analyze-reference/{filename}` | technische Qualitätsanalyse einer Aufnahme |
+| POST    | `/api/voice-clone/generations`| startet eine neue Qwen3-TTS-Generierung       |
+| GET     | `/api/voice-clone/generations`| listet alle Generierungen (Metadaten)         |
+| GET     | `/api/voice-clone/generations/{id}` | einzelne Generierung (Metadaten)        |
+| GET     | `/api/voice-clone/generations/{id}/audio` | WAV-Output einer fertigen Generierung |
+| DELETE  | `/api/voice-clone/generations/{id}` | löscht eine Generierung (Verzeichnis)  |
 
 `/api/status` liefert u. a. App-Version, Laufzeit, Aufnahmeanzahl,
 Gesamtdauer, belegten Speicher, freien Speicher und den Featurestatus.
@@ -190,19 +229,26 @@ Getestet werden u. a.:
 
 - `/api/status` mit realen Werten
 - Aufnahmeanzahl, Gesamtdauer, Gesamtgröße, freier Speicher
-- Featurestatus
+- Featurestatus (inkl. `voice_cloning: available`)
 - statische Frontenddateien und SPA-Fallback
 - `/api/*` erhält keinen SPA-Fallback
 - beschädigte WAV wird ignoriert
-- Path Traversal bleibt blockiert
-- Dashboard-, Voice-Lab-, Routing- und Löschen-Tests (Vitest + RTL)
+- Path Traversal bleibt blockiert (Aufnahmen und Voice Clone)
+- Voice-Clone-Validierung (fehlende Referenz, leerer Text, zu langer Text)
+- Voice-Clone-Qualitätsanalyse (REJECT, REVIEW, GOOD)
+- Voice-Clone-Subprocess-Fehler werden als FAILED mit Begründung persistiert
+- Voice-Clone-Konfliktlock (zweite Anfrage während laufender Generierung → 409)
+- Voice-Clone-Restart-Recovery (transiente Status werden FAILED)
+- Voice-Clone-Output-Validierung (silent, byte-identisch mit Referenz)
+- Voice-Clone-E2E (gated via `TTVTURBO_RUN_QWEN_TTS_E2E=1`, lädt das echte Modell)
+- Dashboard-, Voice-Lab-, Voice-Clone-Tab- und Generierungen-Tab-Tests (Vitest + RTL)
 
 ## Bekannte Einschränkungen
 
 - Keine Smartphone-Optimierung (Desktop primero).
 - Einstellungen werden nur in `localStorage` gespeichert.
 - Keine serverseitige Einstellungsdatenbank, keine Benutzerkonten.
-- Kein Voice-Cloning, keine TTS, keine Transkription.
+- Voice-Clone-E2E-Test lädt das echte Qwen3-TTS-Modell (gated).
 - Kein VOD-Download, kein Twitch- oder OBS-Anschluss.
 - Kein Videoeditor, keine Automationen, kein Publishing.
 - Keine Worker, keine Redis, kein Docker, kein Tauri/Rust.
@@ -220,11 +266,13 @@ Real implementiert:
 - Dashboardstatus (reale Werte)
 - React-Dashboard mit Routing, Sidebar, Topbar, Einstellungen
 - TanStack Query Cache invalidation
+- Voice Clone (Qwen3-TTS) mit Subprocess, Qualitätsanalyse, Status-Polling,
+  Restart-Recovery, Konflikt-Lock
+- Voice Lab mit Tabs (Aufnahmen, Voice Clone, Generierungen)
 - Vitest- und pytest-Tests
 
 Noch nicht implementiert:
 
-- Voice-Cloning
 - Transkription
 - VOD-Verarbeitung
 - Videoeditor

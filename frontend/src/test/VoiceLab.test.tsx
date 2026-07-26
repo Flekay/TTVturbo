@@ -15,10 +15,17 @@ const status: BackendStatus = {
   storage: { free_bytes: 1000 },
   features: {
     recording: "available",
-    voice_cloning: "not_implemented",
+    voice_cloning: "available",
     vod_analysis: "not_implemented",
     video_editor: "not_implemented",
   },
+};
+
+const voiceCloneStatus = {
+  available: true,
+  busy: false,
+  active_generation_id: null,
+  model_id: "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
 };
 
 const sampleRecording = {
@@ -48,6 +55,8 @@ describe("VoiceLabPage", () => {
   beforeEach(() => {
     mock = installFetchMock();
     mock.setResponse("GET /api/status", 200, status);
+    mock.setResponse("GET /api/voice-clone/status", 200, voiceCloneStatus);
+    mock.setResponse("GET /api/voice-clone/generations", 200, { generations: [] });
   });
 
   afterEach(() => {

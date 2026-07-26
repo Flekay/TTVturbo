@@ -1,0 +1,109 @@
+export type GenerationStatus =
+  | "QUEUED"
+  | "VALIDATING_REFERENCE"
+  | "LOADING_MODEL"
+  | "GENERATING"
+  | "VALIDATING_OUTPUT"
+  | "READY"
+  | "FAILED";
+
+export type QualityClass = "EXCELLENT" | "GOOD" | "REVIEW" | "REJECT";
+
+export interface VoiceCloneStatusResponse {
+  available: boolean;
+  busy: boolean;
+  active_generation_id: string | null;
+  model_id: string;
+}
+
+export interface QualityMetrics {
+  technical: {
+    sample_rate: number;
+    channels: number;
+    frame_count: number;
+    duration_seconds: number;
+    subtype: string | null;
+    format: string | null;
+  };
+  levels: {
+    peak_dbfs: number | null;
+    rms_dbfs: number | null;
+    dc_offset: number;
+    clipping_sample_count: number;
+    clipping_sample_ratio: number;
+  };
+  silence: {
+    leading_silence_ms: number;
+    trailing_silence_ms: number;
+    total_silence_ratio: number;
+    voice_ratio: number;
+    frame_count_total: number;
+    frame_count_silent: number;
+    frame_count_active: number;
+  };
+  noise: {
+    estimated_noise_floor_dbfs: number | null;
+    estimated_snr_db: number | null;
+    active_frames_used: number;
+  };
+  dropouts: {
+    dropout_count: number;
+    dropout_total_ms: number;
+    longest_dropout_ms: number;
+  };
+  integrity: {
+    has_nan: boolean;
+    has_infinity: boolean;
+  };
+  quality: QualityClass;
+  reasons: string[];
+  warnings: string[];
+  voice_clone_reference: {
+    eligible: boolean;
+    quality: QualityClass;
+    reasons: string[];
+    warnings: string[];
+  };
+}
+
+export interface GenerationMetadata {
+  id: string;
+  status: GenerationStatus;
+  reference_recording: string;
+  reference_sha256: string;
+  reference_text: string;
+  target_text: string;
+  language: string;
+  model_id: string;
+  model_revision: string;
+  created_at: string;
+  completed_at: string | null;
+  output_duration_seconds: number | null;
+  generation_seconds: number | null;
+  peak_vram_bytes: number | null;
+  quality: Partial<QualityMetrics> & { quality?: QualityClass };
+  failure_reason: string | null;
+  warnings: string[];
+}
+
+export interface GenerationListResponse {
+  generations: GenerationMetadata[];
+}
+
+export interface CreateGenerationRequest {
+  reference_recording: string;
+  reference_text: string;
+  target_text: string;
+  language?: string;
+  allow_quality_warning?: boolean;
+}
+
+export interface CreateGenerationResponse {
+  id: string;
+  status: GenerationStatus;
+}
+
+export interface DeleteGenerationResponse {
+  id: string;
+  deleted: boolean;
+}

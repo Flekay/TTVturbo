@@ -34,6 +34,13 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from voice_clone.schemas import (
+    CreateGenerationRequest,
+    GenerationStatus,
+)
+from voice_clone.service import ValidationError as VoiceCloneValidationError
+from voice_clone.service import VoiceCloneService
+
 logger = logging.getLogger("ttvturbo")
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -41,6 +48,15 @@ STATIC_DIR = BASE_DIR / "static"
 FRONTEND_DIST_DIR = BASE_DIR / "frontend" / "dist"
 RECORDINGS_DIR = BASE_DIR / "recordings"
 RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
+
+# Voice-clone vertical slice. The service owns persistence, validation and
+# the single Qwen3-TTS worker subprocess. It recovers persisted state on
+# startup so generations survive a server restart.
+VOICE_CLONES_DIR = BASE_DIR / "voice_clones"
+voice_clone_service = VoiceCloneService(
+    recordings_dir=RECORDINGS_DIR,
+    voice_clones_dir=VOICE_CLONES_DIR,
+)
 
 APP_NAME = "TTVturbo"
 APP_VERSION = "0.1.0"
@@ -252,6 +268,7 @@ def index() -> FileResponse:
 def get_status() -> JSONResponse:
     """Return real, computed system and recordings status."""
     ffmpeg = _ffmpeg_available()
+    vc_status = voice_clone_service.status()
     return JSONResponse(content={
         "status": "online",
         "app_name": APP_NAME,
@@ -263,7 +280,7 @@ def get_status() -> JSONResponse:
         },
         "features": {
             "recording": "available" if ffmpeg is not None else "unavailable",
-            "voice_cloning": "not_implemented",
+            "voice_cloning": "available" if vc_status["available"] else "unavailable",
             "vod_analysis": "not_implemented",
             "video_editor": "not_implemented",
         },
@@ -433,6 +450,81 @@ def delete_recording(filename: str) -> JSONResponse:
     except OSError as exc:
         raise HTTPException(status_code=500, detail=f"Could not delete file: {exc}") from exc
     return JSONResponse(content={"filename": safe, "deleted": True})
+
+
+# --------------------------------------------------------------------------- #
+# API: voice clone
+# --------------------------------------------------------------------------- #
+
+@app.get("/api/voice-clone/status")
+def voice_clone_status() -> JSONResponse:
+    return JSONResponse(content=voice_clone_service.status())
+
+
+@app.get("/api/voice-clone/analyze-reference/{filename}")
+def voice_clone_analyze_reference(filename: str) -> JSONResponse:
+    """Run the technical quality analysis on a recording and return the result.
+
+    Used by the Voice Clone form so the user sees the quality class and
+    warnings before starting a generation.
+    """
+    try:
+        result = voice_clone_service.analyze_reference(filename)
+    except VoiceCloneValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return JSONResponse(content=result)
+
+
+@app.post("/api/voice-clone/generations")
+def create_voice_clone_generation(request: CreateGenerationRequest) -> JSONResponse:
+    try:
+        meta = voice_clone_service.create_generation(request.model_dump())
+    except VoiceCloneValidationError as exc:
+        # Distinguish "busy" (409) from other validation failures (400).
+        if "already running" in str(exc):
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return JSONResponse(status_code=201, content={"id": meta["id"], "status": meta["status"]})
+
+
+@app.get("/api/voice-clone/generations")
+def list_voice_clone_generations() -> JSONResponse:
+    return JSONResponse(content={"generations": voice_clone_service.list_generations()})
+
+
+@app.get("/api/voice-clone/generations/{generation_id}")
+def get_voice_clone_generation(generation_id: str) -> JSONResponse:
+    try:
+        meta = voice_clone_service.get_generation(generation_id)
+    except VoiceCloneValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if meta is None:
+        raise HTTPException(status_code=404, detail="Generation not found.")
+    return JSONResponse(content=meta)
+
+
+@app.get("/api/voice-clone/generations/{generation_id}/audio")
+def get_voice_clone_audio(generation_id: str) -> FileResponse:
+    try:
+        out = voice_clone_service.output_path_for(generation_id)
+    except VoiceCloneValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if out is None:
+        raise HTTPException(status_code=404, detail="Audio not available for this generation.")
+    return FileResponse(out, media_type="audio/wav", filename="output.wav")
+
+
+@app.delete("/api/voice-clone/generations/{generation_id}")
+def delete_voice_clone_generation(generation_id: str) -> JSONResponse:
+    try:
+        deleted = voice_clone_service.delete_generation(generation_id)
+    except VoiceCloneValidationError as exc:
+        if "currently running" in str(exc):
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Generation not found.")
+    return JSONResponse(content={"id": generation_id, "deleted": True})
 
 
 # --------------------------------------------------------------------------- #

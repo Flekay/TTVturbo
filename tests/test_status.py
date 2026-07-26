@@ -66,7 +66,7 @@ def test_status_features_recording_available(client, ffmpeg_available):
 def test_status_features_not_implemented_modules(client):
     data = client.get("/api/status").json()
     features = data["features"]
-    assert features["voice_cloning"] == "not_implemented"
+    assert features["voice_cloning"] == "available"
     assert features["vod_analysis"] == "not_implemented"
     assert features["video_editor"] == "not_implemented"
 

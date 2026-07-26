@@ -44,3 +44,54 @@ export const recordingDeleteResponseSchema = z.object({
   filename: z.string(),
   deleted: z.boolean(),
 });
+
+export const generationStatusSchema = z.enum([
+  "QUEUED",
+  "VALIDATING_REFERENCE",
+  "LOADING_MODEL",
+  "GENERATING",
+  "VALIDATING_OUTPUT",
+  "READY",
+  "FAILED",
+]);
+
+export const voiceCloneStatusSchema = z.object({
+  available: z.boolean(),
+  busy: z.boolean(),
+  active_generation_id: z.string().nullable(),
+  model_id: z.string(),
+});
+
+export const generationMetadataSchema = z.object({
+  id: z.string(),
+  status: generationStatusSchema,
+  reference_recording: z.string(),
+  reference_sha256: z.string(),
+  reference_text: z.string(),
+  target_text: z.string(),
+  language: z.string(),
+  model_id: z.string(),
+  model_revision: z.string(),
+  created_at: z.string(),
+  completed_at: z.string().nullable(),
+  output_duration_seconds: z.number().nullable(),
+  generation_seconds: z.number().nullable(),
+  peak_vram_bytes: z.number().nullable(),
+  quality: z.record(z.string(), z.unknown()),
+  failure_reason: z.string().nullable(),
+  warnings: z.array(z.string()),
+});
+
+export const generationListSchema = z.object({
+  generations: z.array(generationMetadataSchema),
+});
+
+export const createGenerationResponseSchema = z.object({
+  id: z.string(),
+  status: generationStatusSchema,
+});
+
+export const deleteGenerationResponseSchema = z.object({
+  id: z.string(),
+  deleted: z.boolean(),
+});

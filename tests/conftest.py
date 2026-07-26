@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import time
@@ -12,6 +13,22 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app as app_module
+
+
+E2E_ENV = "TTVTURBO_RUN_QWEN_TTS_E2E"
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    config.addinivalue_line("markers", "e2e: real Qwen3-TTS model run (downloads weights)")
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    if os.environ.get(E2E_ENV) == "1":
+        return
+    skip_e2e = pytest.mark.skip(reason=f"set {E2E_ENV}=1 to run the real model e2e test")
+    for item in items:
+        if "e2e" in item.keywords:
+            item.add_marker(skip_e2e)
 
 
 @pytest.fixture(scope="session")

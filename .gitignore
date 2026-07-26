@@ -220,6 +220,9 @@ __marimo__/
 # TTVturbo generated recordings
 recordings/*.wav
 
+# Voice-clone generated artifacts (metadata.json + output.wav per generation)
+voice_clones/*/
+
 # Frontend build artifacts and dependencies
 frontend/node_modules/
 frontend/dist/
