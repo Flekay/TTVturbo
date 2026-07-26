@@ -432,6 +432,8 @@
 
 /* Name dialog (create / rename) */
 .vp-name-dialog {
+  position: relative;
+  z-index: 1;
   background-color: var(--color-bg-panel);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);

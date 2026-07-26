@@ -42,49 +42,51 @@ export function ConfirmDialog({
   return (
     <AlertDialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <AlertDialogPrimitive.Portal>
-        <AlertDialogPrimitive.Overlay className="dialog-overlay" />
-        <AlertDialogPrimitive.Content
-          className="dialog"
-          onEscapeKeyDown={(e) => {
-            // Escape cancels (safe default); never confirm on escape.
-            e.preventDefault();
-            if (!busy) onCancel?.();
-          }}
-          onOpenAutoFocus={(e) => {
-            // Radix would focus the first focusable element; we explicitly
-            // focus the cancel button below via effect, so suppress the default
-            // to avoid a focus jump.
-            e.preventDefault();
-          }}
-        >
-          <AlertDialogPrimitive.Title className="dialog__title">
-            {title}
-          </AlertDialogPrimitive.Title>
-          <AlertDialogPrimitive.Description className="dialog__description">
-            {description}
-          </AlertDialogPrimitive.Description>
-          <div className="dialog__actions">
-            <Button
-              ref={cancelRef}
-              variant="secondary"
-              onClick={() => {
-                if (!busy) onCancel?.();
-              }}
-              disabled={busy}
-            >
-              {cancelLabel}
-            </Button>
-            <Button
-              variant={destructive ? "danger" : "primary"}
-              onClick={() => {
-                if (!busy) onConfirm();
-              }}
-              loading={busy}
-            >
-              {confirmLabel}
-            </Button>
-          </div>
-        </AlertDialogPrimitive.Content>
+        <div className="dialog-root">
+          <AlertDialogPrimitive.Overlay className="dialog-overlay" />
+          <AlertDialogPrimitive.Content
+            className="dialog"
+            onEscapeKeyDown={(e) => {
+              // Escape cancels (safe default); never confirm on escape.
+              e.preventDefault();
+              if (!busy) onCancel?.();
+            }}
+            onOpenAutoFocus={(e) => {
+              // Radix would focus the first focusable element; we explicitly
+              // focus the cancel button below via effect, so suppress the default
+              // to avoid a focus jump.
+              e.preventDefault();
+            }}
+          >
+            <AlertDialogPrimitive.Title className="dialog__title">
+              {title}
+            </AlertDialogPrimitive.Title>
+            <AlertDialogPrimitive.Description className="dialog__description">
+              {description}
+            </AlertDialogPrimitive.Description>
+            <div className="dialog__actions">
+              <Button
+                ref={cancelRef}
+                variant="secondary"
+                onClick={() => {
+                  if (!busy) onCancel?.();
+                }}
+                disabled={busy}
+              >
+                {cancelLabel}
+              </Button>
+              <Button
+                variant={destructive ? "danger" : "primary"}
+                onClick={() => {
+                  if (!busy) onConfirm();
+                }}
+                loading={busy}
+              >
+                {confirmLabel}
+              </Button>
+            </div>
+          </AlertDialogPrimitive.Content>
+        </div>
       </AlertDialogPrimitive.Portal>
     </AlertDialogPrimitive.Root>
   );

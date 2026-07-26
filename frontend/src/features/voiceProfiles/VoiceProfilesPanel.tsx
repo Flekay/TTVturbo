@@ -80,71 +80,73 @@ function NameDialog({
   return (
     <Dialog.Root open onOpenChange={(open) => { if (!open && !pending) onClose(); }}>
       <Dialog.Portal>
-        <Dialog.Overlay className="dialog-overlay" />
-        <Dialog.Content className="vp-name-dialog" onEscapeKeyDown={(e) => {
-          if (pending) e.preventDefault();
-        }}>
-          <Dialog.Title className="vp-name-dialog__title">{title}</Dialog.Title>
-          <Dialog.Description asChild>
-            <p style={{ color: "var(--color-text-secondary)", fontSize: 13, margin: 0 }}>
-              {mode.kind === "create"
-                ? "Lege Name und Locale für das neue Profil fest."
-                : "Gib einen neuen Namen für das Profil ein."}
-            </p>
-          </Dialog.Description>
-          <form
-            className="vp-name-dialog__field"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (name.trim() && !pending) onSubmit(name.trim());
-            }}
-          >
-            <label htmlFor="vp-name-input" className="sr-only">
-              {label}
-            </label>
-            <input
-              id="vp-name-input"
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              autoFocus
-              aria-label={label}
-            />
-            {mode.kind === "create" && (
-              <>
-                <label htmlFor="vp-locale-input" className="sr-only">
-                  Locale
-                </label>
-                <input
-                  id="vp-locale-input"
-                  type="text"
-                  value="de-DE"
-                  readOnly
-                  aria-label="Locale"
-                />
-              </>
-            )}
-            <div className="vp-name-dialog__actions">
-              <button
-                type="button"
-                className="btn btn--secondary btn--sm"
-                onClick={() => {
-                  if (!pending) onClose();
-                }}
-                disabled={pending}
-              >
-                Abbrechen
-              </button>
-              <button
-                type="submit"
-                className="btn btn--primary btn--sm"
-                disabled={!name.trim() || pending}
-              >
-                {pending ? "…" : "Speichern"}
-              </button>
-            </div>
-          </form>
-        </Dialog.Content>
+        <div className="dialog-root">
+          <Dialog.Overlay className="dialog-overlay" />
+          <Dialog.Content className="vp-name-dialog" onEscapeKeyDown={(e) => {
+            if (pending) e.preventDefault();
+          }}>
+            <Dialog.Title className="vp-name-dialog__title">{title}</Dialog.Title>
+            <Dialog.Description asChild>
+              <p style={{ color: "var(--color-text-secondary)", fontSize: 13, margin: 0 }}>
+                {mode.kind === "create"
+                  ? "Lege Name und Locale für das neue Profil fest."
+                  : "Gib einen neuen Namen für das Profil ein."}
+              </p>
+            </Dialog.Description>
+            <form
+              className="vp-name-dialog__field"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (name.trim() && !pending) onSubmit(name.trim());
+              }}
+            >
+              <label htmlFor="vp-name-input" className="sr-only">
+                {label}
+              </label>
+              <input
+                id="vp-name-input"
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                autoFocus
+                aria-label={label}
+              />
+              {mode.kind === "create" && (
+                <>
+                  <label htmlFor="vp-locale-input" className="sr-only">
+                    Locale
+                  </label>
+                  <input
+                    id="vp-locale-input"
+                    type="text"
+                    value="de-DE"
+                    readOnly
+                    aria-label="Locale"
+                  />
+                </>
+              )}
+              <div className="vp-name-dialog__actions">
+                <button
+                  type="button"
+                  className="btn btn--secondary btn--sm"
+                  onClick={() => {
+                    if (!pending) onClose();
+                  }}
+                  disabled={pending}
+                >
+                  Abbrechen
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn--primary btn--sm"
+                  disabled={!name.trim() || pending}
+                >
+                  {pending ? "…" : "Speichern"}
+                </button>
+              </div>
+            </form>
+          </Dialog.Content>
+        </div>
       </Dialog.Portal>
     </Dialog.Root>
   );
