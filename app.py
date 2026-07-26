@@ -41,6 +41,12 @@ from voice_clone.schemas import (
 from voice_clone.service import ValidationError as VoiceCloneValidationError
 from voice_clone.service import VoiceCloneService
 
+from voice_profiles_api import (
+    build_router as build_voice_profiles_router,
+    build_service as build_voice_profile_service,
+    make_quality_analyzer as make_voice_profile_quality_analyzer,
+)
+
 logger = logging.getLogger("ttvturbo")
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -57,6 +63,61 @@ voice_clone_service = VoiceCloneService(
     recordings_dir=RECORDINGS_DIR,
     voice_clones_dir=VOICE_CLONES_DIR,
 )
+
+# Voice-profile integration. Exactly one library, storage and service
+# instance is built at startup. The persistence directory is configurable
+# via TTVTURBO_VOICE_PROFILES_DIR and defaults to voice_profiles_data/ next
+# to the app. The real voice-clone quality analyzer is delegated to the
+# voice-profile API so reference quality is always computed server-side.
+VOICE_PROFILES_DIR = Path(
+    os.environ.get("TTVTURBO_VOICE_PROFILES_DIR") or (BASE_DIR / "voice_profiles_data")
+)
+VOICE_PROFILES_DIR.mkdir(parents=True, exist_ok=True)
+voice_profile_service = build_voice_profile_service(
+    recordings_dir=RECORDINGS_DIR,
+    voice_profiles_dir=VOICE_PROFILES_DIR,
+)
+_voice_profile_quality_analyzer = make_voice_profile_quality_analyzer(voice_clone_service)
+voice_profiles_router = build_voice_profiles_router(
+    voice_profile_service, quality_analyzer=_voice_profile_quality_analyzer
+)
+
+# Connect the voice-clone profile mode to the voice-profile service. The
+# resolver runs server-side: it loads the profile, finds the accepted
+# reference for the given script id, and returns the real WAV filename and
+# the stored script text. The client can never supply either value in
+# profile mode.
+def _resolve_profile_reference(profile_id: str, script_id: str) -> dict:
+    from voice_clone.service import ValidationError as _VCValidationError
+    from voice_profiles import (
+        VoiceProfileNotFoundError,
+        VoiceScriptNotFoundError,
+        ReferenceStatus,
+    )
+
+    try:
+        profile = voice_profile_service.get_profile(profile_id)
+    except VoiceProfileNotFoundError as exc:
+        raise _VCValidationError(f"Unknown voice profile: {profile_id}") from exc
+    refs = profile.get("references", {}) or {}
+    ref = refs.get(script_id)
+    if ref is None:
+        raise _VCValidationError(
+            f"Profile {profile_id} has no reference for script {script_id}."
+        )
+    if ref.get("status") != ReferenceStatus.ACCEPTED.value:
+        raise _VCValidationError(
+            f"Reference for script {script_id} is not ACCEPTED "
+            f"(status: {ref.get('status')})."
+        )
+    return {
+        "recording_filename": ref.get("recording_filename"),
+        "script_text": ref.get("script_text"),
+        "profile_name": profile.get("name"),
+    }
+
+
+voice_clone_service.set_profile_reference_resolver(_resolve_profile_reference)
 
 APP_NAME = "TTVturbo"
 APP_VERSION = "0.1.0"
@@ -83,6 +144,10 @@ app = FastAPI(title=APP_NAME)
 # dashboard is served from frontend/dist via the SPA fallback below.
 if STATIC_DIR.is_dir():
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+# Voice-profile API routes. Registered before the SPA fallback so /api/*
+# routes take precedence over the catch-all.
+app.include_router(voice_profiles_router)
 
 
 # --------------------------------------------------------------------------- #
@@ -269,6 +334,25 @@ def get_status() -> JSONResponse:
     """Return real, computed system and recordings status."""
     ffmpeg = _ffmpeg_available()
     vc_status = voice_clone_service.status()
+    # Real voice-profile aggregate counts. Computed from the actual profile
+    # store; never fabricated. Failures degrade to zeros so the rest of the
+    # status payload stays intact.
+    vp_count = 0
+    vp_clone_ready = 0
+    vp_complete = 0
+    vp_available = "available"
+    try:
+        profiles = voice_profile_service.list_profiles(include_archived=False)
+        vp_count = len(profiles)
+        for p in profiles:
+            progress = p.get("progress") or {}
+            if progress.get("clone_ready"):
+                vp_clone_ready += 1
+            if progress.get("pack_complete"):
+                vp_complete += 1
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("voice-profile status aggregation failed: %s", exc)
+        vp_available = "unavailable"
     return JSONResponse(content={
         "status": "online",
         "app_name": APP_NAME,
@@ -281,6 +365,7 @@ def get_status() -> JSONResponse:
         "features": {
             "recording": "available" if ffmpeg is not None else "unavailable",
             "voice_cloning": "available" if vc_status["available"] else "unavailable",
+            "voice_profiles": vp_available,
             "vod_analysis": "not_implemented",
             "video_editor": "not_implemented",
         },
@@ -299,6 +384,13 @@ def get_status() -> JSONResponse:
             "qwen_tts_importable": vc_status["qwen_tts_importable"],
             "reasons": vc_status["reasons"],
             "warnings": vc_status["warnings"],
+        },
+        # Additive voice-profile aggregate status. The frontend ignores
+        # unknown keys; no local storage paths are leaked here.
+        "voice_profiles": {
+            "count": vp_count,
+            "clone_ready_count": vp_clone_ready,
+            "complete_count": vp_complete,
         },
     })
 
@@ -461,6 +553,26 @@ def delete_recording(filename: str) -> JSONResponse:
     wav_path = RECORDINGS_DIR / safe
     if not wav_path.is_file():
         raise HTTPException(status_code=404, detail="Recording not found.")
+    # Block deletion while the recording is referenced by any voice profile.
+    # The user must detach or replace the reference first.
+    try:
+        using_profiles = voice_profile_service.find_profiles_using_recording(safe)
+    except Exception:  # pragma: no cover - defensive, never block deletion silently
+        using_profiles = []
+    if using_profiles:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "detail": {
+                    "code": "recording_in_use",
+                    "message": "Die Aufnahme wird von einem Voice Profile verwendet.",
+                    "profiles": [
+                        {"id": p.get("id"), "name": p.get("name")}
+                        for p in using_profiles
+                    ],
+                }
+            },
+        )
     try:
         wav_path.unlink()
     except OSError as exc:

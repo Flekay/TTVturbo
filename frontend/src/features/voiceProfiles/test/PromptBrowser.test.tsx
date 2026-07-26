@@ -5,23 +5,39 @@ import { PromptBrowser } from "../PromptBrowser";
 import type { VoiceProfileReference, VoiceScript } from "../types";
 
 const scripts: VoiceScript[] = [
-  { id: "s2", order: 2, style: "neutral", category: "intro", text: "Zweites Skript." },
-  { id: "s1", order: 1, style: "formal", category: "greeting", text: "Erstes Skript Hallo." },
-  { id: "s3", order: 3, style: "neutral", category: "outro", text: "Drittes Skript." },
+  { id: "s2", order: 2, style: "neutral", category: "intro", text: "Zweites Skript.", recommended_duration_seconds: { min: 3, max: 5 }, tags: [] },
+  { id: "s1", order: 1, style: "formal", category: "greeting", text: "Erstes Skript Hallo.", recommended_duration_seconds: { min: 3, max: 5 }, tags: [] },
+  { id: "s3", order: 3, style: "neutral", category: "outro", text: "Drittes Skript.", recommended_duration_seconds: { min: 3, max: 5 }, tags: [] },
 ];
 
 const references: VoiceProfileReference[] = [
   {
     script_id: "s1",
+    script_text: "Erstes Skript Hallo.",
+    category: "greeting",
+    style: "formal",
     recording_filename: "a.wav",
+    recording_sha256: "deadbeef",
+    quality: {},
+    quality_class: "GOOD",
     status: "ACCEPTED",
-    created_at: "2026-01-01T00:00:00+00:00",
+    review_accepted: false,
+    attached_at: "2026-01-01T00:00:00+00:00",
+    updated_at: "2026-01-01T00:00:00+00:00",
   },
   {
     script_id: "s3",
+    script_text: "Drittes Skript.",
+    category: "outro",
+    style: "neutral",
     recording_filename: "b.wav",
+    recording_sha256: "cafebabe",
+    quality: {},
+    quality_class: "REJECT",
     status: "REJECTED",
-    created_at: "2026-01-01T00:00:00+00:00",
+    review_accepted: false,
+    attached_at: "2026-01-01T00:00:00+00:00",
+    updated_at: "2026-01-01T00:00:00+00:00",
   },
 ];
 

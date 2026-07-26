@@ -45,16 +45,18 @@ def _prompt(
 
 
 def _pack(prompts: list[dict], *, schema_version: int = 1,
-          expected_prompt_count: int | None = None,
-          pack_id: str = "ttvturbo_voice_pack_v1",
-          name: str = "TTVturbo Voice Pack v1") -> dict:
+          prompt_count: int | None = None,
+          pack_id: str = "ttvturbo-de-de-v1",
+          title: str = "TTVturbo German Voice Pack v1",
+          kind: str = "recording_pack") -> dict:
     return {
         "schema_version": schema_version,
-        "id": pack_id,
+        "pack_id": pack_id,
         "locale": "de-DE",
-        "name": name,
-        "version": "v1",
-        "expected_prompt_count": expected_prompt_count,
+        "kind": kind,
+        "title": title,
+        "description": "Test pack.",
+        "prompt_count": prompt_count if prompt_count is not None else len(prompts),
         "prompts": prompts,
     }
 
@@ -71,7 +73,7 @@ def two_prompts() -> list[dict]:
 def pack_file(tmp_path: Path, two_prompts: list[dict]) -> Path:
     path = tmp_path / "pack.json"
     path.write_text(
-        json.dumps(_pack(two_prompts, expected_prompt_count=2), ensure_ascii=False),
+        json.dumps(_pack(two_prompts, prompt_count=2), ensure_ascii=False),
         encoding="utf-8",
     )
     return path
@@ -83,9 +85,10 @@ def holdout_file(tmp_path: Path) -> Path:
     holdout_prompts = [_prompt("de-DE-holdout-001", 1, style="holdout")]
     path.write_text(
         json.dumps(
-            _pack(holdout_prompts, expected_prompt_count=1,
-                  pack_id="ttvturbo_voice_holdout_v1",
-                  name="TTVturbo Voice Holdout v1"),
+            _pack(holdout_prompts, prompt_count=1,
+                  pack_id="ttvturbo-de-de-holdout-v1",
+                  title="TTVturbo German Voice Holdout v1",
+                  kind="holdout"),
             ensure_ascii=False,
         ),
         encoding="utf-8",
@@ -132,7 +135,7 @@ class TestLoadPack:
 
     def test_pack_metadata(self, library: ScriptLibrary) -> None:
         meta = library.get_pack_metadata()
-        assert meta["id"] == "ttvturbo_voice_pack_v1"
+        assert meta["pack_id"] == "ttvturbo-de-de-v1"
         assert meta["locale"] == "de-DE"
         assert "prompts" not in meta
 
@@ -162,7 +165,7 @@ class TestDuplicateIds:
         bad = tmp_path / "dup.json"
         prompts = [_prompt("dup", 1), _prompt("dup", 2)]
         bad.write_text(
-            json.dumps(_pack(prompts, expected_prompt_count=2), ensure_ascii=False),
+            json.dumps(_pack(prompts, prompt_count=2), ensure_ascii=False),
             encoding="utf-8",
         )
         lib = ScriptLibrary(pack_path=bad, holdout_path=holdout_file)
@@ -176,18 +179,18 @@ class TestPromptCount:
         prompts = [_prompt("a", 1), _prompt("b", 2)]
         # Declare 88 but provide 2
         bad.write_text(
-            json.dumps(_pack(prompts, expected_prompt_count=88), ensure_ascii=False),
+            json.dumps(_pack(prompts, prompt_count=88), ensure_ascii=False),
             encoding="utf-8",
         )
         lib = ScriptLibrary(pack_path=bad, holdout_path=holdout_file)
         with pytest.raises(VoiceProfileStorageError):
             lib.get_recording_prompts()
 
-    def test_missing_expected_count_allowed(self, tmp_path: Path, holdout_file: Path) -> None:
-        # If expected_prompt_count is null, no count check is performed.
+    def test_matching_prompt_count_allowed(self, tmp_path: Path, holdout_file: Path) -> None:
+        # prompt_count must match the actual number of prompts.
         path = tmp_path / "pack.json"
         path.write_text(
-            json.dumps(_pack([_prompt("a", 1)], expected_prompt_count=None),
+            json.dumps(_pack([_prompt("a", 1)], prompt_count=1),
                        ensure_ascii=False),
             encoding="utf-8",
         )

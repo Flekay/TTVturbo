@@ -110,14 +110,21 @@ class ScriptPrompt(BaseModel):
 
 
 class ScriptPack(BaseModel):
-    """Top-level shape of a pack/holdout JSON file."""
+    """Top-level shape of a pack/holdout JSON file.
+
+    Mirrors the real files under ``config/voice_lab/...`` which use
+    ``pack_id`` / ``title`` / ``prompt_count`` / ``kind`` / ``description``
+    instead of the earlier ``id`` / ``name`` / ``version`` / ``expected_prompt_count``
+    placeholder fields.
+    """
 
     schema_version: int
-    id: str
+    pack_id: str
     locale: str
-    name: str
-    version: str
-    expected_prompt_count: Optional[int] = None
+    kind: str
+    title: str
+    description: Optional[str] = None
+    prompt_count: int
     prompts: list[ScriptPrompt]
 
 

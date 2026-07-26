@@ -93,7 +93,7 @@ export function ProfileList({
             <div className="vp-profile-card__meta">
               <span>Erstellt: {formatDate(profile.created_at)}</span>
               <span>Akzeptiert: {profile.progress.accepted}</span>
-              <span>Fortschritt: {Math.round(profile.progress.percent ?? 0)}%</span>
+              <span>Fortschritt: {Math.round(profile.progress.percentage ?? 0)}%</span>
             </div>
             <div className="vp-profile-card__badges">
               {profile.progress.clone_ready && (

@@ -30,6 +30,33 @@ function formatDuration(seconds: number | null | undefined): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+function formatDurationRange(
+  range: { min: number; max: number } | null | undefined,
+): string {
+  if (!range) return "?";
+  return `${formatDuration(range.min)}–${formatDuration(range.max)}`;
+}
+
+/** Extract the quality warnings from the analyzer result stored on the reference. */
+function referenceWarnings(reference: VoiceProfileReference | null): string[] {
+  if (!reference) return [];
+  const vcr = reference.quality?.voice_clone_reference as
+    | { warnings?: unknown }
+    | undefined;
+  if (vcr && Array.isArray(vcr.warnings)) return vcr.warnings as string[];
+  return [];
+}
+
+/** Extract the quality reasons from the analyzer result stored on the reference. */
+function referenceReasons(reference: VoiceProfileReference | null): string[] {
+  if (!reference) return [];
+  const vcr = reference.quality?.voice_clone_reference as
+    | { reasons?: unknown }
+    | undefined;
+  if (vcr && Array.isArray(vcr.reasons)) return vcr.reasons as string[];
+  return [];
+}
+
 function audioUrlFor(
   filename: string,
   recordings: { filename: string; audio_url: string }[],
@@ -66,6 +93,8 @@ export function PromptRecordingPanel({
   const status = reference?.status ?? null;
   const isReview = status === "REVIEW";
   const hasReference = !!reference;
+  const warnings = referenceWarnings(reference);
+  const rejectionReasons = status === "REJECTED" ? referenceReasons(reference) : [];
 
   const handleRecord = () => {
     if (!onStartPromptRecording) return;
@@ -82,16 +111,16 @@ export function PromptRecordingPanel({
         <div className="vp-prompt-panel__meta">
           {tag && <span>Stil/Kategorie: {tag}</span>}
           {recommendedDuration !== null && (
-            <span>Empfohlene Dauer: {formatDuration(recommendedDuration)}</span>
+            <span>Empfohlene Dauer: {formatDurationRange(recommendedDuration)}</span>
           )}
           <span>
             Status: <ReferenceStatusBadge status={status} />
           </span>
         </div>
         <p className="vp-prompt-panel__text">{script.text}</p>
-        {script.notes && (
+        {script.recording_notes && (
           <p className="vp-prompt-panel__notes" aria-label="Aufnahmehinweise">
-            Hinweise: {script.notes}
+            Hinweise: {script.recording_notes}
           </p>
         )}
       </div>
@@ -102,8 +131,11 @@ export function PromptRecordingPanel({
           <>
             <div className="vp-prompt-panel__meta">
               <span>Datei: {reference?.recording_filename}</span>
-              {reference?.created_at && (
-                <span>Verknüpft: {new Date(reference.created_at).toLocaleString()}</span>
+              {reference?.attached_at && (
+                <span>Verknüpft: {new Date(reference.attached_at).toLocaleString()}</span>
+              )}
+              {reference?.quality_class && (
+                <span>Qualitätsklasse: {reference.quality_class}</span>
               )}
             </div>
             {audioUrl && (
@@ -114,28 +146,29 @@ export function PromptRecordingPanel({
                 aria-label={`Audio-Player für ${reference?.recording_filename}`}
               />
             )}
-            {reference?.warnings && reference.warnings.length > 0 && (
+            {warnings.length > 0 && (
               <ul className="vp-prompt-panel__warnings" role="note">
-                {reference.warnings.map((w, i) => (
+                {warnings.map((w, i) => (
                   <li key={i}>
                     <AlertTriangle size={12} /> {w}
                   </li>
                 ))}
               </ul>
             )}
-            {reference?.rejection_reasons && reference.rejection_reasons.length > 0 && (
+            {rejectionReasons.length > 0 && (
               <ul className="vp-prompt-panel__rejections" role="note">
-                {reference.rejection_reasons.map((r, i) => (
+                {rejectionReasons.map((r, i) => (
                   <li key={i}>
                     <AlertTriangle size={12} /> {r}
                   </li>
                 ))}
               </ul>
             )}
-            {reference?.technical && Object.keys(reference.technical).length > 0 && (
-              <pre className="vp-prompt-panel__technical" aria-label="Technische Qualität">
-                {JSON.stringify(reference.technical, null, 2)}
-              </pre>
+            {reference?.quality && Object.keys(reference.quality).length > 0 && (
+              <details className="vp-prompt-panel__technical" aria-label="Technische Qualität">
+                <summary>Technische Qualität anzeigen</summary>
+                <pre>{JSON.stringify(reference.quality, null, 2)}</pre>
+              </details>
             )}
           </>
         ) : (

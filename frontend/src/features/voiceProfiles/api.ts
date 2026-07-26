@@ -4,7 +4,6 @@ import {
   voiceProfileSchema,
   voiceProfileListResponseSchema,
   voiceProfileDeleteResponseSchema,
-  voiceProfileReferenceSchema,
 } from "./schemas";
 import type {
   AttachReferenceRequest,
@@ -13,7 +12,6 @@ import type {
   VoiceProfile,
   VoiceProfileDeleteResponse,
   VoiceProfileListResponse,
-  VoiceProfileReference,
   VoiceScriptPack,
 } from "./types";
 
@@ -71,33 +69,39 @@ export function deleteVoiceProfile(id: string): Promise<VoiceProfileDeleteRespon
   });
 }
 
+/**
+ * Attach (or replace) a reference for a script on a profile.
+ *
+ * The server runs the real quality analysis and returns the updated profile
+ * (with progress). The client only sends the recording filename.
+ */
 export function attachReference(
   profileId: string,
   scriptId: string,
   request: AttachReferenceRequest,
-): Promise<VoiceProfileReference> {
+): Promise<VoiceProfile> {
   return apiRequest(
     `${BASE}/${encodeURIComponent(profileId)}/references/${encodeURIComponent(scriptId)}`,
-    { method: "PUT", body: request, schema: voiceProfileReferenceSchema },
+    { method: "PUT", body: request, schema: voiceProfileSchema },
   );
 }
 
 export function detachReference(
   profileId: string,
   scriptId: string,
-): Promise<VoiceProfileDeleteResponse> {
-  return apiClient.delete(
+): Promise<VoiceProfile> {
+  return apiRequest(
     `${BASE}/${encodeURIComponent(profileId)}/references/${encodeURIComponent(scriptId)}`,
-    { schema: voiceProfileDeleteResponseSchema },
+    { method: "DELETE", schema: voiceProfileSchema },
   );
 }
 
 export function acceptReview(
   profileId: string,
   scriptId: string,
-): Promise<VoiceProfileReference> {
+): Promise<VoiceProfile> {
   return apiClient.post(
     `${BASE}/${encodeURIComponent(profileId)}/references/${encodeURIComponent(scriptId)}/accept-review`,
-    { schema: voiceProfileReferenceSchema },
+    { schema: voiceProfileSchema },
   );
 }

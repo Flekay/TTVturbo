@@ -184,10 +184,15 @@ export function VoiceProfilesPanel({ onStartPromptRecording }: VoiceProfilesPane
   }, [selectedId]);
 
   const profiles = profilesQuery.data?.profiles ?? [];
-  const scripts = scriptsQuery.data?.scripts ?? [];
-  const holdouts = holdoutQuery.data?.scripts ?? [];
+  const scripts = scriptsQuery.data?.prompts ?? [];
+  const holdouts = holdoutQuery.data?.prompts ?? [];
   const selectedProfile = profileQuery.data ?? null;
-  const references = selectedProfile?.references ?? [];
+  // The backend stores references as a dict keyed by script_id. Convert to
+  // an array for the components that iterate over them.
+  const references = useMemo(
+    () => (selectedProfile?.references ? Object.values(selectedProfile.references) : []),
+    [selectedProfile?.references],
+  );
   const selectedScript = useMemo(
     () => scripts.find((s) => s.id === selectedScriptId) ?? null,
     [scripts, selectedScriptId],

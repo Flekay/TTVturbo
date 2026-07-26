@@ -3,7 +3,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders, installFetchMock } from "../../../test/test-utils";
 import { VoiceProfilesPanel } from "../VoiceProfilesPanel";
-import type { PromptRecordingRequest } from "../types";
+import type { PromptRecordingRequest, VoiceProfile } from "../types";
 
 const script1 = {
   id: "s1",
@@ -11,8 +11,9 @@ const script1 = {
   style: "neutral",
   category: "greeting",
   text: "Hallo und willkommen.",
-  recommended_duration_seconds: 4,
-  notes: "Ruhig sprechen.",
+  recommended_duration_seconds: { min: 3, max: 5 },
+  tags: [],
+  recording_notes: "Ruhig sprechen.",
 };
 const script2 = {
   id: "s2",
@@ -20,7 +21,9 @@ const script2 = {
   style: "formal",
   category: "closing",
   text: "Vielen Dank und auf Wiedersehen.",
-  recommended_duration_seconds: 5,
+  recommended_duration_seconds: { min: 4, max: 6 },
+  tags: [],
+  recording_notes: null,
 };
 const holdoutScript = {
   id: "h1",
@@ -28,6 +31,9 @@ const holdoutScript = {
   style: "holdout",
   category: "qa",
   text: "Holdout-Text für spätere Prüfung.",
+  recommended_duration_seconds: { min: 5, max: 8 },
+  tags: [],
+  recording_notes: null,
 };
 
 const progress = {
@@ -36,31 +42,39 @@ const progress = {
   review: 1,
   rejected: 0,
   missing: 0,
-  percent: 50,
+  recorded: 2,
+  percentage: 50,
   clone_ready: false,
   pack_complete: false,
 };
 
-const profileWithRefs = {
+function makeRef(scriptId: string, filename: string, status: string, scriptText: string) {
+  return {
+    script_id: scriptId,
+    script_text: scriptText,
+    category: "greeting",
+    style: "neutral",
+    recording_filename: filename,
+    recording_sha256: "deadbeef",
+    quality: { voice_clone_reference: { quality: "GOOD" } },
+    quality_class: "GOOD",
+    status,
+    review_accepted: false,
+    attached_at: "2026-01-01T00:00:00+00:00",
+    updated_at: "2026-01-01T00:00:00+00:00",
+  };
+}
+
+const profileWithRefs: VoiceProfile = {
   id: "p1",
   name: "Meine Stimme",
   locale: "de-DE",
   created_at: "2026-01-01T00:00:00+00:00",
   archived: false,
-  references: [
-    {
-      script_id: "s1",
-      recording_filename: "a.wav",
-      status: "ACCEPTED",
-      created_at: "2026-01-01T00:00:00+00:00",
-    },
-    {
-      script_id: "s2",
-      recording_filename: "b.wav",
-      status: "REVIEW",
-      created_at: "2026-01-01T00:00:00+00:00",
-    },
-  ],
+  references: {
+    s1: makeRef("s1", "a.wav", "ACCEPTED", "Hallo und willkommen."),
+    s2: makeRef("s2", "b.wav", "REVIEW", "Vielen Dank und auf Wiedersehen."),
+  },
   progress,
 };
 
@@ -72,7 +86,7 @@ const sampleRecording = {
   audio_url: "/api/recordings/new.wav",
 };
 
-function setProfileResponse(profile = profileWithRefs) {
+function setProfileResponse(profile: VoiceProfile = profileWithRefs) {
   // The list and the single-profile endpoint both return the same shape.
   mock.setResponse("GET /api/voice-profiles", 200, { profiles: [profile] });
   mock.setResponse(`GET /api/voice-profiles/${profile.id}`, 200, profile);
@@ -90,11 +104,12 @@ beforeEach(() => {
   mock = installFetchMock();
   setProfileResponse();
   mock.setResponse("GET /api/voice-profiles/scripts", 200, {
-    scripts: [script1, script2],
-    total: 2,
+    pack: { pack_id: "pack1", locale: "de-DE", prompt_count: 2, title: "Test" },
+    prompts: [script1, script2],
   });
   mock.setResponse("GET /api/voice-profiles/holdout-scripts", 200, {
-    scripts: [holdoutScript],
+    pack: { pack_id: "holdout1", locale: "de-DE", prompt_count: 1, title: "Holdout" },
+    prompts: [holdoutScript],
   });
   mock.setResponse("GET /api/recordings", 200, { recordings: [sampleRecording] });
 });
@@ -182,8 +197,8 @@ describe("VoiceProfilesPanel — prompts", () => {
     const user = userEvent.setup();
     const profileNoRefs = {
       ...profileWithRefs,
-      references: [],
-      progress: { ...progress, accepted: 0, missing: 2, review: 0, percent: 0 },
+      references: {},
+      progress: { ...progress, accepted: 0, missing: 2, review: 0, recorded: 0, percentage: 0 },
     };
     setProfileResponse(profileNoRefs);
     renderPanel();
@@ -220,11 +235,11 @@ describe("VoiceProfilesPanel — references", () => {
     const user = userEvent.setup();
     const profile = {
       ...profileWithRefs,
-      references: [
-        { script_id: "s1", recording_filename: "a.wav", status: "ACCEPTED", created_at: "x" },
-        { script_id: "s2", recording_filename: "b.wav", status: "REJECTED", created_at: "x" },
-      ],
-      progress: { ...progress, accepted: 1, review: 0, rejected: 1, missing: 0 },
+      references: {
+        s1: makeRef("s1", "a.wav", "ACCEPTED", "Hallo und willkommen."),
+        s2: makeRef("s2", "b.wav", "REJECTED", "Vielen Dank und auf Wiedersehen."),
+      },
+      progress: { ...progress, accepted: 1, review: 0, rejected: 1, missing: 0, recorded: 2, percentage: 50 },
     };
     setProfileResponse(profile);
     renderPanel();
@@ -245,15 +260,19 @@ describe("VoiceProfilesPanel — references", () => {
     );
     // Select the REVIEW script (s2).
     await user.click(await screen.findByRole("button", { name: "Prompt 2: Vielen Dank und auf Wiedersehen." }));
+    // The accept-review endpoint returns the updated profile.
+    const updatedProfile = {
+      ...profileWithRefs,
+      references: {
+        ...profileWithRefs.references,
+        s2: { ...profileWithRefs.references.s2, status: "ACCEPTED", review_accepted: true },
+      },
+      progress: { ...progress, accepted: 2, review: 0, percentage: 100 },
+    };
     mock.setResponse(
       "POST /api/voice-profiles/p1/references/s2/accept-review",
       200,
-      {
-        script_id: "s2",
-        recording_filename: "b.wav",
-        status: "ACCEPTED",
-        created_at: "x",
-      },
+      updatedProfile,
     );
     const acceptBtn = await screen.findByRole("button", { name: /Review ausdrücklich akzeptieren/ });
     await user.click(acceptBtn);
@@ -275,10 +294,16 @@ describe("VoiceProfilesPanel — references", () => {
       await screen.findByRole("button", { name: "Profil Meine Stimme auswählen" }),
     );
     await user.click(await screen.findByRole("button", { name: "Prompt 1: Hallo und willkommen." }));
+    // The detach endpoint returns the updated profile (without the reference).
+    const updatedProfile = {
+      ...profileWithRefs,
+      references: { s2: profileWithRefs.references.s2 },
+      progress: { ...progress, accepted: 0, review: 1, missing: 1, recorded: 1, percentage: 0 },
+    };
     mock.setResponse(
       "DELETE /api/voice-profiles/p1/references/s1",
       200,
-      { id: "s1", deleted: true },
+      updatedProfile,
     );
     const detachBtn = await screen.findByRole("button", { name: /Verknüpfung entfernen/ });
     await user.click(detachBtn);
@@ -297,8 +322,8 @@ describe("VoiceProfilesPanel — references", () => {
     const user = userEvent.setup();
     const profile = {
       ...profileWithRefs,
-      references: [],
-      progress: { ...progress, accepted: 0, missing: 2, review: 0, percent: 0 },
+      references: {},
+      progress: { ...progress, accepted: 0, missing: 2, review: 0, recorded: 0, percentage: 0 },
     };
     setProfileResponse(profile);
     renderPanel();
@@ -306,15 +331,18 @@ describe("VoiceProfilesPanel — references", () => {
       await screen.findByRole("button", { name: "Profil Meine Stimme auswählen" }),
     );
     await user.click(await screen.findByRole("button", { name: "Prompt 1: Hallo und willkommen." }));
+    // The attach endpoint returns the updated profile.
+    const updatedProfile = {
+      ...profileWithRefs,
+      references: {
+        s1: makeRef("s1", "new.wav", "REVIEW", "Hallo und willkommen."),
+      },
+      progress: { ...progress, accepted: 0, review: 1, missing: 1, recorded: 1, percentage: 0 },
+    };
     mock.setResponse(
       "PUT /api/voice-profiles/p1/references/s1",
       200,
-      {
-        script_id: "s1",
-        recording_filename: "new.wav",
-        status: "REVIEW",
-        created_at: "x",
-      },
+      updatedProfile,
     );
     await user.click(
       screen.getByRole("button", { name: /Vorhandene Aufnahme zuweisen/ }),

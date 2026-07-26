@@ -6,6 +6,10 @@ import {
   useReferenceQualityQuery,
   useVoiceCloneStatusQuery,
 } from "../../hooks/useVoiceClone";
+import {
+  useVoiceProfilesQuery,
+  useVoiceProfileQuery,
+} from "../../features/voiceProfiles/hooks";
 import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
 import { useToast } from "../ui/ToastProvider";
@@ -37,10 +41,13 @@ interface VoiceCloneFormProps {
   activePhaseLabel?: string | null;
 }
 
+type CloneMode = "manual" | "profile";
+
 export function VoiceCloneForm({ onGenerationCreated, activePhaseLabel }: VoiceCloneFormProps) {
   const recordingsQuery = useRecordingsQuery();
   const statusQuery = useVoiceCloneStatusQuery();
   const createMutation = useCreateGenerationMutation();
+  const profilesQuery = useVoiceProfilesQuery();
   const toast = useToast();
 
   const recordings = recordingsQuery.data?.recordings ?? [];
@@ -51,31 +58,57 @@ export function VoiceCloneForm({ onGenerationCreated, activePhaseLabel }: VoiceC
   const runtimeWarnings = statusData?.warnings ?? [];
   const activeGenerationId = statusData?.active_generation_id ?? null;
 
+  const [mode, setMode] = useState<CloneMode>("manual");
   const [referenceFilename, setReferenceFilename] = useState<string>("");
   const [referenceText, setReferenceText] = useState<string>("");
   const [targetText, setTargetText] = useState<string>("");
   const [allowQualityWarning, setAllowQualityWarning] = useState<boolean>(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [selectedProfileId, setSelectedProfileId] = useState<string>("");
+  const [selectedProfileScriptId, setSelectedProfileScriptId] = useState<string>("");
 
-  const qualityQuery = useReferenceQualityQuery(referenceFilename || null);
+  const profileQuery = useVoiceProfileQuery(selectedProfileId || null);
+  const qualityQuery = useReferenceQualityQuery(mode === "manual" ? referenceFilename || null : null);
 
   // Reset the quality-warning checkbox whenever the reference changes.
   useEffect(() => {
     setAllowQualityWarning(false);
     setSubmitError(null);
-  }, [referenceFilename]);
+  }, [referenceFilename, mode]);
+
+  // Reset script selection when switching profiles.
+  useEffect(() => {
+    setSelectedProfileScriptId("");
+  }, [selectedProfileId]);
 
   const selectedRecording = useMemo(
     () => recordings.find((r) => r.filename === referenceFilename) ?? null,
     [recordings, referenceFilename],
   );
 
-  const qualityClass: QualityClass | undefined = qualityQuery.data?.quality;
+  const profiles = profilesQuery.data?.profiles ?? [];
+  const selectedProfile = profileQuery.data ?? null;
+  // Only ACCEPTED references are eligible for voice clone.
+  const acceptedReferences = useMemo(() => {
+    if (!selectedProfile?.references) return [];
+    return Object.values(selectedProfile.references).filter(
+      (r) => r.status === "ACCEPTED",
+    );
+  }, [selectedProfile?.references]);
+  const selectedProfileReference = useMemo(
+    () => acceptedReferences.find((r) => r.script_id === selectedProfileScriptId) ?? null,
+    [acceptedReferences, selectedProfileScriptId],
+  );
+
+  const qualityClass: QualityClass | undefined =
+    mode === "manual" ? qualityQuery.data?.quality : undefined;
   const qualityWarnings = qualityQuery.data?.voice_clone_reference?.warnings ?? qualityQuery.data?.warnings ?? [];
   const qualityReasons = qualityQuery.data?.voice_clone_reference?.reasons ?? qualityQuery.data?.reasons ?? [];
 
   const targetTooLong = targetText.length > MAX_TARGET_CHARS;
-  const canSubmit =
+
+  // Manual mode submit readiness.
+  const manualCanSubmit =
     available &&
     !busy &&
     !!referenceFilename &&
@@ -85,10 +118,52 @@ export function VoiceCloneForm({ onGenerationCreated, activePhaseLabel }: VoiceC
     (qualityClass !== "REJECT") &&
     (qualityClass !== "REVIEW" || allowQualityWarning);
 
+  // Profile mode submit readiness. The server resolves the WAV and text;
+  // the client only needs a profile, an accepted reference, and target text.
+  const profileCanSubmit =
+    available &&
+    !busy &&
+    !!selectedProfileId &&
+    !!selectedProfileReference &&
+    !!targetText.trim() &&
+    !targetTooLong;
+
+  const canSubmit = mode === "manual" ? manualCanSubmit : profileCanSubmit;
+
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
     if (!canSubmit) return;
     setSubmitError(null);
+    if (mode === "profile") {
+      createMutation.mutate(
+        {
+          voice_profile_id: selectedProfileId,
+          voice_profile_script_id: selectedProfileScriptId,
+          target_text: targetText,
+          language: "German",
+        },
+        {
+          onSuccess: (data) => {
+            toast.show({
+              title: "Generierung gestartet",
+              description: `ID: ${data.id.slice(0, 8)}…`,
+              variant: "success",
+            });
+            onGenerationCreated?.(data.id);
+          },
+          onError: (err) => {
+            const message = err instanceof Error ? err.message : "Unbekannter Fehler";
+            setSubmitError(message);
+            toast.show({
+              title: "Generierung abgelehnt",
+              description: message,
+              variant: "error",
+            });
+          },
+        },
+      );
+      return;
+    }
     createMutation.mutate(
       {
         reference_recording: referenceFilename,
@@ -129,7 +204,7 @@ export function VoiceCloneForm({ onGenerationCreated, activePhaseLabel }: VoiceC
       </p>
     );
   }
-  if (recordings.length === 0) {
+  if (recordings.length === 0 && mode === "manual") {
     return (
       <p className="page__description">
         Nimm zuerst eine Sprachreferenz im Tab „Aufnahmen“ auf.
@@ -167,86 +242,211 @@ export function VoiceCloneForm({ onGenerationCreated, activePhaseLabel }: VoiceC
         </div>
       )}
 
-      <div className="voice-clone-form__row">
-        <label htmlFor="voice-clone-reference" className="voice-clone-form__label">
-          Referenzaufnahme
-        </label>
-        <select
-          id="voice-clone-reference"
-          className="voice-clone-form__select"
-          value={referenceFilename}
-          onChange={(e) => setReferenceFilename(e.target.value)}
-          disabled={busy}
-          aria-label="Referenzaufnahme auswählen"
+      <div className="voice-clone-form__mode" role="group" aria-label="Referenzmodus">
+        <button
+          type="button"
+          className={`btn btn--sm ${mode === "manual" ? "btn--primary" : "btn--secondary"}`}
+          aria-pressed={mode === "manual"}
+          onClick={() => setMode("manual")}
         >
-          <option value="">— Aufnahme wählen —</option>
-          {recordings.map((r) => (
-            <option key={r.filename} value={r.filename}>
-              {r.filename} ({r.duration_seconds.toFixed(1)}s)
-            </option>
-          ))}
-        </select>
+          Manuelle Referenz
+        </button>
+        <button
+          type="button"
+          className={`btn btn--sm ${mode === "profile" ? "btn--primary" : "btn--secondary"}`}
+          aria-pressed={mode === "profile"}
+          onClick={() => setMode("profile")}
+        >
+          Aus Voice-Profil
+        </button>
       </div>
 
-      {selectedRecording && (
-        <div className="voice-clone-form__preview">
-          <audio
-            controls
-            preload="none"
-            src={selectedRecording.audio_url}
-            aria-label={`Referenz ${selectedRecording.filename} abspielen`}
-          />
-          <div className="voice-clone-form__quality">
-            {qualityQuery.isLoading && <span className="page__description">Qualitätsanalyse läuft …</span>}
-            {qualityQuery.isError && (
-              <span className="page__description" role="alert">
-                Qualitätsanalyse fehlgeschlagen.
-              </span>
-            )}
-            {qualityClass && (
-              <>
-                <Badge variant={QUALITY_BADGE[qualityClass].variant} title={qualityReasons.join("; ")}>
-                  Qualität: {QUALITY_BADGE[qualityClass].label}
-                </Badge>
-                {qualityWarnings.length > 0 && (
-                  <ul className="voice-clone-form__warnings" role="note">
-                    {qualityWarnings.map((w, i) => (
-                      <li key={i}>
-                        <AlertTriangle size={12} /> {w}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {qualityReasons.length > 0 && (
-                  <ul className="voice-clone-form__reasons" role="note">
-                    {qualityReasons.map((r, i) => (
-                      <li key={i}>
-                        <AlertTriangle size={12} /> {r}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </>
-            )}
+      {mode === "manual" && (
+        <>
+          <div className="voice-clone-form__row">
+            <label htmlFor="voice-clone-reference" className="voice-clone-form__label">
+              Referenzaufnahme
+            </label>
+            <select
+              id="voice-clone-reference"
+              className="voice-clone-form__select"
+              value={referenceFilename}
+              onChange={(e) => setReferenceFilename(e.target.value)}
+              disabled={busy}
+              aria-label="Referenzaufnahme auswählen"
+            >
+              <option value="">— Aufnahme wählen —</option>
+              {recordings.map((r) => (
+                <option key={r.filename} value={r.filename}>
+                  {r.filename} ({r.duration_seconds.toFixed(1)}s)
+                </option>
+              ))}
+            </select>
           </div>
-        </div>
+
+          {selectedRecording && (
+            <div className="voice-clone-form__preview">
+              <audio
+                controls
+                preload="none"
+                src={selectedRecording.audio_url}
+                aria-label={`Referenz ${selectedRecording.filename} abspielen`}
+              />
+              <div className="voice-clone-form__quality">
+                {qualityQuery.isLoading && <span className="page__description">Qualitätsanalyse läuft …</span>}
+                {qualityQuery.isError && (
+                  <span className="page__description" role="alert">
+                    Qualitätsanalyse fehlgeschlagen.
+                  </span>
+                )}
+                {qualityClass && (
+                  <>
+                    <Badge variant={QUALITY_BADGE[qualityClass].variant} title={qualityReasons.join("; ")}>
+                      Qualität: {QUALITY_BADGE[qualityClass].label}
+                    </Badge>
+                    {qualityWarnings.length > 0 && (
+                      <ul className="voice-clone-form__warnings" role="note">
+                        {qualityWarnings.map((w, i) => (
+                          <li key={i}>
+                            <AlertTriangle size={12} /> {w}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {qualityReasons.length > 0 && (
+                      <ul className="voice-clone-form__reasons" role="note">
+                        {qualityReasons.map((r, i) => (
+                          <li key={i}>
+                            <AlertTriangle size={12} /> {r}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="voice-clone-form__row">
+            <label htmlFor="voice-clone-ref-text" className="voice-clone-form__label">
+              Exakter Referenztext
+            </label>
+            <textarea
+              id="voice-clone-ref-text"
+              className="voice-clone-form__textarea"
+              value={referenceText}
+              onChange={(e) => setReferenceText(e.target.value)}
+              disabled={busy}
+              rows={2}
+              placeholder="Der exakt gesprochene Text der Referenzaufnahme."
+              aria-label="Exakter Referenztext"
+            />
+          </div>
+        </>
       )}
 
-      <div className="voice-clone-form__row">
-        <label htmlFor="voice-clone-ref-text" className="voice-clone-form__label">
-          Exakter Referenztext
-        </label>
-        <textarea
-          id="voice-clone-ref-text"
-          className="voice-clone-form__textarea"
-          value={referenceText}
-          onChange={(e) => setReferenceText(e.target.value)}
-          disabled={busy}
-          rows={2}
-          placeholder="Der exakt gesprochene Text der Referenzaufnahme."
-          aria-label="Exakter Referenztext"
-        />
-      </div>
+      {mode === "profile" && (
+        <>
+          {profilesQuery.isLoading && (
+            <p className="page__description">Lade Voice-Profile …</p>
+          )}
+          {profilesQuery.isError && (
+            <p className="page__description" role="alert">
+              Voice-Profile konnten nicht geladen werden.
+            </p>
+          )}
+          {!profilesQuery.isLoading && !profilesQuery.isError && profiles.length === 0 && (
+            <p className="page__description">
+              Lege zuerst ein Voice-Profil im Tab „Voice Profiles“ an und nimm Referenzen auf.
+            </p>
+          )}
+          {profiles.length > 0 && (
+            <>
+              <div className="voice-clone-form__row">
+                <label htmlFor="voice-clone-profile" className="voice-clone-form__label">
+                  Voice-Profil
+                </label>
+                <select
+                  id="voice-clone-profile"
+                  className="voice-clone-form__select"
+                  value={selectedProfileId}
+                  onChange={(e) => setSelectedProfileId(e.target.value)}
+                  disabled={busy}
+                  aria-label="Voice-Profil auswählen"
+                >
+                  <option value="">— Profil wählen —</option>
+                  {profiles.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.progress.accepted}/{p.progress.total} akzeptiert)
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {selectedProfileId && profileQuery.isLoading && (
+                <p className="page__description">Lade Profilreferenzen …</p>
+              )}
+              {selectedProfileId && profileQuery.isError && (
+                <p className="page__description" role="alert">
+                  Profil konnte nicht geladen werden.
+                </p>
+              )}
+
+              {selectedProfile && (
+                <div className="voice-clone-form__row">
+                  <label htmlFor="voice-clone-profile-ref" className="voice-clone-form__label">
+                    Akzeptierte Referenz ({acceptedReferences.length})
+                  </label>
+                  {acceptedReferences.length === 0 ? (
+                    <p className="page__description">
+                      Dieses Profil hat noch keine akzeptierten Referenzen.
+                    </p>
+                  ) : (
+                    <select
+                      id="voice-clone-profile-ref"
+                      className="voice-clone-form__select"
+                      value={selectedProfileScriptId}
+                      onChange={(e) => setSelectedProfileScriptId(e.target.value)}
+                      disabled={busy}
+                      aria-label="Akzeptierte Profilreferenz auswählen"
+                    >
+                      <option value="">— Referenz wählen —</option>
+                      {acceptedReferences.map((r) => (
+                        <option key={r.script_id} value={r.script_id}>
+                          {r.script_id} · {r.recording_filename}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              )}
+
+              {selectedProfileReference && (
+                <div className="voice-clone-form__preview">
+                  <audio
+                    controls
+                    preload="none"
+                    src={`/api/recordings/${encodeURIComponent(selectedProfileReference.recording_filename)}`}
+                    aria-label={`Referenz ${selectedProfileReference.recording_filename} abspielen`}
+                  />
+                  <div className="voice-clone-form__quality">
+                    <Badge variant="success">
+                      Qualität: {selectedProfileReference.quality_class}
+                    </Badge>
+                    <p className="page__description" style={{ marginTop: 4 }}>
+                      Referenztext (vom Server, nicht editierbar):
+                    </p>
+                    <p className="voice-clone-form__profile-ref-text">
+                      {selectedProfileReference.script_text}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </>
+      )}
 
       <div className="voice-clone-form__row">
         <label htmlFor="voice-clone-target-text" className="voice-clone-form__label">
@@ -270,7 +470,7 @@ export function VoiceCloneForm({ onGenerationCreated, activePhaseLabel }: VoiceC
         </div>
       </div>
 
-      {qualityClass === "REVIEW" && (
+      {mode === "manual" && qualityClass === "REVIEW" && (
         <label className="voice-clone-form__checkbox">
           <input
             type="checkbox"
@@ -284,7 +484,7 @@ export function VoiceCloneForm({ onGenerationCreated, activePhaseLabel }: VoiceC
         </label>
       )}
 
-      {qualityClass === "REJECT" && (
+      {mode === "manual" && qualityClass === "REJECT" && (
         <p className="voice-clone-form__reject" role="alert">
           <AlertTriangle size={14} /> Die Referenz wurde technisch abgelehnt (REJECT). Generierung ist nicht möglich.
         </p>

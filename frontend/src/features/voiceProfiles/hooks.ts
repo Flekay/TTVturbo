@@ -116,6 +116,8 @@ export function useAttachReferenceMutation() {
     onSuccess: (_data, { profileId }) => {
       queryClient.invalidateQueries({ queryKey: voiceProfilesQueryKey });
       queryClient.invalidateQueries({ queryKey: voiceProfileQueryKey(profileId) });
+      queryClient.invalidateQueries({ queryKey: ["recordings"] });
+      queryClient.invalidateQueries({ queryKey: ["status"] });
     },
   });
 }
@@ -128,6 +130,8 @@ export function useDetachReferenceMutation() {
     onSuccess: (_data, { profileId }) => {
       queryClient.invalidateQueries({ queryKey: voiceProfilesQueryKey });
       queryClient.invalidateQueries({ queryKey: voiceProfileQueryKey(profileId) });
+      queryClient.invalidateQueries({ queryKey: ["recordings"] });
+      queryClient.invalidateQueries({ queryKey: ["status"] });
     },
   });
 }
@@ -140,6 +144,7 @@ export function useAcceptReviewMutation() {
     onSuccess: (_data, { profileId }) => {
       queryClient.invalidateQueries({ queryKey: voiceProfilesQueryKey });
       queryClient.invalidateQueries({ queryKey: voiceProfileQueryKey(profileId) });
+      queryClient.invalidateQueries({ queryKey: ["status"] });
     },
   });
 }

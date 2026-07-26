@@ -12,15 +12,24 @@ const validScript = {
   style: "neutral",
   category: "greeting",
   text: "Hallo Welt.",
-  recommended_duration_seconds: 4.5,
-  notes: "Ruhig sprechen.",
+  recommended_duration_seconds: { min: 3, max: 5 },
+  tags: ["greeting"],
+  recording_notes: "Ruhig sprechen.",
 };
 
 const validReference = {
   script_id: "s1",
+  script_text: "Hallo Welt.",
+  category: "greeting",
+  style: "neutral",
   recording_filename: "abc.wav",
+  recording_sha256: "deadbeef",
+  quality: { voice_clone_reference: { quality: "GOOD" } },
+  quality_class: "GOOD",
   status: "ACCEPTED",
-  created_at: "2026-01-01T00:00:00+00:00",
+  review_accepted: false,
+  attached_at: "2026-01-01T00:00:00+00:00",
+  updated_at: "2026-01-01T00:00:00+00:00",
 };
 
 const validProgress = {
@@ -29,7 +38,8 @@ const validProgress = {
   review: 0,
   rejected: 0,
   missing: 9,
-  percent: 10,
+  recorded: 1,
+  percentage: 10,
   clone_ready: false,
   pack_complete: false,
 };
@@ -40,32 +50,33 @@ const validProfile = {
   locale: "de-DE",
   created_at: "2026-01-01T00:00:00+00:00",
   archived: false,
-  references: [validReference],
+  references: { s1: validReference },
   progress: validProgress,
 };
 
 describe("voiceScriptPackSchema", () => {
   it("parses a valid script response", () => {
     const parsed = voiceScriptPackSchema.parse({
-      scripts: [validScript],
-      total: 1,
-      locale: "de-DE",
+      pack: { pack_id: "pack1", locale: "de-DE", prompt_count: 1, title: "Test" },
+      prompts: [validScript],
     });
-    expect(parsed.scripts[0].id).toBe("s1");
-    expect(parsed.scripts[0].text).toBe("Hallo Welt.");
+    expect(parsed.prompts[0].id).toBe("s1");
+    expect(parsed.prompts[0].text).toBe("Hallo Welt.");
   });
 
   it("tolerates additional fields on scripts", () => {
     const parsed = voiceScriptPackSchema.parse({
-      scripts: [{ ...validScript, future_field: "x" }],
+      pack: { pack_id: "pack1", locale: "de-DE", prompt_count: 1 },
+      prompts: [{ ...validScript, future_field: "x" }],
     });
-    expect(parsed.scripts[0].id).toBe("s1");
+    expect(parsed.prompts[0].id).toBe("s1");
   });
 
   it("rejects a script missing a required field", () => {
     expect(() =>
       voiceScriptPackSchema.parse({
-        scripts: [{ ...validScript, id: undefined }],
+        pack: { pack_id: "pack1", locale: "de-DE", prompt_count: 1 },
+        prompts: [{ ...validScript, id: undefined }],
       }),
     ).toThrow();
   });
@@ -75,7 +86,7 @@ describe("voiceProfileSchema", () => {
   it("parses a valid profile", () => {
     const parsed = voiceProfileSchema.parse(validProfile);
     expect(parsed.id).toBe("p1");
-    expect(parsed.references[0].status).toBe("ACCEPTED");
+    expect(parsed.references.s1.status).toBe("ACCEPTED");
   });
 
   it("tolerates additional fields on the profile", () => {
@@ -90,9 +101,9 @@ describe("voiceProfileSchema", () => {
   it("accepts an unknown reference status string", () => {
     const parsed = voiceProfileSchema.parse({
       ...validProfile,
-      references: [{ ...validReference, status: "PENDING_REVIEW" }],
+      references: { s1: { ...validReference, status: "PENDING_REVIEW" } },
     });
-    expect(parsed.references[0].status).toBe("PENDING_REVIEW");
+    expect(parsed.references.s1.status).toBe("PENDING_REVIEW");
   });
 });
 

@@ -13,7 +13,7 @@ interface RecordingPackProgressProps {
  * explicit badges so colour is not the only signal.
  */
 export function RecordingPackProgress({ progress }: RecordingPackProgressProps) {
-  const percent = Math.max(0, Math.min(100, Math.round(progress.percent ?? 0)));
+  const percent = Math.max(0, Math.min(100, Math.round(progress.percentage ?? 0)));
   return (
     <div className="vp-progress" role="group" aria-label="Aufnahmefortschritt">
       <div className="vp-progress__bar" aria-hidden="true">

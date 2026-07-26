@@ -39,13 +39,29 @@ LANGUAGE_DEFAULT = "German"
 
 
 class CreateGenerationRequest(BaseModel):
-    reference_recording: str = Field(..., description="Filename inside the recordings directory.")
-    reference_text: str = Field(..., description="Exact transcript of the reference audio.")
+    # Manual (legacy) mode: the client supplies the reference recording and
+    # the exact reference text. Either both are set (manual mode) or neither
+    # is set (profile mode). Mixing the two modes is rejected by the service.
+    reference_recording: str = Field(
+        "", description="Filename inside the recordings directory (manual mode)."
+    )
+    reference_text: str = Field(
+        "", description="Exact transcript of the reference audio (manual mode)."
+    )
     target_text: str = Field(..., description="Target text to synthesize (max 300 chars).")
     language: str = Field(LANGUAGE_DEFAULT, description="Synthesis language.")
     allow_quality_warning: bool = Field(
         False,
         description="If true, proceed even when the reference quality is REVIEW.",
+    )
+    # Profile mode: the client only picks a profile + accepted reference
+    # script id. The server resolves the WAV and the script text; the client
+    # cannot override either.
+    voice_profile_id: Optional[str] = Field(
+        None, description="Voice profile id (profile mode)."
+    )
+    voice_profile_script_id: Optional[str] = Field(
+        None, description="Script id of an accepted reference on the profile (profile mode)."
     )
 
 

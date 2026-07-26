@@ -98,6 +98,18 @@ class VoiceCloneService:
         self.model_id = model_id
         self.device = device
         self.dtype = dtype
+        # Optional profile-mode resolver injected by the app. When set, the
+        # voice-clone service can resolve a reference from a voice profile's
+        # accepted reference. Signature:
+        #   (profile_id, script_id) -> {
+        #       "recording_filename": str,
+        #       "script_text": str,
+        #       "profile_name": str,
+        #   }
+        # It raises ValidationError on unknown profile/script or non-ACCEPTED
+        # references. Keeping this as a delegate avoids a circular import
+        # between voice_clone and voice_profiles.
+        self._profile_reference_resolver = None
 
         if timeout_seconds is None:
             env_val = os.environ.get(TIMEOUT_ENV)
@@ -121,6 +133,11 @@ class VoiceCloneService:
         # Recover persisted state. Any job still in a transient state after a
         # restart is marked FAILED: its subprocess is gone.
         self._recover_on_startup()
+
+    # ------------------------------------------------------------------ profile resolver
+    def set_profile_reference_resolver(self, resolver) -> None:
+        """Inject the voice-profile reference resolver for profile mode."""
+        self._profile_reference_resolver = resolver
 
     # ------------------------------------------------------------------ paths
     def _generation_dir(self, generation_id: str) -> Path:
@@ -398,12 +415,65 @@ class VoiceCloneService:
         """Validate, persist a QUEUED record, and start the worker subprocess.
 
         Returns the initial metadata dict (with id + status).
+
+        Two mutually exclusive modes are supported:
+
+        * **manual** (legacy): ``reference_recording`` + ``reference_text``
+          are supplied by the client.
+        * **profile**: ``voice_profile_id`` + ``voice_profile_script_id``
+          are supplied; the server resolves the accepted reference's WAV
+          filename and script text. The client cannot override either.
         """
         reference_recording = request.get("reference_recording", "")
         reference_text = request.get("reference_text", "")
         target_text = request.get("target_text", "")
         language = request.get("language", LANGUAGE_DEFAULT)
         allow_quality_warning = bool(request.get("allow_quality_warning", False))
+        voice_profile_id = request.get("voice_profile_id")
+        voice_profile_script_id = request.get("voice_profile_script_id")
+
+        # Mode detection: the two modes are mutually exclusive. Mixing or
+        # omitting both is a hard validation error.
+        has_manual = bool(reference_recording) or bool(reference_text)
+        has_profile = bool(voice_profile_id) or bool(voice_profile_script_id)
+        if has_manual and has_profile:
+            raise ValidationError(
+                "Provide either manual reference fields or voice-profile fields, not both."
+            )
+        if not has_manual and not has_profile:
+            raise ValidationError(
+                "Either manual reference fields or voice-profile fields are required."
+            )
+
+        # Profile-mode metadata; populated only in profile mode.
+        profile_meta: dict[str, Any] = {}
+
+        if has_profile:
+            if not voice_profile_id or not voice_profile_script_id:
+                raise ValidationError(
+                    "voice_profile_id and voice_profile_script_id are both required in profile mode."
+                )
+            if self._profile_reference_resolver is None:
+                raise ValidationError(
+                    "Voice-profile mode is not available on this server."
+                )
+            try:
+                resolved = self._profile_reference_resolver(
+                    voice_profile_id, voice_profile_script_id
+                )
+            except ValidationError:
+                raise
+            except Exception as exc:
+                raise ValidationError(
+                    f"Could not resolve voice-profile reference: {exc}"
+                ) from exc
+            reference_recording = resolved["recording_filename"]
+            reference_text = resolved["script_text"]
+            profile_meta = {
+                "voice_profile_id": voice_profile_id,
+                "voice_profile_name": resolved.get("profile_name"),
+                "voice_profile_script_id": voice_profile_script_id,
+            }
 
         # 1. Text validation (no file access needed).
         if not reference_text or not reference_text.strip():
@@ -485,6 +555,10 @@ class VoiceCloneService:
         )
         meta["reference_sha256"] = reference_sha
         meta["status"] = GenerationStatus.QUEUED.value
+        # Additive profile-mode metadata. Older generations never had these
+        # fields; readers must tolerate their absence.
+        if profile_meta:
+            meta.update(profile_meta)
         self._write_metadata(generation_id, meta)
 
         # 6. Build the job file and start the subprocess.

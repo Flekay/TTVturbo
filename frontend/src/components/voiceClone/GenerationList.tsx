@@ -205,6 +205,16 @@ function GenerationCard({ gen, pendingDeleteId, deleteBusy, onDeleteRequest }: G
         <div className="generation-card__ref">
           Referenz: <span title={gen.reference_recording}>{gen.reference_recording}</span>
         </div>
+        {gen.voice_profile_name && (
+          <div className="generation-card__ref">
+            Voice-Profil: <span>{gen.voice_profile_name}</span>
+            {gen.voice_profile_script_id && (
+              <span style={{ color: "var(--color-text-muted)" }}>
+                {" "}· {gen.voice_profile_script_id}
+              </span>
+            )}
+          </div>
+        )}
         <div className="generation-card__target" title={gen.target_text}>
           Ziel: {truncate(gen.target_text, 80)}
         </div>

@@ -91,13 +91,13 @@ class ScriptLibrary:
                 )
             seen.add(prompt.id)
 
-        # Expected prompt count check (only if the file declares one).
-        if pack.expected_prompt_count is not None:
-            if len(pack.prompts) != pack.expected_prompt_count:
-                raise VoiceProfileStorageError(
-                    f"prompt count mismatch in {path}: "
-                    f"expected {pack.expected_prompt_count}, got {len(pack.prompts)}"
-                )
+        # Prompt count check: the real files declare ``prompt_count`` and it
+        # must match the actual number of prompts.
+        if len(pack.prompts) != pack.prompt_count:
+            raise VoiceProfileStorageError(
+                f"prompt count mismatch in {path}: "
+                f"declared {pack.prompt_count}, got {len(pack.prompts)}"
+            )
 
         return pack
 
@@ -138,6 +138,14 @@ class ScriptLibrary:
         self._ensure_loaded()
         assert self._pack is not None
         data = self._pack.model_dump()
+        data.pop("prompts", None)
+        return data
+
+    def get_holdout_metadata(self) -> dict:
+        """Return the holdout metadata (everything except the prompt list)."""
+        self._ensure_loaded()
+        assert self._holdout is not None
+        data = self._holdout.model_dump()
         data.pop("prompts", None)
         return data
 

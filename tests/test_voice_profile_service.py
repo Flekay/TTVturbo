@@ -41,16 +41,18 @@ def _prompt(pid: str, order: int, *, style: str = "neutral",
     }
 
 
-def _pack_json(prompts: list[dict], *, pack_id: str = "ttvturbo_voice_pack_v1",
-               name: str = "TTVturbo Voice Pack v1",
-               expected_prompt_count: int | None = None) -> dict:
+def _pack_json(prompts: list[dict], *, pack_id: str = "ttvturbo-de-de-v1",
+               title: str = "TTVturbo German Voice Pack v1",
+               prompt_count: int | None = None,
+               kind: str = "recording_pack") -> dict:
     return {
         "schema_version": 1,
-        "id": pack_id,
+        "pack_id": pack_id,
         "locale": "de-DE",
-        "name": name,
-        "version": "v1",
-        "expected_prompt_count": expected_prompt_count,
+        "kind": kind,
+        "title": title,
+        "description": "Test pack.",
+        "prompt_count": prompt_count if prompt_count is not None else len(prompts),
         "prompts": prompts,
     }
 
@@ -81,7 +83,7 @@ def pack_path(tmp_path: Path) -> Path:
     prompts = [_prompt(f"de-DE-neutral-{i:03d}", i) for i in range(1, 4)]
     path = tmp_path / "pack.json"
     path.write_text(
-        json.dumps(_pack_json(prompts, expected_prompt_count=3), ensure_ascii=False),
+        json.dumps(_pack_json(prompts, prompt_count=3), ensure_ascii=False),
         encoding="utf-8",
     )
     return path
@@ -92,9 +94,10 @@ def holdout_path(tmp_path: Path) -> Path:
     prompts = [_prompt("de-DE-holdout-001", 1, style="holdout")]
     path = tmp_path / "holdout.json"
     path.write_text(
-        json.dumps(_pack_json(prompts, expected_prompt_count=1,
-                              pack_id="ttvturbo_voice_holdout_v1",
-                              name="TTVturbo Voice Holdout v1"),
+        json.dumps(_pack_json(prompts, prompt_count=1,
+                              pack_id="ttvturbo-de-de-holdout-v1",
+                              title="TTVturbo German Voice Holdout v1",
+                              kind="holdout"),
                    ensure_ascii=False),
         encoding="utf-8",
     )

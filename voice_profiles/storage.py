@@ -128,8 +128,8 @@ class VoiceProfileStorage:
         """Load a single profile by id.
 
         Raises :class:`VoiceProfileNotFoundError` if the profile does not
-        exist and :class:`VoiceProfileStorageError` if it is corrupt or has
-        an unknown schema version.
+        exist and :class:`VoiceProfileStorageError` if it is corrupt, has
+        an unknown schema version, or has an invalid id.
         """
         pid = self._validate_profile_id(profile_id)
         path = self._profile_path(pid)
