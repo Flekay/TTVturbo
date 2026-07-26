@@ -138,10 +138,10 @@ export function DashboardPage() {
         ) : recent.length === 0 ? (
           <Card>
             <p style={{ color: "var(--color-text-secondary)" }}>
-              Noch keine Aufnahmen vorhanden. Im Voice Lab aufnehmen, um Statistiken zu sehen.
+              Noch keine Aufnahmen vorhanden. Lade eine Referenz im Voice Clone hoch, um Statistiken zu sehen.
             </p>
-            <Link className="btn btn--primary" to="/voice-lab" style={{ alignSelf: "flex-start" }}>
-              Zum Voice Lab <ArrowRight size={14} />
+            <Link className="btn btn--primary" to="/voice-clone" style={{ alignSelf: "flex-start" }}>
+              Zum Voice Clone <ArrowRight size={14} />
             </Link>
           </Card>
         ) : (
@@ -166,9 +166,9 @@ export function DashboardPage() {
                 <Link
                   to="/voice-lab"
                   className="btn btn--ghost btn--sm"
-                  aria-label="Im Voice Lab öffnen"
+                  aria-label="Voice Profiles öffnen"
                 >
-                  Voice Lab <ArrowRight size={14} />
+                  Voice Profiles <ArrowRight size={14} />
                 </Link>
               </li>
             ))}

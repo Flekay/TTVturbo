@@ -1,9 +1,9 @@
-import { describe, expect, it, afterEach, beforeEach, vi } from "vitest";
+import { describe, expect, it, afterEach, beforeEach } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders, installFetchMock } from "../../../test/test-utils";
 import { VoiceProfilesPanel } from "../VoiceProfilesPanel";
-import type { PromptRecordingRequest, VoiceProfile } from "../types";
+import type { VoiceProfile } from "../types";
 
 const script1 = {
   id: "s1",
@@ -78,14 +78,6 @@ const profileWithRefs: VoiceProfile = {
   progress,
 };
 
-const sampleRecording = {
-  filename: "new.wav",
-  created_at: "2026-02-01T00:00:00+00:00",
-  duration_seconds: 4.2,
-  file_size_bytes: 1024,
-  audio_url: "/api/recordings/new.wav",
-};
-
 function setProfileResponse(profile: VoiceProfile = profileWithRefs) {
   // The list and the single-profile endpoint both return the same shape.
   mock.setResponse("GET /api/voice-profiles", 200, { profiles: [profile] });
@@ -94,10 +86,8 @@ function setProfileResponse(profile: VoiceProfile = profileWithRefs) {
 
 let mock: ReturnType<typeof installFetchMock>;
 
-function renderPanel(onStartPromptRecording?: (req: PromptRecordingRequest) => void) {
-  return renderWithProviders(
-    <VoiceProfilesPanel onStartPromptRecording={onStartPromptRecording} />,
-  );
+function renderPanel() {
+  return renderWithProviders(<VoiceProfilesPanel />);
 }
 
 beforeEach(() => {
@@ -111,7 +101,6 @@ beforeEach(() => {
     pack: { pack_id: "holdout1", locale: "de-DE", prompt_count: 1, title: "Holdout" },
     prompts: [holdoutScript],
   });
-  mock.setResponse("GET /api/recordings", 200, { recordings: [sampleRecording] });
 });
 
 afterEach(() => {
@@ -316,79 +305,6 @@ describe("VoiceProfilesPanel — references", () => {
         ),
       ).toBe(true);
     });
-  });
-
-  it("assigns an existing recording", async () => {
-    const user = userEvent.setup();
-    const profile = {
-      ...profileWithRefs,
-      references: {},
-      progress: { ...progress, accepted: 0, missing: 2, review: 0, recorded: 0, percentage: 0 },
-    };
-    setProfileResponse(profile);
-    renderPanel();
-    await user.click(
-      await screen.findByRole("button", { name: "Profil Meine Stimme auswählen" }),
-    );
-    await user.click(await screen.findByRole("button", { name: "Prompt 1: Hallo und willkommen." }));
-    // The attach endpoint returns the updated profile.
-    const updatedProfile = {
-      ...profileWithRefs,
-      references: {
-        s1: makeRef("s1", "new.wav", "REVIEW", "Hallo und willkommen."),
-      },
-      progress: { ...progress, accepted: 0, review: 1, missing: 1, recorded: 1, percentage: 0 },
-    };
-    mock.setResponse(
-      "PUT /api/voice-profiles/p1/references/s1",
-      200,
-      updatedProfile,
-    );
-    await user.click(
-      screen.getByRole("button", { name: /Vorhandene Aufnahme zuweisen/ }),
-    );
-    await user.click(await screen.findByRole("button", { name: "Aufnahme new.wav zuweisen" }));
-    await waitFor(() => {
-      expect(
-        mock.calls.some(
-          (c) =>
-            c.method === "PUT" &&
-            c.url.includes("/api/voice-profiles/p1/references/s1"),
-        ),
-      ).toBe(true);
-    });
-  });
-});
-
-describe("VoiceProfilesPanel — recording callback", () => {
-  it("invokes onStartPromptRecording exactly once with correct payload", async () => {
-    const user = userEvent.setup();
-    const onRecord = vi.fn();
-    renderPanel(onRecord);
-    await user.click(
-      await screen.findByRole("button", { name: "Profil Meine Stimme auswählen" }),
-    );
-    await user.click(await screen.findByRole("button", { name: "Prompt 1: Hallo und willkommen." }));
-    await user.click(screen.getByRole("button", { name: "Jetzt aufnehmen" }));
-    expect(onRecord).toHaveBeenCalledTimes(1);
-    expect(onRecord).toHaveBeenCalledWith({
-      profileId: "p1",
-      scriptId: "s1",
-      scriptText: "Hallo und willkommen.",
-    });
-  });
-
-  it("disables the record button and shows a hint when the callback is missing", async () => {
-    const user = userEvent.setup();
-    renderPanel();
-    await user.click(
-      await screen.findByRole("button", { name: "Profil Meine Stimme auswählen" }),
-    );
-    await user.click(await screen.findByRole("button", { name: "Prompt 1: Hallo und willkommen." }));
-    const recordBtn = screen.getByRole("button", { name: "Jetzt aufnehmen" });
-    expect(recordBtn).toBeDisabled();
-    // No fake recording request is sent.
-    expect(mock.calls.filter((c) => c.method === "POST" && c.url.includes("/api/voice-profiles/p1/references"))).toHaveLength(0);
   });
 });
 

@@ -23,6 +23,38 @@
   cursor: not-allowed;
 }
 
+/* When a .btn is rendered on an <a> (e.g. via react-router <Link>), the
+ * global `a:hover { color: var(--color-accent-hover) }` rule would override
+ * the button's text color because `a:hover` (0,0,1,1) outranks a single
+ * class. These rules restore the intended per-variant color on hover so the
+ * link-styled buttons keep their original text color. */
+a.btn {
+  text-decoration: none;
+}
+
+a.btn--primary,
+a.btn--primary:hover:not(:disabled) {
+  color: white;
+}
+
+a.btn--secondary,
+a.btn--secondary:hover:not(:disabled) {
+  color: var(--color-text-primary);
+}
+
+a.btn--ghost {
+  color: var(--color-text-secondary);
+}
+
+a.btn--ghost:hover:not(:disabled) {
+  color: var(--color-text-primary);
+}
+
+a.btn--danger,
+a.btn--danger:hover:not(:disabled) {
+  color: white;
+}
+
 .btn--primary {
   background-color: var(--color-accent);
   color: white;

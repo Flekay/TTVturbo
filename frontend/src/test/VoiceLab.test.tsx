@@ -1,6 +1,5 @@
 import { describe, expect, it, afterEach, beforeEach } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { waitFor, within } from "@testing-library/react";
 import { VoiceLabPage } from "../pages/VoiceLabPage";
 import { AppLayout } from "../components/layout/AppLayout";
 import { renderWithProviders, installFetchMock } from "../test/test-utils";
@@ -19,21 +18,6 @@ const status: BackendStatus = {
     vod_analysis: "not_implemented",
     video_editor: "not_implemented",
   },
-};
-
-const voiceCloneStatus = {
-  available: true,
-  busy: false,
-  active_generation_id: null,
-  model_id: "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
-};
-
-const sampleRecording = {
-  filename: "abc123.wav",
-  created_at: "2026-01-01T12:00:00+00:00",
-  duration_seconds: 5.2,
-  file_size_bytes: 1024,
-  audio_url: "/api/recordings/abc123.wav",
 };
 
 function renderVoiceLab() {
@@ -55,74 +39,34 @@ describe("VoiceLabPage", () => {
   beforeEach(() => {
     mock = installFetchMock();
     mock.setResponse("GET /api/status", 200, status);
-    mock.setResponse("GET /api/voice-clone/status", 200, voiceCloneStatus);
-    mock.setResponse("GET /api/voice-clone/generations", 200, { generations: [] });
+    mock.setResponse("GET /api/voice-profiles", 200, { profiles: [] });
+    mock.setResponse("GET /api/voice-profiles/scripts", 200, {
+      pack: { pack_id: "pack1", locale: "de-DE", prompt_count: 0, title: "Test" },
+      prompts: [],
+    });
+    mock.setResponse("GET /api/voice-profiles/holdout-scripts", 200, {
+      pack: { pack_id: "holdout1", locale: "de-DE", prompt_count: 0, title: "Holdout" },
+      prompts: [],
+    });
   });
 
   afterEach(() => {
     mock.restore();
   });
 
-  it("shows recordings when present", async () => {
-    mock.setResponse("GET /api/recordings", 200, { recordings: [sampleRecording] });
+  it("renders the Voice Profiles heading", async () => {
     const { main } = renderVoiceLab();
-    await waitFor(() => {
-      expect(within(main).getByText("abc123.wav")).toBeInTheDocument();
-    });
-  });
-
-  it("shows an empty state when there are no recordings", async () => {
-    mock.setResponse("GET /api/recordings", 200, { recordings: [] });
-    const { main } = renderVoiceLab();
-    await waitFor(() => {
-      expect(within(main).getByText("Noch keine Aufnahmen vorhanden")).toBeInTheDocument();
-    });
-  });
-
-  it("opens a confirm dialog when clicking delete", async () => {
-    const user = userEvent.setup();
-    mock.setResponse("GET /api/recordings", 200, { recordings: [sampleRecording] });
-    renderVoiceLab();
-    await waitFor(() => {
-      expect(screen.getByText("abc123.wav")).toBeInTheDocument();
-    });
-    await user.click(screen.getByRole("button", { name: /abc123\.wav löschen/i }));
-    expect(
-      await screen.findByText("Aufnahme endgültig löschen?"),
-    ).toBeInTheDocument();
-  });
-
-  it("calls the delete mutation when the dialog is confirmed", async () => {
-    const user = userEvent.setup();
-    mock.setResponse("GET /api/recordings", 200, { recordings: [sampleRecording] });
-    mock.setResponse("DELETE /api/recordings/abc123.wav", 200, {
-      filename: "abc123.wav",
-      deleted: true,
-    });
-    renderVoiceLab();
-    await waitFor(() => {
-      expect(screen.getByText("abc123.wav")).toBeInTheDocument();
-    });
-    await user.click(screen.getByRole("button", { name: /abc123\.wav löschen/i }));
-    await user.click(await screen.findByRole("button", { name: "Löschen" }));
     await waitFor(() => {
       expect(
-        mock.calls.some(
-          (c) => c.method === "DELETE" && c.url.includes("abc123.wav"),
-        ),
-      ).toBe(true);
+        within(main).getByRole("heading", { name: "Voice Profiles", level: 1 }),
+      ).toBeInTheDocument();
     });
   });
 
-  it("does not call the delete mutation when the dialog is cancelled", async () => {
-    const user = userEvent.setup();
-    mock.setResponse("GET /api/recordings", 200, { recordings: [sampleRecording] });
-    renderVoiceLab();
-    await waitFor(() => {
-      expect(screen.getByText("abc123.wav")).toBeInTheDocument();
-    });
-    await user.click(screen.getByRole("button", { name: /abc123\.wav löschen/i }));
-    await user.click(await screen.findByRole("button", { name: "Abbrechen" }));
-    expect(mock.calls.some((c) => c.method === "DELETE")).toBe(false);
+  it("does not render the old recordings or voice-clone tabs", () => {
+    const { main } = renderVoiceLab();
+    expect(within(main).queryByRole("tab", { name: /Aufnahmen/i })).toBeNull();
+    expect(within(main).queryByRole("tab", { name: /Voice Clone/i })).toBeNull();
+    expect(within(main).queryByRole("tab", { name: /Generierungen/i })).toBeNull();
   });
 });

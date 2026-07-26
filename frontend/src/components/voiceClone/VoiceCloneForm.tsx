@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
-import { Wand2, AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
-import { useRecordingsQuery } from "../../hooks/useQueries";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
+import { Wand2, AlertTriangle, CheckCircle2, Loader2, ArrowRight } from "lucide-react";
 import {
   useCreateGenerationMutation,
   useReferenceQualityQuery,
   useVoiceCloneStatusQuery,
 } from "../../hooks/useVoiceClone";
+import { useUploadRecordingMutation } from "../../hooks/useQueries";
 import {
   useVoiceProfilesQuery,
   useVoiceProfileQuery,
@@ -35,22 +36,21 @@ const PHASE_LABELS: Record<string, string> = {
 };
 
 interface VoiceCloneFormProps {
-  /** Notified when a generation is created so the parent can switch tabs. */
+  /** Notified when a generation is created so the parent can react. */
   onGenerationCreated?: (id: string) => void;
   /** Optional: the active phase label to display while busy. */
   activePhaseLabel?: string | null;
 }
 
-type CloneMode = "manual" | "profile";
+type CloneMode = "profile" | "manual";
 
 export function VoiceCloneForm({ onGenerationCreated, activePhaseLabel }: VoiceCloneFormProps) {
-  const recordingsQuery = useRecordingsQuery();
   const statusQuery = useVoiceCloneStatusQuery();
   const createMutation = useCreateGenerationMutation();
+  const uploadMutation = useUploadRecordingMutation();
   const profilesQuery = useVoiceProfilesQuery();
   const toast = useToast();
 
-  const recordings = recordingsQuery.data?.recordings ?? [];
   const statusData = statusQuery.data;
   const available = statusData?.available ?? false;
   const busy = statusData?.busy ?? false;
@@ -58,19 +58,22 @@ export function VoiceCloneForm({ onGenerationCreated, activePhaseLabel }: VoiceC
   const runtimeWarnings = statusData?.warnings ?? [];
   const activeGenerationId = statusData?.active_generation_id ?? null;
 
-  const [mode, setMode] = useState<CloneMode>("manual");
+  // Default to "Aus Voice-Profil"; manual upload is the optional alternative.
+  const [mode, setMode] = useState<CloneMode>("profile");
   const [referenceFilename, setReferenceFilename] = useState<string>("");
   const [referenceText, setReferenceText] = useState<string>("");
   const [targetText, setTargetText] = useState<string>("");
   const [allowQualityWarning, setAllowQualityWarning] = useState<boolean>(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [selectedProfileId, setSelectedProfileId] = useState<string>("");
   const [selectedProfileScriptId, setSelectedProfileScriptId] = useState<string>("");
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const profileQuery = useVoiceProfileQuery(selectedProfileId || null);
   const qualityQuery = useReferenceQualityQuery(mode === "manual" ? referenceFilename || null : null);
 
-  // Reset the quality-warning checkbox whenever the reference changes.
+  // Reset quality-warning + errors whenever the reference or mode changes.
   useEffect(() => {
     setAllowQualityWarning(false);
     setSubmitError(null);
@@ -80,11 +83,6 @@ export function VoiceCloneForm({ onGenerationCreated, activePhaseLabel }: VoiceC
   useEffect(() => {
     setSelectedProfileScriptId("");
   }, [selectedProfileId]);
-
-  const selectedRecording = useMemo(
-    () => recordings.find((r) => r.filename === referenceFilename) ?? null,
-    [recordings, referenceFilename],
-  );
 
   const profiles = profilesQuery.data?.profiles ?? [];
   const selectedProfile = profileQuery.data ?? null;
@@ -107,7 +105,11 @@ export function VoiceCloneForm({ onGenerationCreated, activePhaseLabel }: VoiceC
 
   const targetTooLong = targetText.length > MAX_TARGET_CHARS;
 
-  // Manual mode submit readiness.
+  const isUploading = uploadMutation.isPending;
+
+  // Manual mode submit readiness. Requires an uploaded reference (with a
+  // server-known filename), the exact reference text, target text, and a
+  // non-REJECT quality class.
   const manualCanSubmit =
     available &&
     !busy &&
@@ -115,6 +117,7 @@ export function VoiceCloneForm({ onGenerationCreated, activePhaseLabel }: VoiceC
     !!referenceText.trim() &&
     !!targetText.trim() &&
     !targetTooLong &&
+    !isUploading &&
     (qualityClass !== "REJECT") &&
     (qualityClass !== "REVIEW" || allowQualityWarning);
 
@@ -129,6 +132,37 @@ export function VoiceCloneForm({ onGenerationCreated, activePhaseLabel }: VoiceC
     !targetTooLong;
 
   const canSubmit = mode === "manual" ? manualCanSubmit : profileCanSubmit;
+
+  const handleFileSelected = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setUploadError(null);
+    setReferenceFilename("");
+    uploadMutation.mutate(
+      { blob: file, filename: file.name || "reference.wav" },
+      {
+        onSuccess: (data) => {
+          setReferenceFilename(data.filename);
+          toast.show({
+            title: "Referenz hochgeladen",
+            description: data.filename,
+            variant: "success",
+          });
+        },
+        onError: (err) => {
+          const message = err instanceof Error ? err.message : "Unbekannter Fehler";
+          setUploadError(message);
+          toast.show({
+            title: "Upload fehlgeschlagen",
+            description: message,
+            variant: "error",
+          });
+        },
+      },
+    );
+    // Allow re-selecting the same file after a failed upload.
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
@@ -194,24 +228,6 @@ export function VoiceCloneForm({ onGenerationCreated, activePhaseLabel }: VoiceC
     );
   };
 
-  if (recordingsQuery.isLoading) {
-    return <p className="page__description">Lade Aufnahmen …</p>;
-  }
-  if (recordingsQuery.isError) {
-    return (
-      <p className="page__description" role="alert">
-        Aufnahmen konnten nicht geladen werden.
-      </p>
-    );
-  }
-  if (recordings.length === 0 && mode === "manual") {
-    return (
-      <p className="page__description">
-        Nimm zuerst eine Sprachreferenz im Tab „Aufnahmen“ auf.
-      </p>
-    );
-  }
-
   return (
     <form className="voice-clone-form" onSubmit={handleSubmit}>
       {!available && (
@@ -235,22 +251,11 @@ export function VoiceCloneForm({ onGenerationCreated, activePhaseLabel }: VoiceC
                 ))}
               </ul>
             )}
-            <p className="voice-clone-form__unavailable-note">
-              Aufnahmen und bestehende Generierungen bleiben weiterhin nutzbar.
-            </p>
           </div>
         </div>
       )}
 
       <div className="voice-clone-form__mode" role="group" aria-label="Referenzmodus">
-        <button
-          type="button"
-          className={`btn btn--sm ${mode === "manual" ? "btn--primary" : "btn--secondary"}`}
-          aria-pressed={mode === "manual"}
-          onClick={() => setMode("manual")}
-        >
-          Manuelle Referenz
-        </button>
         <button
           type="button"
           className={`btn btn--sm ${mode === "profile" ? "btn--primary" : "btn--secondary"}`}
@@ -259,38 +264,55 @@ export function VoiceCloneForm({ onGenerationCreated, activePhaseLabel }: VoiceC
         >
           Aus Voice-Profil
         </button>
+        <button
+          type="button"
+          className={`btn btn--sm ${mode === "manual" ? "btn--primary" : "btn--secondary"}`}
+          aria-pressed={mode === "manual"}
+          onClick={() => setMode("manual")}
+        >
+          Manueller Upload
+        </button>
       </div>
 
       {mode === "manual" && (
         <>
           <div className="voice-clone-form__row">
-            <label htmlFor="voice-clone-reference" className="voice-clone-form__label">
-              Referenzaufnahme
+            <label htmlFor="voice-clone-reference-file" className="voice-clone-form__label">
+              Referenzaufnahme (WAV)
             </label>
-            <select
-              id="voice-clone-reference"
-              className="voice-clone-form__select"
-              value={referenceFilename}
-              onChange={(e) => setReferenceFilename(e.target.value)}
-              disabled={busy}
-              aria-label="Referenzaufnahme auswählen"
-            >
-              <option value="">— Aufnahme wählen —</option>
-              {recordings.map((r) => (
-                <option key={r.filename} value={r.filename}>
-                  {r.filename} ({r.duration_seconds.toFixed(1)}s)
-                </option>
-              ))}
-            </select>
+            <input
+              ref={fileInputRef}
+              id="voice-clone-reference-file"
+              type="file"
+              accept="audio/wav,audio/x-wav,audio/wave,audio/*"
+              onChange={handleFileSelected}
+              disabled={busy || isUploading}
+              aria-label="Referenzaufnahme hochladen"
+            />
+            {referenceFilename && !isUploading && (
+              <p className="page__description" style={{ marginTop: 4 }}>
+                Hochgeladen: <code style={{ fontFamily: "var(--font-mono)" }}>{referenceFilename}</code>
+              </p>
+            )}
+            {isUploading && (
+              <p className="page__description" style={{ marginTop: 4 }}>
+                <Loader2 size={12} className="spin" /> Upload läuft …
+              </p>
+            )}
+            {uploadError && (
+              <p className="voice-clone-form__reject" role="alert" style={{ marginTop: 4 }}>
+                <AlertTriangle size={14} /> {uploadError}
+              </p>
+            )}
           </div>
 
-          {selectedRecording && (
+          {referenceFilename && !isUploading && (
             <div className="voice-clone-form__preview">
               <audio
                 controls
                 preload="none"
-                src={selectedRecording.audio_url}
-                aria-label={`Referenz ${selectedRecording.filename} abspielen`}
+                src={`/api/recordings/${encodeURIComponent(referenceFilename)}`}
+                aria-label={`Referenz ${referenceFilename} abspielen`}
               />
               <div className="voice-clone-form__quality">
                 {qualityQuery.isLoading && <span className="page__description">Qualitätsanalyse läuft …</span>}
@@ -357,9 +379,19 @@ export function VoiceCloneForm({ onGenerationCreated, activePhaseLabel }: VoiceC
             </p>
           )}
           {!profilesQuery.isLoading && !profilesQuery.isError && profiles.length === 0 && (
-            <p className="page__description">
-              Lege zuerst ein Voice-Profil im Tab „Voice Profiles“ an und nimm Referenzen auf.
-            </p>
+            <div className="voice-clone-form__empty-profiles">
+              <p className="page__description">
+                Es ist noch kein Voice-Profil vorhanden. Erstelle eines und hinterlege
+                akzeptierte Referenzen, um daraus einen Voice-Clone zu erzeugen.
+              </p>
+              <Link
+                to="/voice-lab"
+                className="btn btn--primary btn--sm"
+                style={{ alignSelf: "flex-start" }}
+              >
+                Voice-Profil erstellen <ArrowRight size={14} />
+              </Link>
+            </div>
           )}
           {profiles.length > 0 && (
             <>
@@ -502,11 +534,11 @@ export function VoiceCloneForm({ onGenerationCreated, activePhaseLabel }: VoiceC
             <>
               <Loader2 size={14} className="spin" /> Generierung läuft …
             </>
-            ) : (
+          ) : (
             <>
               <Wand2 size={14} /> Generierung starten
             </>
-            )}
+          )}
         </Button>
         {busy && (
           <span className="voice-clone-form__busy-note">
@@ -531,3 +563,5 @@ export function VoiceCloneForm({ onGenerationCreated, activePhaseLabel }: VoiceC
     </form>
   );
 }
+
+export { PHASE_LABELS };

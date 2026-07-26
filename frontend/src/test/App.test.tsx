@@ -48,9 +48,26 @@ describe("App routing", () => {
     });
     const main = (container.querySelector("#main-content") as HTMLElement | null) ?? container;
     await waitFor(() => {
-      expect(within(main).getByRole("heading", { name: "Voice Lab", level: 1 })).toBeInTheDocument();
+      expect(within(main).getByRole("heading", { name: "Voice Profiles", level: 1 })).toBeInTheDocument();
     });
-    expect(within(main).getByText("Recorder")).toBeInTheDocument();
+  });
+
+  it("renders the voice-clone route", async () => {
+    mock.setResponse("GET /api/voice-clone/status", 200, {
+      available: true,
+      busy: false,
+      active_generation_id: null,
+      model_id: "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+    });
+    mock.setResponse("GET /api/voice-clone/generations", 200, { generations: [] });
+    mock.setResponse("GET /api/voice-profiles", 200, { profiles: [] });
+    const { container } = renderWithProviders(<AppRouter />, {
+      initialEntries: ["/voice-clone"],
+    });
+    const main = (container.querySelector("#main-content") as HTMLElement | null) ?? container;
+    await waitFor(() => {
+      expect(within(main).getByRole("heading", { name: "Voice Clone", level: 1 })).toBeInTheDocument();
+    });
   });
 
   it("shows the 404 page for unknown routes", () => {
@@ -63,7 +80,7 @@ describe("App routing", () => {
 
   it("marks the active sidebar route", () => {
     renderWithProviders(<AppRouter />, { initialEntries: ["/voice-lab"] });
-    const link = screen.getByRole("link", { name: "Voice Lab" });
+    const link = screen.getByRole("link", { name: "Voice Profiles" });
     expect(link.className).toContain("is-active");
   });
 

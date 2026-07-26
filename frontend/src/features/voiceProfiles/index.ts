@@ -3,8 +3,6 @@ import { VoiceProfilesPanel } from "./VoiceProfilesPanel";
 
 export { VoiceProfilesPanel } from "./VoiceProfilesPanel";
 export type {
-  PromptRecordingRequest,
-  VoiceProfilesPanelProps,
   VoiceProfile,
   VoiceProfileListResponse,
   VoiceProfileProgress,

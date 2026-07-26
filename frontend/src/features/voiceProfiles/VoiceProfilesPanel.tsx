@@ -15,7 +15,6 @@ import { RecordingPackProgress } from "./RecordingPackProgress";
 import { HoldoutPanel } from "./HoldoutPanel";
 import {
   useAcceptReviewMutation,
-  useAttachReferenceMutation,
   useCreateVoiceProfileMutation,
   useDeleteVoiceProfileMutation,
   useDetachReferenceMutation,
@@ -26,9 +25,7 @@ import {
   useVoiceScriptsQuery,
 } from "./hooks";
 import type {
-  PromptRecordingRequest,
   VoiceProfile,
-  VoiceProfilesPanelProps,
   VoiceScript,
 } from "./types";
 
@@ -152,7 +149,7 @@ function NameDialog({
   );
 }
 
-export function VoiceProfilesPanel({ onStartPromptRecording }: VoiceProfilesPanelProps) {
+export function VoiceProfilesPanel() {
   const toast = useToast();
   const profilesQuery = useVoiceProfilesQuery();
   const scriptsQuery = useVoiceScriptsQuery();
@@ -168,7 +165,6 @@ export function VoiceProfilesPanel({ onStartPromptRecording }: VoiceProfilesPane
   const createMutation = useCreateVoiceProfileMutation();
   const patchMutation = usePatchVoiceProfileMutation();
   const deleteMutation = useDeleteVoiceProfileMutation();
-  const attachMutation = useAttachReferenceMutation();
   const detachMutation = useDetachReferenceMutation();
   const acceptMutation = useAcceptReviewMutation();
 
@@ -299,25 +295,6 @@ export function VoiceProfilesPanel({ onStartPromptRecording }: VoiceProfilesPane
     });
   };
 
-  const handleAttach = (recordingFilename: string) => {
-    if (!selectedProfile || !selectedScript) return;
-    attachMutation.mutate(
-      {
-        profileId: selectedProfile.id,
-        scriptId: selectedScript.id,
-        request: { recording_filename: recordingFilename },
-      },
-      {
-        onError: (err) =>
-          toast.show({
-            title: "Zuweisung fehlgeschlagen",
-            description: err instanceof Error ? err.message : "Unbekannter Fehler",
-            variant: "error",
-          }),
-      },
-    );
-  };
-
   const handleDetach = () => {
     if (!selectedProfile || !selectedScript) return;
     detachMutation.mutate(
@@ -347,9 +324,6 @@ export function VoiceProfilesPanel({ onStartPromptRecording }: VoiceProfilesPane
       },
     );
   };
-
-  const handleStartRecording: ((req: PromptRecordingRequest) => void) | undefined =
-    onStartPromptRecording;
 
   const anyMutationPending =
     createMutation.isPending ||
@@ -476,21 +450,17 @@ export function VoiceProfilesPanel({ onStartPromptRecording }: VoiceProfilesPane
               <section style={{ marginTop: 16 }}>
                 <h3 className="vp-section-title">Ausgewählter Prompt</h3>
                 <PromptRecordingPanel
-                  profile={selectedProfile}
                   script={selectedScript}
                   reference={selectedReference ?? null}
-                  onStartPromptRecording={handleStartRecording}
-                  onAttachRecording={handleAttach}
                   onDetachReference={handleDetach}
                   onAcceptReview={handleAcceptReview}
-                  attachPending={attachMutation.isPending}
                   detachPending={detachMutation.isPending}
                   acceptPending={acceptMutation.isPending}
                 />
               </section>
             ) : (
               <p className="page__description" style={{ marginTop: 16 }}>
-                Wähle einen Prompt aus der Liste, um ihn aufzunehmen.
+                Wähle einen Prompt aus der Liste, um die verknüpfte Referenz zu sehen.
               </p>
             )}
 

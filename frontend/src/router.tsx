@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { AppLayout } from "./components/layout/AppLayout";
 import { DashboardPage } from "./pages/DashboardPage";
 import { VoiceLabPage } from "./pages/VoiceLabPage";
+import { VoiceClonePage } from "./pages/VoiceClonePage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { UnavailablePage } from "./pages/UnavailablePage";
@@ -48,6 +49,14 @@ export function AppRouter() {
         element={
           <AppLayout>
             <VoiceLabPage />
+          </AppLayout>
+        }
+      />
+      <Route
+        path="/voice-clone"
+        element={
+          <AppLayout>
+            <VoiceClonePage />
           </AppLayout>
         }
       />

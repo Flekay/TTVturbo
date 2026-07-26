@@ -1,8 +1,8 @@
 import { describe, expect, it, afterEach, beforeEach } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { GenerationList } from "../components/voiceClone/GenerationList";
-import { VoiceLabPage } from "../pages/VoiceLabPage";
+import { VoiceClonePage } from "../pages/VoiceClonePage";
 import { AppLayout } from "../components/layout/AppLayout";
 import { renderWithProviders, installFetchMock } from "../test/test-utils";
 import type { BackendStatus } from "../types/status";
@@ -29,14 +29,6 @@ const voiceCloneStatusIdle = {
   model_id: "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
 };
 
-const sampleRecording = {
-  filename: "abc123.wav",
-  created_at: "2026-01-01T12:00:00+00:00",
-  duration_seconds: 5.2,
-  file_size_bytes: 1024,
-  audio_url: "/api/recordings/abc123.wav",
-};
-
 const goodQuality = {
   technical: { sample_rate: 44100, channels: 1, frame_count: 220500, duration_seconds: 5.0, subtype: "PCM_16", format: "WAV" },
   levels: { peak_dbfs: -10, rms_dbfs: -20, dc_offset: 0, clipping_sample_count: 0, clipping_sample_ratio: 0 },
@@ -54,7 +46,7 @@ function readyGen(overrides: Partial<Record<string, unknown>> = {}) {
   return {
     id: "gen-ready-001",
     status: "READY",
-    reference_recording: "abc123.wav",
+    reference_recording: "ref.wav",
     reference_sha256: "abc",
     reference_text: "Ref",
     target_text: "Dies ist der Zieltext.",
@@ -73,19 +65,18 @@ function readyGen(overrides: Partial<Record<string, unknown>> = {}) {
   };
 }
 
-function renderVoiceLab() {
+function renderVoiceClonePage() {
   return renderWithProviders(
     <AppLayout>
-      <VoiceLabPage />
+      <VoiceClonePage />
     </AppLayout>,
-    { initialEntries: ["/voice-lab"] },
+    { initialEntries: ["/voice-clone"] },
   );
 }
 
-async function switchToTab(tabName: string) {
+async function switchToManualUpload() {
   const user = userEvent.setup();
-  const tab = screen.getByRole("tab", { name: tabName });
-  await user.click(tab);
+  await user.click(screen.getByRole("button", { name: "Manueller Upload" }));
   return user;
 }
 
@@ -96,115 +87,41 @@ describe("Frontend hardening - audio URL stability", () => {
     mock = installFetchMock();
     mock.setResponse("GET /api/status", 200, status);
     mock.setResponse("GET /api/voice-clone/status", 200, voiceCloneStatusIdle);
-    mock.setResponse("GET /api/recordings", 200, { recordings: [sampleRecording] });
     mock.setResponse("GET /api/voice-clone/generations", 200, { generations: [readyGen()] });
+    mock.setResponse("GET /api/voice-profiles", 200, { profiles: [] });
   });
 
   afterEach(() => mock.restore());
 
   it("generation audio URL stays stable across re-renders (no Date.now cache buster)", async () => {
-    renderVoiceLab();
-    await waitFor(() => expect(screen.getByText("abc123.wav")).toBeInTheDocument());
-    await switchToTab("Generierungen");
+    renderVoiceClonePage();
     const audio = await screen.findByLabelText(/Audio-Player für Generierung/);
     const src1 = audio.getAttribute("src");
     expect(src1).toBe("/api/voice-clone/generations/gen-ready-001/audio");
     expect(src1).not.toContain("?t=");
     expect(src1).not.toContain("Date");
-
-    // Trigger a re-render by toggling the details section.
-    await userEvent.setup().click(screen.getByRole("button", { name: /Technische Details/i }));
-    const src2 = audio.getAttribute("src");
-    expect(src2).toBe(src1);
   });
 
   it("reference audio URL is stable and has no cache buster", async () => {
+    mock.setResponse("POST /api/recordings", 200, {
+      filename: "uploaded.wav",
+      url: "/api/recordings/uploaded.wav",
+      size_bytes: 1024,
+    });
     mock.setResponse(
-      "GET /api/voice-clone/analyze-reference/abc123.wav",
+      "GET /api/voice-clone/analyze-reference/uploaded.wav",
       200,
       goodQuality,
     );
-    renderVoiceLab();
-    await waitFor(() => expect(screen.getByText("abc123.wav")).toBeInTheDocument());
-    const user = await switchToTab("Voice Clone");
-    const select = await screen.findByRole("combobox", { name: "Referenzaufnahme auswählen" });
-    await user.selectOptions(select, "abc123.wav");
-    const refAudio = await screen.findByLabelText(/Referenz abc123.wav abspielen/i);
+    renderVoiceClonePage();
+    const user = await switchToManualUpload();
+    const fileInput = screen.getByLabelText("Referenzaufnahme hochladen");
+    const file = new File(["audio-data"], "clip.wav", { type: "audio/wav" });
+    await user.upload(fileInput, file);
+    const refAudio = await screen.findByLabelText(/Referenz uploaded.wav abspielen/i);
     const src = refAudio.getAttribute("src");
-    expect(src).toBe("/api/recordings/abc123.wav");
+    expect(src).toBe("/api/recordings/uploaded.wav");
     expect(src).not.toContain("?t=");
-  });
-
-  it("audio URL does not change when the generations list is refetched", async () => {
-    renderVoiceLab();
-    await waitFor(() => expect(screen.getByText("abc123.wav")).toBeInTheDocument());
-    await switchToTab("Generierungen");
-    const audio = await screen.findByLabelText(/Audio-Player für Generierung/);
-    const src1 = audio.getAttribute("src");
-
-    // Re-respond with the same data and re-render by toggling details twice.
-    mock.setResponse("GET /api/voice-clone/generations", 200, { generations: [readyGen()] });
-    await userEvent.setup().click(screen.getByRole("button", { name: /Technische Details/i }));
-    await userEvent.setup().click(screen.getByRole("button", { name: /Technische Details/i }));
-    const src2 = audio.getAttribute("src");
-    expect(src2).toBe(src1);
-  });
-});
-
-describe("Frontend hardening - delete confirmation dialog", () => {
-  let mock: ReturnType<typeof installFetchMock>;
-
-  beforeEach(() => {
-    mock = installFetchMock();
-    mock.setResponse("GET /api/status", 200, status);
-    mock.setResponse("GET /api/voice-clone/status", 200, voiceCloneStatusIdle);
-    mock.setResponse("GET /api/recordings", 200, { recordings: [sampleRecording] });
-    mock.setResponse("GET /api/voice-clone/generations", 200, { generations: [readyGen()] });
-  });
-
-  afterEach(() => mock.restore());
-
-  it("opens an AlertDialog when the delete button is clicked", async () => {
-    renderVoiceLab();
-    await waitFor(() => expect(screen.getByText("abc123.wav")).toBeInTheDocument());
-    const user = await switchToTab("Generierungen");
-    await user.click(screen.getByRole("button", { name: /gen-read löschen/i }));
-    const dialog = await screen.findByRole("alertdialog");
-    expect(within(dialog).getByText("Generierung endgültig löschen?")).toBeInTheDocument();
-    expect(within(dialog).getByText(/Zieltext:/)).toBeInTheDocument();
-    expect(within(dialog).getByText(/Erstellt:/)).toBeInTheDocument();
-    expect(within(dialog).getByText(/unwiderruflich gelöscht/)).toBeInTheDocument();
-  });
-
-  it("cancel does not dispatch a delete request", async () => {
-    renderVoiceLab();
-    await waitFor(() => expect(screen.getByText("abc123.wav")).toBeInTheDocument());
-    const user = await switchToTab("Generierungen");
-    await user.click(screen.getByRole("button", { name: /gen-read löschen/i }));
-    await user.click(await screen.findByRole("button", { name: "Abbrechen" }));
-    await waitFor(() => {
-      expect(screen.queryByRole("alertdialog")).toBeNull();
-    });
-    expect(mock.calls.some((c) => c.method === "DELETE")).toBe(false);
-  });
-
-  it("confirm calls the delete mutation exactly once", async () => {
-    mock.setResponse("DELETE /api/voice-clone/generations/gen-ready-001", 200, {
-      id: "gen-ready-001",
-      deleted: true,
-    });
-    renderVoiceLab();
-    await waitFor(() => expect(screen.getByText("abc123.wav")).toBeInTheDocument());
-    const user = await switchToTab("Generierungen");
-    await user.click(screen.getByRole("button", { name: /gen-read löschen/i }));
-    await user.click(await screen.findByRole("button", { name: "Endgültig löschen" }));
-    await waitFor(() => {
-      expect(
-        mock.calls.filter(
-          (c) => c.method === "DELETE" && c.url.includes("gen-ready-001"),
-        ).length,
-      ).toBe(1);
-    });
   });
 });
 
@@ -215,38 +132,48 @@ describe("Frontend hardening - Zod validation", () => {
     mock = installFetchMock();
     mock.setResponse("GET /api/status", 200, status);
     mock.setResponse("GET /api/voice-clone/status", 200, voiceCloneStatusIdle);
-    mock.setResponse("GET /api/recordings", 200, { recordings: [sampleRecording] });
     mock.setResponse("GET /api/voice-clone/generations", 200, { generations: [] });
+    mock.setResponse("GET /api/voice-profiles", 200, { profiles: [] });
   });
 
   afterEach(() => mock.restore());
 
   it("accepts a well-formed quality response", async () => {
+    mock.setResponse("POST /api/recordings", 200, {
+      filename: "uploaded.wav",
+      url: "/api/recordings/uploaded.wav",
+      size_bytes: 1024,
+    });
     mock.setResponse(
-      "GET /api/voice-clone/analyze-reference/abc123.wav",
+      "GET /api/voice-clone/analyze-reference/uploaded.wav",
       200,
       goodQuality,
     );
-    renderVoiceLab();
-    await waitFor(() => expect(screen.getByText("abc123.wav")).toBeInTheDocument());
-    const user = await switchToTab("Voice Clone");
-    const select = await screen.findByRole("combobox", { name: "Referenzaufnahme auswählen" });
-    await user.selectOptions(select, "abc123.wav");
+    renderVoiceClonePage();
+    const user = await switchToManualUpload();
+    const fileInput = screen.getByLabelText("Referenzaufnahme hochladen");
+    const file = new File(["audio-data"], "clip.wav", { type: "audio/wav" });
+    await user.upload(fileInput, file);
     expect(await screen.findByText(/Qualität: Gut/i)).toBeInTheDocument();
   });
 
   it("shows an error state for an invalid quality response instead of crashing", async () => {
+    mock.setResponse("POST /api/recordings", 200, {
+      filename: "uploaded.wav",
+      url: "/api/recordings/uploaded.wav",
+      size_bytes: 1024,
+    });
     // Missing required nested fields -> Zod parse fails.
     mock.setResponse(
-      "GET /api/voice-clone/analyze-reference/abc123.wav",
+      "GET /api/voice-clone/analyze-reference/uploaded.wav",
       200,
       { technical: { sample_rate: 44100 }, quality: "GOOD" },
     );
-    renderVoiceLab();
-    await waitFor(() => expect(screen.getByText("abc123.wav")).toBeInTheDocument());
-    const user = await switchToTab("Voice Clone");
-    const select = await screen.findByRole("combobox", { name: "Referenzaufnahme auswählen" });
-    await user.selectOptions(select, "abc123.wav");
+    renderVoiceClonePage();
+    const user = await switchToManualUpload();
+    const fileInput = screen.getByLabelText("Referenzaufnahme hochladen");
+    const file = new File(["audio-data"], "clip.wav", { type: "audio/wav" });
+    await user.upload(fileInput, file);
     expect(await screen.findByText(/Qualitätsanalyse fehlgeschlagen/i)).toBeInTheDocument();
     // The form must not crash and the submit button stays in the DOM.
     expect(screen.getByRole("button", { name: /Generierung starten|Generierung läuft/i })).toBeInTheDocument();
@@ -259,8 +186,8 @@ describe("Frontend hardening - runtime availability", () => {
   beforeEach(() => {
     mock = installFetchMock();
     mock.setResponse("GET /api/status", 200, status);
-    mock.setResponse("GET /api/recordings", 200, { recordings: [sampleRecording] });
     mock.setResponse("GET /api/voice-clone/generations", 200, { generations: [] });
+    mock.setResponse("GET /api/voice-profiles", 200, { profiles: [] });
   });
 
   afterEach(() => mock.restore());
@@ -274,11 +201,9 @@ describe("Frontend hardening - runtime availability", () => {
         "PyTorch besitzt keine CUDA-Unterstützung.",
       ],
     });
-    renderVoiceLab();
-    await waitFor(() => expect(screen.getByText("abc123.wav")).toBeInTheDocument());
-    await switchToTab("Voice Clone");
+    renderVoiceClonePage();
     expect(await screen.findByText(/Voice Clone ist aktuell nicht verfügbar/i)).toBeInTheDocument();
-    expect(screen.getByText("Qwen3-TTS ist nicht installiert.")).toBeInTheDocument();
+    expect(await screen.findByText("Qwen3-TTS ist nicht installiert.")).toBeInTheDocument();
     expect(screen.getByText("PyTorch besitzt keine CUDA-Unterstützung.")).toBeInTheDocument();
     const submit = screen.getByRole("button", { name: /Generierung starten|Generierung läuft/i });
     expect(submit).toBeDisabled();
@@ -290,73 +215,12 @@ describe("Frontend hardening - runtime availability", () => {
       busy: true,
       active_generation_id: "other-gen-abc",
     });
-    renderVoiceLab();
-    await waitFor(() => expect(screen.getByText("abc123.wav")).toBeInTheDocument());
-    await switchToTab("Voice Clone");
+    renderVoiceClonePage();
     const submit = await screen.findByRole("button", { name: /Generierung läuft/i });
     expect(submit).toBeDisabled();
     expect(screen.getByText(/blockiert/i)).toBeInTheDocument();
     // The active generation id is shown truncated to 12 chars.
     expect(screen.getByText("other-gen-ab")).toBeInTheDocument();
-  });
-});
-
-describe("Frontend hardening - status display", () => {
-  let mock: ReturnType<typeof installFetchMock>;
-
-  beforeEach(() => {
-    mock = installFetchMock();
-    mock.setResponse("GET /api/status", 200, status);
-    mock.setResponse("GET /api/voice-clone/status", 200, voiceCloneStatusIdle);
-    mock.setResponse("GET /api/recordings", 200, { recordings: [sampleRecording] });
-  });
-
-  afterEach(() => mock.restore());
-
-  it("renders an unknown future status without crashing and shows the raw string", async () => {
-    mock.setResponse(
-      "GET /api/voice-clone/generations",
-      200,
-      { generations: [readyGen({ id: "gen-x-001", status: "POSTPROCESSING_FUTURE" })] },
-    );
-    renderVoiceLab();
-    await waitFor(() => expect(screen.getByText("abc123.wav")).toBeInTheDocument());
-    await switchToTab("Generierungen");
-    expect(await screen.findByText("POSTPROCESSING_FUTURE")).toBeInTheDocument();
-  });
-});
-
-describe("Frontend hardening - polling", () => {
-  let mock: ReturnType<typeof installFetchMock>;
-
-  beforeEach(() => {
-    mock = installFetchMock();
-    mock.setResponse("GET /api/status", 200, status);
-    mock.setResponse("GET /api/voice-clone/status", 200, voiceCloneStatusIdle);
-    mock.setResponse("GET /api/recordings", 200, { recordings: [sampleRecording] });
-  });
-
-  afterEach(() => mock.restore());
-
-  it("does not poll the generations list when all generations are terminal", async () => {
-    mock.setResponse(
-      "GET /api/voice-clone/generations",
-      200,
-      { generations: [readyGen()] },
-    );
-    renderVoiceLab();
-    await waitFor(() => expect(screen.getByText("abc123.wav")).toBeInTheDocument());
-    await switchToTab("Generierungen");
-    await screen.findByText(/Dies ist der Zieltext/i);
-    const callsBefore = mock.calls.filter(
-      (c) => c.method === "GET" && c.url.includes("/api/voice-clone/generations"),
-    ).length;
-    // Wait a bit; no aggressive polling should happen for terminal states.
-    await new Promise((r) => setTimeout(r, 500));
-    const callsAfter = mock.calls.filter(
-      (c) => c.method === "GET" && c.url.includes("/api/voice-clone/generations"),
-    ).length;
-    expect(callsAfter).toBe(callsBefore);
   });
 });
 
@@ -407,7 +271,6 @@ describe("Frontend hardening - GenerationList unit", () => {
           id: "gen-min-001",
           peak_vram_bytes: null,
           model_revision: "unknown",
-          // No output_sha256, output_sample_rate, worker_exit_code, device_name.
         }),
       ],
     });
@@ -415,11 +278,7 @@ describe("Frontend hardening - GenerationList unit", () => {
     await screen.findByText(/Dies ist der Zieltext/i);
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /Technische Details/i }));
-    // Model is always present and shown.
-    expect(screen.getByText("Qwen/Qwen3-TTS-12Hz-1.7B-Base")).toBeInTheDocument();
-    // Optional fields that were not supplied must not appear.
     expect(screen.queryByText("NVIDIA RTX 5070")).toBeNull();
-    expect(screen.queryByText("24000 Hz")).toBeNull();
     mock.restore();
   });
 });

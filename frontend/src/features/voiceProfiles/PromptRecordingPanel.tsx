@@ -1,24 +1,17 @@
-import { useMemo, useState } from "react";
-import { Mic, PlusCircle, Trash2, CheckCircle2, AlertTriangle } from "lucide-react";
-import { useRecordingsQuery } from "../../hooks/useQueries";
+import { useMemo } from "react";
+import { Trash2, CheckCircle2, AlertTriangle } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { ReferenceStatusBadge } from "./ReferenceStatus";
 import type {
-  PromptRecordingRequest,
-  VoiceProfile,
   VoiceProfileReference,
   VoiceScript,
 } from "./types";
 
 interface PromptRecordingPanelProps {
-  profile: VoiceProfile;
   script: VoiceScript;
   reference: VoiceProfileReference | null;
-  onStartPromptRecording?: (request: PromptRecordingRequest) => void;
-  onAttachRecording: (recordingFilename: string) => void;
   onDetachReference: () => void;
   onAcceptReview: () => void;
-  attachPending: boolean;
   detachPending: boolean;
   acceptPending: boolean;
 }
@@ -57,56 +50,33 @@ function referenceReasons(reference: VoiceProfileReference | null): string[] {
   return [];
 }
 
-function audioUrlFor(
-  filename: string,
-  recordings: { filename: string; audio_url: string }[],
-): string {
-  const found = recordings.find((r) => r.filename === filename);
-  return found?.audio_url ?? `/api/recordings/${encodeURIComponent(filename)}`;
+function audioUrlFor(filename: string): string {
+  return `/api/recordings/${encodeURIComponent(filename)}`;
 }
 
 export function PromptRecordingPanel({
-  profile,
   script,
   reference,
-  onStartPromptRecording,
-  onAttachRecording,
   onDetachReference,
   onAcceptReview,
-  attachPending,
   detachPending,
   acceptPending,
 }: PromptRecordingPanelProps) {
-  const recordingsQuery = useRecordingsQuery();
-  const recordings = recordingsQuery.data?.recordings ?? [];
-  const [pickerOpen, setPickerOpen] = useState(false);
-
   const audioUrl = useMemo(
-    () => (reference ? audioUrlFor(reference.recording_filename, recordings) : null),
-    [reference, recordings],
+    () => (reference ? audioUrlFor(reference.recording_filename) : null),
+    [reference],
   );
 
   const recommendedDuration = script.recommended_duration_seconds ?? null;
   const tag = script.style ?? script.category ?? "";
-  const recordingAvailable = recordings.length > 0;
-  const canRecord = !!onStartPromptRecording;
   const status = reference?.status ?? null;
   const isReview = status === "REVIEW";
   const hasReference = !!reference;
   const warnings = referenceWarnings(reference);
   const rejectionReasons = status === "REJECTED" ? referenceReasons(reference) : [];
 
-  const handleRecord = () => {
-    if (!onStartPromptRecording) return;
-    onStartPromptRecording({
-      profileId: profile.id,
-      scriptId: script.id,
-      scriptText: script.text,
-    });
-  };
-
   return (
-    <div className="vp-prompt-panel" aria-label="Prompt-Aufnahme-Panel">
+    <div className="vp-prompt-panel" aria-label="Prompt-Referenz-Panel">
       <div className="vp-prompt-panel__section">
         <div className="vp-prompt-panel__meta">
           {tag && <span>Stil/Kategorie: {tag}</span>}
@@ -172,31 +142,11 @@ export function PromptRecordingPanel({
             )}
           </>
         ) : (
-          <p className="page__description">Noch keine Aufnahme verknüpft.</p>
+          <p className="page__description">Noch keine Referenz verknüpft.</p>
         )}
       </div>
 
       <div className="vp-prompt-panel__actions">
-        <Button
-          variant="primary"
-          size="sm"
-          onClick={handleRecord}
-          disabled={!canRecord}
-          title={canRecord ? undefined : "Kein Recorder angeschlossen"}
-        >
-          <Mic size={14} /> Jetzt aufnehmen
-        </Button>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => {
-            if (recordingAvailable) setPickerOpen((v) => !v);
-          }}
-          disabled={!recordingAvailable || attachPending}
-          title={recordingAvailable ? undefined : "Keine Aufnahmen vorhanden"}
-        >
-          <PlusCircle size={14} /> Vorhandene Aufnahme zuweisen
-        </Button>
         {hasReference && (
           <Button
             variant="secondary"
@@ -220,47 +170,6 @@ export function PromptRecordingPanel({
           </Button>
         )}
       </div>
-
-      {!canRecord && (
-        <p className="page__description" role="note">
-          Aufnahme nicht verfügbar: kein Recorder angeschlossen. Bestehende
-          Aufnahmen können weiterhin manuell verknüpft werden.
-        </p>
-      )}
-
-      {pickerOpen && recordingAvailable && (
-        <div className="vp-recording-picker" role="listbox" aria-label="Aufnahmen auswählen">
-          {recordings.map((rec) => (
-            <button
-              key={rec.filename}
-              type="button"
-              className="vp-recording-picker__item"
-              onClick={() => {
-                onAttachRecording(rec.filename);
-                setPickerOpen(false);
-              }}
-              disabled={attachPending}
-              aria-label={`Aufnahme ${rec.filename} zuweisen`}
-            >
-              <span>
-                <span className="vp-recording-picker__filename">{rec.filename}</span>
-                <br />
-                <span className="vp-recording-picker__info">
-                  {new Date(rec.created_at).toLocaleString()} ·{" "}
-                  {formatDuration(rec.duration_seconds)}
-                </span>
-              </span>
-              <audio
-                controls
-                preload="none"
-                src={rec.audio_url}
-                aria-label={`Vorschau für ${rec.filename}`}
-                style={{ maxWidth: 220 }}
-              />
-            </button>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

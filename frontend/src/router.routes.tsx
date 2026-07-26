@@ -43,8 +43,8 @@ export const ROUTES: RouteMeta[] = [
   },
   {
     path: "/voice-lab",
-    label: "Voice Lab",
-    description: "Sprachreferenzen aufnehmen und verwalten.",
+    label: "Voice Profiles",
+    description: "Voice-Profile verwalten und Referenzen pflegen.",
     icon: Mic2,
     status: "available",
     section: "main",
@@ -72,6 +72,14 @@ export const ROUTES: RouteMeta[] = [
     icon: Lightbulb,
     status: "unavailable",
     section: "main",
+  },
+  {
+    path: "/voice-clone",
+    label: "Voice Clone",
+    description: "On-Demand Voice-Clone mit Qwen3-TTS.",
+    icon: Wand2,
+    status: "available",
+    section: "production",
   },
   {
     path: "/recording-studio",

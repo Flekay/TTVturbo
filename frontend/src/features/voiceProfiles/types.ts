@@ -30,17 +30,6 @@ export type PromptFilter =
   | "REVIEW"
   | "REJECTED";
 
-/** Request handed to the integrator's recorder when "Jetzt aufnehmen" is clicked. */
-export type PromptRecordingRequest = {
-  profileId: string;
-  scriptId: string;
-  scriptText: string;
-};
-
-export type VoiceProfilesPanelProps = {
-  onStartPromptRecording?: (request: PromptRecordingRequest) => void;
-};
-
 /** Payloads for mutations. The server knows the script text by id, so the
  * client never sends script text bodies. */
 export type CreateVoiceProfileRequest = {
