@@ -11,10 +11,14 @@ sie über ein React-Dashboard bereit.
 TTVturbo/
 ├── app.py                # FastAPI-Backend: Aufnahmen, Voice Clone, Status, SPA-Auslieferung
 ├── recordings/           # erzeugte WAV-Dateien (real)
-├── voice_clone/          # Qwen3-TTS Voice-Clone-Modul (Service, Runtime, Qualitätsanalyse)
+├── voice_clone/          # Qwen3-TTS Voice-Clone-Modul (Service, Runtime, Qualitätsanalyse, Diagnostics)
 ├── static/               # Legacy-Testfrontend (Fallback, wenn frontend/dist fehlt)
 ├── tests/                # pytest-Backendtests
-├── requirements.txt
+├── scripts/              # verify_local.ps1 - kombinierte lokale Verifikation
+├── .github/workflows/    # ci.yml - GPU-freie CI (Python + Frontend + FFmpeg)
+├── requirements.txt      # Basissystem (FastAPI, soundfile, numpy, psutil)
+├── requirements-dev.txt  # pytest + httpx
+├── requirements-gpu.txt  # NVIDIA-/Qwen-Stack (torch+cu128, qwen-tts, transformers)
 │
 ├── frontend/             # React 19 + TypeScript + Vite Dashboard
 │   ├── index.html
@@ -48,17 +52,32 @@ Zustand, React Hook Form, Zod, Radix UI, Lucide React.
 
 ## Voraussetzungen
 
-- Python 3.10+
+- Python 3.10+ (getestet: 3.12.10 für das Basissystem und 3.12.10 für die
+  NVIDIA-/Qwen-Unterstützung)
 - Node.js 20+ und npm
 - FFmpeg (und ffprobe) im PATH
 - Ein Browser mit `MediaRecorder` und `getUserMedia` (Chrome, Edge, Firefox)
 
-## Backendinstallation
+Wichtig: Das Basissystem kann ohne Qwen starten. Voice Cloning benötigt
+eine funktionierende CUDA-Runtime. Die Installation ist in zwei Stufen
+getrennt; nur die zweite Stufe erfordert eine NVIDIA-GPU.
+
+## Basissystem installieren
+
+Das Basissystem reicht für `python app.py`, das React-Dashboard, echte
+Mikrofonaufnahmen, FFmpeg-WAV-Konvertierung, Aufnahmenbibliothek und die
+Voice-Clone-Orchestrierung (Qualitätsanalyse, Status-Polling,
+Restart-Recovery). Der Qwen3-TTS-Worker subprocess startet nur dann und
+liefert echte Audios, wenn die GPU-Abhängigkeiten aus dem nächsten
+Abschnitt installiert sind; ohne sie meldet der Statusdiagnose-Endpunkt
+ehrlich `qwen_tts_importable=false` und eine Generierung wird `FAILED`.
 
 ```powershell
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+pip install -r requirements-dev.txt   # nur fuer pytest / Backendtests
+npm --prefix frontend ci
 ```
 
 FFmpeg unter Windows z. B. mit:
@@ -67,18 +86,63 @@ FFmpeg unter Windows z. B. mit:
 winget install --id=Gyan.FFmpeg -e
 ```
 
-Für die Backendtests zusätzlich:
+## NVIDIA- / Qwen-Unterstützung installieren (optional, RTX 5070)
+
+Diese Stufe ist nur auf der Maschine nötig, die echte Voice-Clone-Generierungen
+ausführen soll. Sie installiert die CUDA-fähigen Wheels für den
+`voice_clone.runtime`-Worker subprocess. Das FastAPI-Backend selbst importiert
+diese Pakete nie; es startet auch ohne sie.
+
+Getestet auf der Zielhardware (siehe `spikes/qwen_tts/REPORT.md`,
+Status `REAL_MODEL_VERIFIED`):
+
+| Eigenschaft         | Wert                                                |
+|---------------------|-----------------------------------------------------|
+| GPU                 | NVIDIA GeForce RTX 5070 (12 GB VRAM, Blackwell)     |
+| RAM                 | 64 GB                                               |
+| OS                  | Windows                                             |
+| Python-Version      | 3.12.10                                             |
+| PyTorch-Version     | 2.11.0+cu128                                        |
+| CUDA-Wheel-Quelle   | `https://download.pytorch.org/whl/cu128`            |
+| qwen-tts            | 0.1.1                                               |
+| transformers        | 4.57.3                                              |
+| accelerate          | 1.12.0                                              |
+| RTX-5070-Teststatus | REAL_MODEL_VERIFIED (3 echte Generierungen)         |
+| Peak-VRAM           | ~3.95 GB allocated / ~4.41 GB reserved (12 GB GPU)  |
+| Modellladezeit      | 180 s kalt, ~5 s warm (Cache)                       |
+| Generierungszeit    | ~5–6 s pro Satz                                     |
+
+Wichtig: Der Standard-PyPI-Wheel von `torch` ist auf Windows CPU-only. Er
+silently deaktiviert CUDA und der Worker meldet `cuda_available=false`.
+Die CUDA-Builds müssen zwingend vom `cu128`-Index gezogen werden.
 
 ```powershell
-pip install pytest httpx
+.venv\Scripts\Activate.ps1
+pip install -r requirements-gpu.txt --extra-index-url https://download.pytorch.org/whl/cu128
 ```
 
-## Frontendinstallation
+Speicherbedarf: plane ~4.5 GB Peak-VRAM für Modell + Generierung ein. Die
+12 GB RTX 5070 hat ausreichend Headroom. Nach `gc.collect()` +
+`torch.cuda.empty_cache()` + `torch.cuda.ipc.collect()` fällt der
+allozierte VRAM auf ~9 MB, aber ~322 MB bleiben vom CUDA-Caching-Allocator
+reserviert (erwartet, kein Leak). Nur das Beenden des Worker-Subprocess
+gibt den gesamten VRAM an das OS zurück.
+
+Diagnostikbefehl (lädt kein Modell, prüft nur die Runtime-Voraussetzungen):
 
 ```powershell
-cd frontend
-npm install
+python -m voice_clone.diagnostics
 ```
+
+Der Diagnose-Endpunkt ist auch zur Laufzeit verfügbar:
+
+```powershell
+curl http://127.0.0.1:8765/api/voice-clone/status
+```
+
+Beide zeigen ehrlich an, ob `qwen_tts` importierbar ist, ob CUDA verfügbar
+ist, welchen Device-Namen und welche VRAM-Werte `torch` meldet, und ob
+FFmpeg/soundfile/Datenverzeichnis funktionieren. Sie erfinden keine Werte.
 
 ## Entwicklungsstart
 
@@ -225,6 +289,13 @@ npm --prefix frontend run build
 pytest
 ```
 
+Alternativ das kombinierte lokale Verifikationsscript ausführen:
+
+```powershell
+.\scripts\verify_local.ps1
+.\scripts\verify_local.ps1 -IncludeGpuTest   # zusaetzlich GPU-Diagnose
+```
+
 Getestet werden u. a.:
 
 - `/api/status` mit realen Werten
@@ -248,7 +319,11 @@ Getestet werden u. a.:
 - Keine Smartphone-Optimierung (Desktop primero).
 - Einstellungen werden nur in `localStorage` gespeichert.
 - Keine serverseitige Einstellungsdatenbank, keine Benutzerkonten.
-- Voice-Clone-E2E-Test lädt das echte Qwen3-TTS-Modell (gated).
+- Voice-Clone-E2E-Test lädt das echte Qwen3-TTS-Modell (gated via
+  `TTVTURBO_RUN_QWEN_TTS_E2E=1`); standardmäßig übersprungen, auch in CI.
+- Voice Cloning benötigt eine funktionierende CUDA-Runtime
+  (`requirements-gpu.txt`); ohne CUDA ist das Basissystem lauffähig, aber
+  Generierungen werden `FAILED` gemeldet.
 - Kein VOD-Download, kein Twitch- oder OBS-Anschluss.
 - Kein Videoeditor, keine Automationen, kein Publishing.
 - Keine Worker, keine Redis, kein Docker, kein Tauri/Rust.

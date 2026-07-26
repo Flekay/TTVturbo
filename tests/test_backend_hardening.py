@@ -235,6 +235,26 @@ def test_diagnostics_module_runs_as_cli(capsys):
     assert rc in (0, 1)
 
 
+def test_runtime_main_rejects_wrong_arg_count(capsys):
+    """`voice_clone.runtime.main` must accept exactly one argument (the job
+    path). The service spawns `python -m voice_clone.runtime <job.json>`,
+    so `sys.argv[1:]` has length 1. A regression that changed the check to
+    `!= 2` made every real worker exit with code 2 immediately; this test
+    pins the contract without loading the model.
+    """
+    from voice_clone import runtime
+
+    assert runtime.main([]) == 2
+    assert runtime.main(["a", "b"]) == 2
+    err = capsys.readouterr().err
+    assert "usage:" in err
+
+    # A non-existent job path must get past the arg-count check and fail at
+    # the file-open step instead, proving the arg check accepts one path.
+    with pytest.raises(FileNotFoundError):
+        runtime.main(["definitely-not-a-real-job.json"])
+
+
 # --------------------------------------------------------------------- atomic finalization
 def test_finalize_output_atomic_success(tmp_path: Path):
     part = tmp_path / "output.wav.part"

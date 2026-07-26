@@ -726,7 +726,8 @@ def test_e2e_real_voice_clone_via_api(tmp_path: Path, recordings_dir: Path):
                 f"generation did not finish READY: {meta.get('failure_reason')}"
             )
             assert meta["output_duration_seconds"] > 0.5
-            assert meta["sample_rate"] if "sample_rate" in meta else meta.get("peak_vram_bytes", 0) >= 0
+            assert meta.get("output_sample_rate", 0) > 0
+            assert meta.get("peak_vram_bytes", 0) >= 0
 
             audio = client.get(f"/api/voice-clone/generations/{gen_id}/audio")
             assert audio.status_code == 200

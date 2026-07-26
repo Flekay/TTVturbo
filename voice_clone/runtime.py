@@ -540,10 +540,10 @@ def _now_iso() -> str:
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 2:
+    if len(argv) != 1:
         print("usage: python -m voice_clone.runtime <job.json>", file=sys.stderr)
         return 2
-    job_path = argv[1]
+    job_path = argv[0]
     with open(job_path, "r", encoding="utf-8") as fh:
         job = json.load(fh)
     return _run_job(job)

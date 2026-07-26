@@ -92,9 +92,10 @@ export interface GenerationMetadata {
   failure_reason: string | null;
   warnings: string[];
   // Optional technical details, present only when the backend supplies them.
+  // Field names must match voice_clone/schemas.py GenerationMetadata exactly.
   output_sha256?: string | null;
-  sample_rate?: number | null;
-  worker_exitcode?: number | null;
+  output_sample_rate?: number | null;
+  worker_exit_code?: number | null;
   device_name?: string | null;
 }
 

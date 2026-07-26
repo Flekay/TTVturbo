@@ -382,8 +382,8 @@ describe("Frontend hardening - GenerationList unit", () => {
         readyGen({
           id: "gen-tech-001",
           output_sha256: "abcdef1234567890",
-          sample_rate: 24000,
-          worker_exitcode: 0,
+          output_sample_rate: 24000,
+          worker_exit_code: 0,
           device_name: "NVIDIA RTX 5070",
         }),
       ],
@@ -407,7 +407,7 @@ describe("Frontend hardening - GenerationList unit", () => {
           id: "gen-min-001",
           peak_vram_bytes: null,
           model_revision: "unknown",
-          // No output_sha256, sample_rate, worker_exitcode, device_name.
+          // No output_sha256, output_sample_rate, worker_exit_code, device_name.
         }),
       ],
     });

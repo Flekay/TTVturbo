@@ -176,8 +176,8 @@ function GenerationCard({ gen, pendingDeleteId, deleteBusy, onDeleteRequest }: G
   if (gen.peak_vram_bytes != null) {
     technicalDetails.push({ label: "Peak-VRAM", value: formatBytes(gen.peak_vram_bytes) });
   }
-  if (gen.sample_rate != null) {
-    technicalDetails.push({ label: "Sample-Rate", value: `${gen.sample_rate} Hz` });
+  if (gen.output_sample_rate != null) {
+    technicalDetails.push({ label: "Sample-Rate", value: `${gen.output_sample_rate} Hz` });
   }
   if (gen.output_sha256) {
     technicalDetails.push({ label: "SHA-256", value: gen.output_sha256.slice(0, 12) + "…" });
@@ -185,8 +185,8 @@ function GenerationCard({ gen, pendingDeleteId, deleteBusy, onDeleteRequest }: G
   if (gen.reference_sha256) {
     technicalDetails.push({ label: "Ref-SHA-256", value: gen.reference_sha256.slice(0, 12) + "…" });
   }
-  if (gen.worker_exitcode != null) {
-    technicalDetails.push({ label: "Worker-Exitcode", value: String(gen.worker_exitcode) });
+  if (gen.worker_exit_code != null) {
+    technicalDetails.push({ label: "Worker-Exitcode", value: String(gen.worker_exit_code) });
   }
   if (gen.warnings.length > 0) {
     technicalDetails.push({ label: "Warnungen", value: gen.warnings.join("; ") });

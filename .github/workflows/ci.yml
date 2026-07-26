@@ -1,0 +1,79 @@
+name: CI
+
+# GPU-free CI for TTVturbo.
+#
+# Verifies the basissystem (FastAPI backend + React frontend) without a CUDA
+# GPU and without downloading the Qwen3-TTS model. The real-model E2E test is
+# gated behind TTVURBO_RUN_QWEN_TTS_E2E=1 and stays skipped here on purpose;
+# CI must never attempt to pull model weights.
+#
+# FFmpeg is installed on the runner because the backend upload/conversion
+# tests exercise the real ffmpeg binary. Tests that need FFmpeg gracefully
+# skip when it is missing, but installing it gives real coverage.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  python:
+    name: Python (pytest + compileall)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install base + dev dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: compileall (byte-compile check)
+        run: python -m compileall -q app.py voice_clone tests
+
+      - name: pytest
+        env:
+          # Keep the real-model E2E test skipped. It would download the
+          # Qwen3-TTS weights and requires a CUDA GPU.
+          TTVTURBO_RUN_QWEN_TTS_E2E: "0"
+        run: pytest -q
+
+  frontend:
+    name: Frontend (typecheck + vitest + build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: npm ci
+        run: npm --prefix frontend ci
+
+      - name: Typecheck
+        run: npm --prefix frontend run typecheck
+
+      - name: Vitest
+        run: npm --prefix frontend run test
+
+      - name: Vite build
+        run: npm --prefix frontend run build

@@ -97,9 +97,10 @@ export const generationMetadataSchema = z.object({
   failure_reason: z.string().nullable(),
   warnings: z.array(z.string()),
   // Optional technical details, rendered only when the backend supplies them.
+  // Field names must match voice_clone/schemas.py GenerationMetadata exactly.
   output_sha256: z.string().nullable().optional(),
-  sample_rate: z.number().nullable().optional(),
-  worker_exitcode: z.number().nullable().optional(),
+  output_sample_rate: z.number().nullable().optional(),
+  worker_exit_code: z.number().nullable().optional(),
   device_name: z.string().nullable().optional(),
 });
 
