@@ -1,0 +1,891 @@
+{
+  "schema_version": 1,
+  "pack_id": "ttvturbo-de-de-v1",
+  "locale": "de-DE",
+  "kind": "recording_pack",
+  "title": "TTVturbo German Voice Pack v1",
+  "description": "Deutsche Aufnahmeskript-Bibliothek für TTVturbo Voice Profiles. 88 einzeln vorlesbare Sätze in acht Sprechstilen und drei Zusatzkategorien.",
+  "prompt_count": 88,
+  "prompts": [
+    {
+      "id": "de-DE-neutral-001",
+      "order": 1,
+      "category": "style",
+      "style": "neutral",
+      "text": "Die heutige Sitzung beginnt pünktlich um zehn Uhr im Hauptsaal.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-neutral-002",
+      "order": 2,
+      "category": "style",
+      "style": "neutral",
+      "text": "Der Bericht enthält alle relevanten Zahlen des vergangenen Quartals.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-neutral-003",
+      "order": 3,
+      "category": "style",
+      "style": "neutral",
+      "text": "Die neue Version steht ab morgen im Download-Bereich zur Verfügung.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-neutral-004",
+      "order": 4,
+      "category": "style",
+      "style": "neutral",
+      "text": "Alle Teilnehmer erhalten vorab eine schriftliche Bestätigung per E-Mail.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-neutral-005",
+      "order": 5,
+      "category": "style",
+      "style": "neutral",
+      "text": "Die Strecke zwischen den beiden Städten ist rund zweihundert Kilometer lang.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-neutral-006",
+      "order": 6,
+      "category": "style",
+      "style": "neutral",
+      "text": "Die Bibliothek ist montags bis freitags von neun bis achtzehn Uhr geöffnet.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-neutral-007",
+      "order": 7,
+      "category": "style",
+      "style": "neutral",
+      "text": "Die Ergebnisse werden im Anschluss an die Besprechung sauber dokumentiert.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-neutral-008",
+      "order": 8,
+      "category": "style",
+      "style": "neutral",
+      "text": "Der Versand erfolgt in der Regel innerhalb von zwei Werktagen.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-conversational-001",
+      "order": 9,
+      "category": "style",
+      "style": "conversational",
+      "text": "Sag mal, hast du gestern eigentlich noch den Stream zu Ende geschaut?",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["question"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-conversational-002",
+      "order": 10,
+      "category": "style",
+      "style": "conversational",
+      "text": "Ich glaub, ich lass das heute mal etwas ruhiger angehen, ehrlich gesagt.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-conversational-003",
+      "order": 11,
+      "category": "style",
+      "style": "conversational",
+      "text": "Na, dann zeig mir mal, was du die ganze Zeit da gebastelt hast.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-conversational-004",
+      "order": 12,
+      "category": "style",
+      "style": "conversational",
+      "text": "Du, ich hab da so eine Idee, die könnten wir uns mal durch den Kopf gehen lassen.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-conversational-005",
+      "order": 13,
+      "category": "style",
+      "style": "conversational",
+      "text": "Weißt du was, das wird bestimmt lustig, wenn wir das zusammen probieren.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-conversational-006",
+      "order": 14,
+      "category": "style",
+      "style": "conversational",
+      "text": "Ich frag mich gerade, ob wir das nicht auch ganz anders lösen könnten.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["question"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-conversational-007",
+      "order": 15,
+      "category": "style",
+      "style": "conversational",
+      "text": "Lass uns doch kurz noch die Punkte durchgehen, bevor wir loslegen.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-conversational-008",
+      "order": 16,
+      "category": "style",
+      "style": "conversational",
+      "text": "Ehrlich, das hat mich gestern echt überrascht, wie gut das funktioniert hat.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-amused-001",
+      "order": 17,
+      "category": "style",
+      "style": "amused",
+      "text": "Na, das ist mir doch tatsächlich noch nie so aufgefallen, wie lustig das klingt.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-amused-002",
+      "order": 18,
+      "category": "style",
+      "style": "amused",
+      "text": "Du hast dir wirklich Mühe gegeben, oder? Das sieht man auf jeden Fall.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["question"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-amused-003",
+      "order": 19,
+      "category": "style",
+      "style": "amused",
+      "text": "Ach, das ist doch genau die Sorte Geschichte, über die man später noch lacht.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-amused-004",
+      "order": 20,
+      "category": "style",
+      "style": "amused",
+      "text": "Ich muss schon sagen, das hat Stil, so etwas sieht man nicht oft.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-amused-005",
+      "order": 21,
+      "category": "style",
+      "style": "amused",
+      "text": "Das ist doch die beste Idee seit Tagen, ehrlich jetzt.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-amused-006",
+      "order": 22,
+      "category": "style",
+      "style": "amused",
+      "text": "Oh, das wird ein Spaß, wenn die anderen das hier sehen.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-amused-007",
+      "order": 23,
+      "category": "style",
+      "style": "amused",
+      "text": "Ich finde es schon fast charmant, wie sehr du das durchziehst.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-amused-008",
+      "order": 24,
+      "category": "style",
+      "style": "amused",
+      "text": "Na, wen glaubst du denn, dass du hiermit so richtig überraschst?",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["question"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-dry_humor-001",
+      "order": 25,
+      "category": "style",
+      "style": "dry_humor",
+      "text": "Großartig, wieder eine Stunde meines Lebens, die ich nie zurückbekomme.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-dry_humor-002",
+      "order": 26,
+      "category": "style",
+      "style": "dry_humor",
+      "text": "Wenn das die Lösung ist, will ich das Problem gar nicht erst sehen.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-dry_humor-003",
+      "order": 27,
+      "category": "style",
+      "style": "dry_humor",
+      "text": "Ich liebe es, wenn ein Plan genau so scheitert wie geplant.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-dry_humor-004",
+      "order": 28,
+      "category": "style",
+      "style": "dry_humor",
+      "text": "Das funktioniert bestimmt, solange niemand das System benutzt.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-dry_humor-005",
+      "order": 29,
+      "category": "style",
+      "style": "dry_humor",
+      "text": "Wunderbar, dann haben wir das wenigstens schriftlich, falls es niemand liest.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-dry_humor-006",
+      "order": 30,
+      "category": "style",
+      "style": "dry_humor",
+      "text": "Ich bin kein Pessimist, ich bin nur realistisch informiert.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-dry_humor-007",
+      "order": 31,
+      "category": "style",
+      "style": "dry_humor",
+      "text": "Perfekt, ein weiteres Update, das alles repariert, was das letzte kaputtgemacht hat.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-dry_humor-008",
+      "order": 32,
+      "category": "style",
+      "style": "dry_humor",
+      "text": "Hauptsache, die Statistik stimmt, auch wenn niemand sie versteht.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-energetic-001",
+      "order": 33,
+      "category": "style",
+      "style": "energetic",
+      "text": "Los, schnapp dir das Mikrofon, wir legen jetzt direkt richtig los!",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-energetic-002",
+      "order": 34,
+      "category": "style",
+      "style": "energetic",
+      "text": "Das wird ein absoluter Tag, darauf freue ich mich schon seit Tagen!",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-energetic-003",
+      "order": 35,
+      "category": "style",
+      "style": "energetic",
+      "text": "Endlich, jetzt geht's rund, bleibt dran, das wird richtig gut!",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-energetic-004",
+      "order": 36,
+      "category": "style",
+      "style": "energetic",
+      "text": "Leute, schnallt euch an, das hier wird ein echtes Highlight!",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-energetic-005",
+      "order": 37,
+      "category": "style",
+      "style": "energetic",
+      "text": "Auf geht's, wir ziehen das jetzt durch, ganz egal, was kommt!",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-energetic-006",
+      "order": 38,
+      "category": "style",
+      "style": "energetic",
+      "text": "Ich hab richtig Bock darauf, das heute bis zum Ende durchzuziehen!",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-energetic-007",
+      "order": 39,
+      "category": "style",
+      "style": "energetic",
+      "text": "Das ist genau die Sorte Energie, die wir heute brauchen, los geht's!",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-energetic-008",
+      "order": 40,
+      "category": "style",
+      "style": "energetic",
+      "text": "Jawohl, das klingt nach einem Plan, den wir sofort angehen!",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-serious-001",
+      "order": 41,
+      "category": "style",
+      "style": "serious",
+      "text": "Die Entscheidung wurde sorgfältig geprüft und ist endgültig so getroffen worden.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-serious-002",
+      "order": 42,
+      "category": "style",
+      "style": "serious",
+      "text": "Ich möchte ehrlich betonen, dass diese Angaben verlässlich und geprüft sind.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-serious-003",
+      "order": 43,
+      "category": "style",
+      "style": "serious",
+      "text": "Es ist wichtig, dass wir an dieser Stelle keine voreiligen Schlüsse ziehen.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-serious-004",
+      "order": 44,
+      "category": "style",
+      "style": "serious",
+      "text": "Die Verantwortung liegt bei uns allen, und sie sollte ernst genommen werden.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-serious-005",
+      "order": 45,
+      "category": "style",
+      "style": "serious",
+      "text": "Ich sage das bewusst so deutlich, damit es danach keine Missverständnisse gibt.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-serious-006",
+      "order": 46,
+      "category": "style",
+      "style": "serious",
+      "text": "Die Lage ist ernst, aber sie ist beherrschbar, wenn wir klug handeln.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-serious-007",
+      "order": 47,
+      "category": "style",
+      "style": "serious",
+      "text": "Wir haben diese Zahlen mehrfach unabhängig voneinander nachvollzogen.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-serious-008",
+      "order": 48,
+      "category": "style",
+      "style": "serious",
+      "text": "Vertrauen entsteht nicht durch Worte, sondern durch wiederkehrend nachprüfbares Handeln.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-skeptical-001",
+      "order": 49,
+      "category": "style",
+      "style": "skeptical",
+      "text": "Bist du dir wirklich sicher, dass das so funktioniert, wie du es gerade beschreibst?",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["question"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-skeptical-002",
+      "order": 50,
+      "category": "style",
+      "style": "skeptical",
+      "text": "Irgendwie klingt das für mich ein bisschen zu glatt, um einfach so hinzunehmen.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-skeptical-003",
+      "order": 51,
+      "category": "style",
+      "style": "skeptical",
+      "text": "Lass uns das lieber noch einmal nachrechnen, bevor wir das als fest ansehen.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-skeptical-004",
+      "order": 52,
+      "category": "style",
+      "style": "skeptical",
+      "text": "Ich frage mich ehrlich, ob die Quelle da wirklich verlässlich genug ist.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["question"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-skeptical-005",
+      "order": 53,
+      "category": "style",
+      "style": "skeptical",
+      "text": "Das will ich mir erst im Detail ansehen, bevor ich mir eine Meinung bilde.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-skeptical-006",
+      "order": 54,
+      "category": "style",
+      "style": "skeptical",
+      "text": "Woher willst du eigentlich wissen, dass die Zahlen aktuell noch stimmen?",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["question"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-skeptical-007",
+      "order": 55,
+      "category": "style",
+      "style": "skeptical",
+      "text": "Mir kommt es so vor, als hätten wir hier eine wichtige Stelle übersehen.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["statement"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-skeptical-008",
+      "order": 56,
+      "category": "style",
+      "style": "skeptical",
+      "text": "Gibt es dafür eigentlich einen Beleg, der nicht nur aus Behauptungen besteht?",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["question"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-hook_question-001",
+      "order": 57,
+      "category": "style",
+      "style": "hook_question",
+      "text": "Wusstest du schon, was wirklich passiert, wenn du das zum ersten Mal ausprobierst?",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["question"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-hook_question-002",
+      "order": 58,
+      "category": "style",
+      "style": "hook_question",
+      "text": "Warum machen eigentlich so viele denselben Fehler, obwohl die Lösung so nah liegt?",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["question"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-hook_question-003",
+      "order": 59,
+      "category": "style",
+      "style": "hook_question",
+      "text": "Was würde eigentlich passieren, wenn wir heute einfach mal alles anders angehen?",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["question"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-hook_question-004",
+      "order": 60,
+      "category": "style",
+      "style": "hook_question",
+      "text": "Hast du dich schon mal gefragt, warum manche Tage einfach rund laufen?",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["question"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-hook_question-005",
+      "order": 61,
+      "category": "style",
+      "style": "hook_question",
+      "text": "Wie schaffst du es eigentlich, dass dein Setup so konstant stabil bleibt?",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["question"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-hook_question-006",
+      "order": 62,
+      "category": "style",
+      "style": "hook_question",
+      "text": "Was ist der eine Punkt, den fast alle übersehen, wenn sie damit anfangen?",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["question"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-hook_question-007",
+      "order": 63,
+      "category": "style",
+      "style": "hook_question",
+      "text": "Kennst du den Moment, in dem man plötzlich versteht, wie alles zusammenpasst?",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["question"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-hook_question-008",
+      "order": 64,
+      "category": "style",
+      "style": "hook_question",
+      "text": "Wann hast du zuletzt etwas zum ersten Mal wirklich von Grund auf probiert?",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["question"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-numbers-dates-001",
+      "order": 65,
+      "category": "numbers_dates",
+      "style": "neutral",
+      "text": "Der Termin ist am vierzehnten März um zehn Uhr dreißig, ohne Verschiebung.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["numbers", "dates", "time"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-numbers-dates-002",
+      "order": 66,
+      "category": "numbers_dates",
+      "style": "neutral",
+      "text": "Von den zweihundert Teilnehmern haben sich bereits einhundertachtundzwanzig angemeldet.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["numbers"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-numbers-dates-003",
+      "order": 67,
+      "category": "numbers_dates",
+      "style": "neutral",
+      "text": "Die Datei ist drei Komma zwei Megabyte groß und dauert etwa zwanzig Sekunden.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["numbers", "decimals"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-numbers-dates-004",
+      "order": 68,
+      "category": "numbers_dates",
+      "style": "neutral",
+      "text": "Wir reden hier von knapp neunundneunzig Prozent, das ist kein kleines Detail.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["numbers", "percent"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-numbers-dates-005",
+      "order": 69,
+      "category": "numbers_dates",
+      "style": "neutral",
+      "text": "Am dreiundzwanzigsten Oktober um fünfzehn Uhr zwanzig beginnt die nächste Runde.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["dates", "time"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-numbers-dates-006",
+      "order": 70,
+      "category": "numbers_dates",
+      "style": "neutral",
+      "text": "Das Gerät kostet zweihundertneunundvierzig Euro und ist ab nächster Woche lieferbar.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["money", "numbers"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-numbers-dates-007",
+      "order": 71,
+      "category": "numbers_dates",
+      "style": "neutral",
+      "text": "Im Jahr zweitausenddreiundzwanzig lag der Wert noch bei null Komma acht.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["year", "numbers", "decimals"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-numbers-dates-008",
+      "order": 72,
+      "category": "numbers_dates",
+      "style": "neutral",
+      "text": "Drei von vier Nutzern haben innerhalb von sieben Tagen eine Rückmeldung gegeben.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["numbers", "dates"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-technology-gaming-001",
+      "order": 73,
+      "category": "technology_gaming",
+      "style": "neutral",
+      "text": "Der Server läuft wieder, aber die FPS-Zahlen schwanken noch ziemlich stark.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["gaming", "server"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-technology-gaming-002",
+      "order": 74,
+      "category": "technology_gaming",
+      "style": "neutral",
+      "text": "Lade dir das Update herunter, starte Discord neu, dann sollte es passen.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["update", "discord"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-technology-gaming-003",
+      "order": 75,
+      "category": "technology_gaming",
+      "style": "neutral",
+      "text": "Streaming auf Twitch geht erst richtig flüssig, wenn die GPU entlastet ist.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["streaming", "twitch", "gpu"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-technology-gaming-004",
+      "order": 76,
+      "category": "technology_gaming",
+      "style": "neutral",
+      "text": "Schau mal im Dashboard nach, ob dein Voice Clone schon fertig ist.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["dashboard", "voice_clone"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-technology-gaming-005",
+      "order": 77,
+      "category": "technology_gaming",
+      "style": "neutral",
+      "text": "Mit der neuen RTX-Karte zieht YouTube in hoher Auflösung ohne Ruckeln durch.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["rtx", "youtube"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-technology-gaming-006",
+      "order": 78,
+      "category": "technology_gaming",
+      "style": "neutral",
+      "text": "Der Download bricht ab, sobald die Verbindung auch nur kurz einbricht.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["download"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-technology-gaming-007",
+      "order": 79,
+      "category": "technology_gaming",
+      "style": "neutral",
+      "text": "Ich hab den Stream auf YouTube geschaltet und parallel auf Twitch gepusht.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["youtube", "twitch", "streaming"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-technology-gaming-008",
+      "order": 80,
+      "category": "technology_gaming",
+      "style": "neutral",
+      "text": "Starte den Server neu, prüfe das Update, dann sehen wir weiter.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["server", "update"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-phonetic-coverage-001",
+      "order": 81,
+      "category": "phonetic_coverage",
+      "style": "neutral",
+      "text": "Schwarze Spatzen flitzen geschwind durch die späten Schatten am Stadtrand.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["sch", "sp", "st"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-phonetic-coverage-002",
+      "order": 82,
+      "category": "phonetic_coverage",
+      "style": "neutral",
+      "text": "Strampelnde Kinder springen stolpernd über steinige Stufen am Spielplatz.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["st", "sp", "compound"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-phonetic-coverage-003",
+      "order": 83,
+      "category": "phonetic_coverage",
+      "style": "neutral",
+      "text": "Zwischen schmalen Kirchenwänden klingt jedes leise Flüstern hell und scharf.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["sch", "ch", "compound"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-phonetic-coverage-004",
+      "order": 84,
+      "category": "phonetic_coverage",
+      "style": "neutral",
+      "text": "Frische Brötchen schmecken besonders mit warmer Butter und scharfem Senf.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["umlaute", "sch", "ch"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-phonetic-coverage-005",
+      "order": 85,
+      "category": "phonetic_coverage",
+      "style": "neutral",
+      "text": "Sechs schwere Schlittschuhe schlitterten über das spiegelglatte Eis.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["sch", "sp"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-phonetic-coverage-006",
+      "order": 86,
+      "category": "phonetic_coverage",
+      "style": "neutral",
+      "text": "Der Metzger schlachtet nichts, sondern schlendert schmunzelnd durch die Straßen.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["sch", "st", "compound"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-phonetic-coverage-007",
+      "order": 87,
+      "category": "phonetic_coverage",
+      "style": "neutral",
+      "text": "Pfiffige Pferde springen mühelos über breite Gräben am Feldrand.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["pf", "umlaute", "compound"],
+      "recording_notes": null
+    },
+    {
+      "id": "de-DE-phonetic-coverage-008",
+      "order": 88,
+      "category": "phonetic_coverage",
+      "style": "neutral",
+      "text": "Zwischen Tischen stehen blau-weiße Tassen mit heißem, frischem Tee.",
+      "recommended_duration_seconds": { "min": 5, "max": 12 },
+      "tags": ["umlaute", "ch", "st"],
+      "recording_notes": null
+    }
+  ]
+}
