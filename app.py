@@ -342,7 +342,7 @@ def get_status() -> JSONResponse:
     vp_complete = 0
     vp_available = "available"
     try:
-        profiles = voice_profile_service.list_profiles(include_archived=False)
+        profiles = voice_profile_service.list_profiles()
         vp_count = len(profiles)
         for p in profiles:
             progress = p.get("progress") or {}

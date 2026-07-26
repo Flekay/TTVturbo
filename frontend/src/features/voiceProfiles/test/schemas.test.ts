@@ -49,7 +49,6 @@ const validProfile = {
   name: "Meine Stimme",
   locale: "de-DE",
   created_at: "2026-01-01T00:00:00+00:00",
-  archived: false,
   references: { s1: validReference },
   progress: validProgress,
 };

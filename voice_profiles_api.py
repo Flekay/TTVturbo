@@ -51,7 +51,6 @@ class CreateProfileRequest(BaseModel):
 
 class PatchProfileRequest(BaseModel):
     name: Optional[str] = None
-    archived: Optional[bool] = None
 
 
 class AttachReferenceRequest(BaseModel):
@@ -188,7 +187,7 @@ def build_router(service: VoiceProfileService, quality_analyzer=None) -> APIRout
     def list_profiles() -> JSONResponse:
         svc = state["service"]
         try:
-            profiles = svc.list_profiles(include_archived=False)
+            profiles = svc.list_profiles()
         except Exception as exc:
             return _map_voice_profile_error(exc)
         return JSONResponse(content={"profiles": profiles})
@@ -214,22 +213,14 @@ def build_router(service: VoiceProfileService, quality_analyzer=None) -> APIRout
     @router.patch("/{profile_id}")
     def patch_profile(profile_id: str, request: PatchProfileRequest) -> JSONResponse:
         svc = state["service"]
-        if request.name is None and request.archived is None:
+        if request.name is None:
             return _error_response(
                 400,
                 "voice_profile_validation",
-                "At least one of 'name' or 'archived' must be provided.",
+                "'name' must be provided.",
             )
         try:
-            if request.archived is not None:
-                if request.archived:
-                    profile = svc.archive_profile(profile_id)
-                else:
-                    profile = svc.restore_profile(profile_id)
-                if request.name is not None:
-                    profile = svc.rename_profile(profile_id, request.name)
-            elif request.name is not None:
-                profile = svc.rename_profile(profile_id, request.name)
+            profile = svc.rename_profile(profile_id, request.name)
         except Exception as exc:
             return _map_voice_profile_error(exc)
         return JSONResponse(content=profile)

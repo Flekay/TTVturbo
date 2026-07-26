@@ -187,7 +187,7 @@ API-404s auf das Frontend um.
 | Route               | Seite                | Status                       |
 |---------------------|----------------------|------------------------------|
 | `/dashboard`        | Dashboard            | funktionsfähig               |
-| `/voice-lab`        | Voice Lab            | funktionsfähig               |
+| `/voice-profiles`   | Voice Profiles       | funktionsfähig               |
 | `/settings`         | Einstellungen        | teilweise funktionsfähig     |
 | `/vod-explorer`     | VOD Explorer         | noch nicht implementiert     |
 | `/clips`            | Clip-Vorschläge      | noch nicht implementiert     |
@@ -203,10 +203,12 @@ API-404s auf das Frontend um.
 Nicht implementierte Module zeigen eine ehrliche Vorschauseite ohne
 Fake-Daten oder funktionslose Aktionen.
 
-## Voice-Lab-Funktion
+## Voice-Profiles-Funktion
 
-Das Voice Lab besteht aus vier Tabs: **Aufnahmen**, **Voice Profiles**,
-**Voice Clone** und **Generierungen**.
+Die Voice-Profiles-Seite (`/voice-profiles`) verwalten Voice-Profile und
+die Referenzaufnahmen dafür. Aufnahmen erfolgen über den Dashboard-Recorder
+oder direkt pro Prompt inline; Voice Clone ist ein eigenes Modul unter
+`/voice-clone`.
 
 ### Aufnahmen
 
@@ -402,7 +404,7 @@ Real implementiert:
   Restart-Recovery, Konflikt-Lock
 - Voice Profiles mit 88 Aufnahmeskripten, geführter Aufnahme, Server-
   Qualitätsanalyse, Fortschritts-Tracking und Profilmodus für Voice Clone
-- Voice Lab mit Tabs (Aufnahmen, Voice Profiles, Voice Clone, Generierungen)
+- Voice Profiles-Seite mit Profil- und Referenzverwaltung (früher Voice Lab)
 - Vitest- und pytest-Tests
 
 Noch nicht implementiert:

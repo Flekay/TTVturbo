@@ -1,6 +1,6 @@
 import { VoiceProfilesPanel } from "../features/voiceProfiles";
 
-export function VoiceLabPage() {
+export function VoiceProfilesPage() {
   return (
     <div className="page">
       <div className="page__header">

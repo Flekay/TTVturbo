@@ -42,12 +42,12 @@ export const ROUTES: RouteMeta[] = [
     section: "main",
   },
   {
-    path: "/voice-lab",
+    path: "/voice-profiles",
     label: "Voice Profiles",
     description: "Voice-Profile verwalten und Referenzen pflegen.",
     icon: Mic2,
     status: "available",
-    section: "main",
+    section: "admin",
   },
   {
     path: "/vod-explorer",

@@ -133,7 +133,7 @@ describe("VoiceClonePage", () => {
     renderVoiceClonePage();
     const link = await screen.findByRole("link", { name: /Voice-Profil erstellen/i });
     expect(link).toBeInTheDocument();
-    expect(link.getAttribute("href")).toBe("/voice-lab");
+    expect(link.getAttribute("href")).toBe("/voice-profiles");
   });
 
   it("starts a generation from a profile reference", async () => {

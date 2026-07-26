@@ -161,7 +161,6 @@ class TestProfileCRUD:
         profile = resp.json()
         assert profile["name"] == "Test"
         assert profile["locale"] == "de-DE"
-        assert profile["archived"] is False
         assert profile["id"]
         # Progress is computed for the real 88-prompt pack.
         assert profile["progress"]["total"] == 88
@@ -198,21 +197,6 @@ class TestProfileCRUD:
         resp = client.patch(f"/api/voice-profiles/{pid}", json={"name": "New"})
         assert resp.status_code == 200
         assert resp.json()["name"] == "New"
-
-    def test_patch_archive_and_restore(self, client, isolated_voice_profiles):
-        pid = client.post(
-            "/api/voice-profiles", json={"name": "Arch", "locale": "de-DE"}
-        ).json()["id"]
-        resp = client.patch(f"/api/voice-profiles/{pid}", json={"archived": True})
-        assert resp.status_code == 200
-        assert resp.json()["archived"] is True
-        # Archived profiles are excluded from the list.
-        assert client.get("/api/voice-profiles").json()["profiles"] == []
-        # Restore.
-        resp = client.patch(f"/api/voice-profiles/{pid}", json={"archived": False})
-        assert resp.status_code == 200
-        assert resp.json()["archived"] is False
-        assert len(client.get("/api/voice-profiles").json()["profiles"]) == 1
 
     def test_patch_with_empty_body_returns_400(self, client, isolated_voice_profiles):
         pid = client.post(

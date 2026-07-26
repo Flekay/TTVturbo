@@ -39,7 +39,6 @@ export type CreateVoiceProfileRequest = {
 
 export type PatchVoiceProfileRequest = {
   name?: string;
-  archived?: boolean;
 };
 
 export type AttachReferenceRequest = {

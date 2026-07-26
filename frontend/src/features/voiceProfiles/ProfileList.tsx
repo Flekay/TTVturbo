@@ -67,46 +67,51 @@ export function ProfileList({
 
   return (
     <div className="vp-profile-list" aria-label="Voice-Profile">
-      <div className="vp-profile-actions">
-        <Button variant="primary" size="sm" onClick={onNewProfile}>
+      <div className="vp-profile-list__header">
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={onNewProfile}
+          className="vp-profile-list__new-btn"
+        >
           <Plus size={14} /> Neues Profil
         </Button>
       </div>
-      {profiles.map((profile) => {
-        const active = profile.id === selectedId;
-        return (
-          <button
-            key={profile.id}
-            type="button"
-            className={[
-              "vp-profile-card",
-              active ? "vp-profile-card--active" : "",
-              profile.archived ? "vp-profile-card--archived" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-            onClick={() => onSelect(profile.id)}
-            aria-pressed={active}
-            aria-label={`Profil ${profile.name} auswählen`}
-          >
-            <div className="vp-profile-card__name">{profile.name}</div>
-            <div className="vp-profile-card__meta">
-              <span>Erstellt: {formatDate(profile.created_at)}</span>
-              <span>Akzeptiert: {profile.progress.accepted}</span>
-              <span>Fortschritt: {Math.round(profile.progress.percentage ?? 0)}%</span>
-            </div>
-            <div className="vp-profile-card__badges">
-              {profile.progress.clone_ready && (
-                <Badge variant="success">Clone-ready</Badge>
-              )}
-              {profile.progress.pack_complete && (
-                <Badge variant="success">Pack vollständig</Badge>
-              )}
-              {profile.archived && <Badge variant="muted">Archiviert</Badge>}
-            </div>
-          </button>
-        );
-      })}
+      <div className="vp-profile-list__scroll">
+        {profiles.map((profile) => {
+          const active = profile.id === selectedId;
+          return (
+            <button
+              key={profile.id}
+              type="button"
+              className={[
+                "vp-profile-card",
+                active ? "vp-profile-card--active" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              onClick={() => onSelect(profile.id)}
+              aria-pressed={active}
+              aria-label={`Profil ${profile.name} auswählen`}
+            >
+              <div className="vp-profile-card__name">{profile.name}</div>
+              <div className="vp-profile-card__meta">
+                <span>Erstellt: {formatDate(profile.created_at)}</span>
+                <span>Akzeptiert: {profile.progress.accepted}</span>
+                <span>Fortschritt: {Math.round(profile.progress.percentage ?? 0)}%</span>
+              </div>
+              <div className="vp-profile-card__badges">
+                {profile.progress.clone_ready && (
+                  <Badge variant="success">Clone-ready</Badge>
+                )}
+                {profile.progress.pack_complete && (
+                  <Badge variant="success">Pack vollständig</Badge>
+                )}
+              </div>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

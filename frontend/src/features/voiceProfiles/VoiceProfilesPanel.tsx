@@ -15,6 +15,7 @@ import { RecordingPackProgress } from "./RecordingPackProgress";
 import { HoldoutPanel } from "./HoldoutPanel";
 import {
   useAcceptReviewMutation,
+  useAttachReferenceMutation,
   useCreateVoiceProfileMutation,
   useDeleteVoiceProfileMutation,
   useDetachReferenceMutation,
@@ -165,21 +166,22 @@ export function VoiceProfilesPanel() {
   const createMutation = useCreateVoiceProfileMutation();
   const patchMutation = usePatchVoiceProfileMutation();
   const deleteMutation = useDeleteVoiceProfileMutation();
+  const attachMutation = useAttachReferenceMutation();
   const detachMutation = useDetachReferenceMutation();
   const acceptMutation = useAcceptReviewMutation();
 
-  // Auto-select the first non-archived profile when the list loads, and drop
-  // a selection that no longer exists in the freshest list (e.g. the profile
-  // was deleted out-of-band). Without this, the detail query would keep
-  // 404-ing on a stale id.
+  // Auto-select the first profile when the list loads, and drop a selection
+  // that no longer exists in the freshest list (e.g. the profile was deleted
+  // out-of-band). Without this, the detail query would keep 404-ing on a
+  // stale id.
   useEffect(() => {
     if (!profilesQuery.data) return;
     const ids = new Set(profilesQuery.data.profiles.map((p) => p.id));
     if (selectedId === null) {
-      const first = profilesQuery.data.profiles.find((p) => !p.archived);
+      const first = profilesQuery.data.profiles[0];
       if (first) setSelectedId(first.id);
     } else if (!ids.has(selectedId)) {
-      const first = profilesQuery.data.profiles.find((p) => !p.archived);
+      const first = profilesQuery.data.profiles[0] ?? null;
       setSelectedId(first?.id ?? null);
     }
   }, [profilesQuery.data, selectedId]);
@@ -252,21 +254,6 @@ export function VoiceProfilesPanel() {
     }
   };
 
-  const handleArchiveToggle = () => {
-    if (!selectedProfile) return;
-    patchMutation.mutate(
-      { id: selectedProfile.id, request: { archived: !selectedProfile.archived } },
-      {
-        onError: (err) =>
-          toast.show({
-            title: "Aktion fehlgeschlagen",
-            description: err instanceof Error ? err.message : "Unbekannter Fehler",
-            variant: "error",
-          }),
-      },
-    );
-  };
-
   const handleDeleteConfirm = () => {
     if (!deleteTarget) return;
     const targetId = deleteTarget.id;
@@ -274,7 +261,7 @@ export function VoiceProfilesPanel() {
     // deleted) so we don't briefly re-select the deleted id while the list
     // refetch is in flight — that would trigger a 404 on the detail query.
     const remaining = profiles.filter((p) => p.id !== targetId);
-    const next = remaining.find((p) => !p.archived) ?? remaining[0] ?? null;
+    const next = remaining[0] ?? null;
     deleteMutation.mutate(targetId, {
       onSuccess: () => {
         toast.show({ title: "Profil gelöscht", variant: "success" });
@@ -310,6 +297,28 @@ export function VoiceProfilesPanel() {
     );
   };
 
+  const handleAttachReference = (recordingFilename: string) => {
+    if (!selectedProfile || !selectedScript) return;
+    attachMutation.mutate(
+      {
+        profileId: selectedProfile.id,
+        scriptId: selectedScript.id,
+        request: { recording_filename: recordingFilename },
+      },
+      {
+        onSuccess: () => {
+          toast.show({ title: "Referenz gespeichert", variant: "success" });
+        },
+        onError: (err) =>
+          toast.show({
+            title: "Speichern fehlgeschlagen",
+            description: err instanceof Error ? err.message : "Unbekannter Fehler",
+            variant: "error",
+          }),
+      },
+    );
+  };
+
   const handleAcceptReview = () => {
     if (!selectedProfile || !selectedScript) return;
     acceptMutation.mutate(
@@ -328,7 +337,10 @@ export function VoiceProfilesPanel() {
   const anyMutationPending =
     createMutation.isPending ||
     patchMutation.isPending ||
-    deleteMutation.isPending;
+    deleteMutation.isPending ||
+    attachMutation.isPending ||
+    detachMutation.isPending ||
+    acceptMutation.isPending;
 
   return (
     <div className="voice-profiles-panel">
@@ -381,13 +393,10 @@ export function VoiceProfilesPanel() {
             />
           )
         ) : (
-          <div className="voice-profiles-panel__scroll">
+          <div className="voice-profiles-panel__detail">
             <ProfileHeader
               profile={selectedProfile}
-              onNewProfile={() => setNameDialog({ kind: "create" })}
               onRename={() => setNameDialog({ kind: "rename", profile: selectedProfile })}
-              onArchive={handleArchiveToggle}
-              onRestore={handleArchiveToggle}
               onDelete={() => setDeleteTarget(selectedProfile)}
               busy={anyMutationPending}
             />
@@ -452,8 +461,11 @@ export function VoiceProfilesPanel() {
                 <PromptRecordingPanel
                   script={selectedScript}
                   reference={selectedReference ?? null}
+                  profileId={selectedProfile.id}
+                  onAttachReference={handleAttachReference}
                   onDetachReference={handleDetach}
                   onAcceptReview={handleAcceptReview}
+                  attachPending={attachMutation.isPending}
                   detachPending={detachMutation.isPending}
                   acceptPending={acceptMutation.isPending}
                 />

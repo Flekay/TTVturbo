@@ -147,7 +147,6 @@ class TestCreateProfile:
         profile = service.create_profile("Meine Stimme")
         assert profile["name"] == "Meine Stimme"
         assert profile["locale"] == "de-DE"
-        assert profile["archived"] is False
         assert profile["schema_version"] == 1
         # progress on a fresh profile
         assert profile["progress"]["total"] == 3
@@ -179,7 +178,7 @@ class TestCreateProfile:
             service.create_profile("Stimme", locale="en-US")
 
 
-class TestRenameArchiveRestore:
+class TestRename:
     def test_rename(self, service: VoiceProfileService) -> None:
         profile = service.create_profile("Alt")
         renamed = service.rename_profile(profile["id"], "Neu")
@@ -191,27 +190,6 @@ class TestRenameArchiveRestore:
         profile = service.create_profile("Alt")
         with pytest.raises(VoiceProfileValidationError):
             service.rename_profile(profile["id"], "   ")
-
-    def test_archive_and_restore(self, service: VoiceProfileService) -> None:
-        profile = service.create_profile("Stimme")
-        archived = service.archive_profile(profile["id"])
-        assert archived["archived"] is True
-        # Hidden from default listing
-        assert service.list_profiles() == []
-        # Visible with include_archived
-        listed = service.list_profiles(include_archived=True)
-        assert len(listed) == 1
-        # Restored
-        restored = service.restore_profile(profile["id"])
-        assert restored["archived"] is False
-        assert len(service.list_profiles()) == 1
-
-    def test_archived_hidden_by_default(self, service: VoiceProfileService) -> None:
-        a = service.create_profile("A")
-        b = service.create_profile("B")
-        service.archive_profile(a["id"])
-        ids = {p["id"] for p in service.list_profiles()}
-        assert ids == {b["id"]}
 
 
 class TestDeleteProfile:

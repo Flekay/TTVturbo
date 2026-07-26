@@ -1,6 +1,6 @@
 import { describe, expect, it, afterEach, beforeEach } from "vitest";
 import { waitFor, within } from "@testing-library/react";
-import { VoiceLabPage } from "../pages/VoiceLabPage";
+import { VoiceProfilesPage } from "../pages/VoiceProfilesPage";
 import { AppLayout } from "../components/layout/AppLayout";
 import { renderWithProviders, installFetchMock } from "../test/test-utils";
 import type { BackendStatus } from "../types/status";
@@ -20,12 +20,12 @@ const status: BackendStatus = {
   },
 };
 
-function renderVoiceLab() {
+function renderVoiceProfiles() {
   const result = renderWithProviders(
     <AppLayout>
-      <VoiceLabPage />
+      <VoiceProfilesPage />
     </AppLayout>,
-    { initialEntries: ["/voice-lab"] },
+    { initialEntries: ["/voice-profiles"] },
   );
   const main =
     (result.container.querySelector("#main-content") as HTMLElement | null) ??
@@ -33,7 +33,7 @@ function renderVoiceLab() {
   return { ...result, main };
 }
 
-describe("VoiceLabPage", () => {
+describe("VoiceProfilesPage", () => {
   let mock: ReturnType<typeof installFetchMock>;
 
   beforeEach(() => {
@@ -55,7 +55,7 @@ describe("VoiceLabPage", () => {
   });
 
   it("renders the Voice Profiles heading", async () => {
-    const { main } = renderVoiceLab();
+    const { main } = renderVoiceProfiles();
     await waitFor(() => {
       expect(
         within(main).getByRole("heading", { name: "Voice Profiles", level: 1 }),
@@ -64,7 +64,7 @@ describe("VoiceLabPage", () => {
   });
 
   it("does not render the old recordings or voice-clone tabs", () => {
-    const { main } = renderVoiceLab();
+    const { main } = renderVoiceProfiles();
     expect(within(main).queryByRole("tab", { name: /Aufnahmen/i })).toBeNull();
     expect(within(main).queryByRole("tab", { name: /Voice Clone/i })).toBeNull();
     expect(within(main).queryByRole("tab", { name: /Generierungen/i })).toBeNull();

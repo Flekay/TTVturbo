@@ -2,7 +2,7 @@ import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useEffect } from "react";
 import { AppLayout } from "./components/layout/AppLayout";
 import { DashboardPage } from "./pages/DashboardPage";
-import { VoiceLabPage } from "./pages/VoiceLabPage";
+import { VoiceProfilesPage } from "./pages/VoiceProfilesPage";
 import { VoiceClonePage } from "./pages/VoiceClonePage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
@@ -45,10 +45,10 @@ export function AppRouter() {
         }
       />
       <Route
-        path="/voice-lab"
+        path="/voice-profiles"
         element={
           <AppLayout>
-            <VoiceLabPage />
+            <VoiceProfilesPage />
           </AppLayout>
         }
       />

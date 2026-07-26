@@ -172,5 +172,4 @@ class Profile(BaseModel):
     locale: str
     created_at: str
     updated_at: str
-    archived: bool = False
     references: dict[str, Reference] = Field(default_factory=dict)

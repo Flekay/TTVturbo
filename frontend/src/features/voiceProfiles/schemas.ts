@@ -101,7 +101,6 @@ export const voiceProfileSchema = z.object({
   locale: z.string(),
   created_at: z.string(),
   updated_at: z.string().optional(),
-  archived: z.boolean(),
   references: z.record(z.string(), voiceProfileReferenceSchema),
   progress: voiceProfileProgressSchema,
 });

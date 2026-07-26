@@ -39,7 +39,7 @@ def test_spa_fallback_serves_index_for_unknown_route(client, monkeypatch, tmp_pa
         encoding="utf-8",
     )
     monkeypatch.setattr(app_module, "FRONTEND_DIST_DIR", dist)
-    for route in ("/dashboard", "/voice-lab", "/settings", "/vod-explorer",
+    for route in ("/dashboard", "/voice-profiles", "/settings", "/vod-explorer",
                   "/clips", "/ideas", "/editor"):
         resp = client.get(route)
         assert resp.status_code == 200, f"{route} did not return SPA index"

@@ -385,7 +385,7 @@ export function VoiceCloneForm({ onGenerationCreated, activePhaseLabel }: VoiceC
                 akzeptierte Referenzen, um daraus einen Voice-Clone zu erzeugen.
               </p>
               <Link
-                to="/voice-lab"
+                to="/voice-profiles"
                 className="btn btn--primary btn--sm"
                 style={{ alignSelf: "flex-start" }}
               >

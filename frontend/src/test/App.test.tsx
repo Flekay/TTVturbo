@@ -42,9 +42,9 @@ describe("App routing", () => {
     });
   });
 
-  it("renders the voice-lab route", async () => {
+  it("renders the voice-profiles route", async () => {
     const { container } = renderWithProviders(<AppRouter />, {
-      initialEntries: ["/voice-lab"],
+      initialEntries: ["/voice-profiles"],
     });
     const main = (container.querySelector("#main-content") as HTMLElement | null) ?? container;
     await waitFor(() => {
@@ -79,7 +79,7 @@ describe("App routing", () => {
   });
 
   it("marks the active sidebar route", () => {
-    renderWithProviders(<AppRouter />, { initialEntries: ["/voice-lab"] });
+    renderWithProviders(<AppRouter />, { initialEntries: ["/voice-profiles"] });
     const link = screen.getByRole("link", { name: "Voice Profiles" });
     expect(link.className).toContain("is-active");
   });

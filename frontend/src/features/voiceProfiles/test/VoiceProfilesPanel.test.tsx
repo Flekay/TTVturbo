@@ -70,7 +70,6 @@ const profileWithRefs: VoiceProfile = {
   name: "Meine Stimme",
   locale: "de-DE",
   created_at: "2026-01-01T00:00:00+00:00",
-  archived: false,
   references: {
     s1: makeRef("s1", "a.wav", "ACCEPTED", "Hallo und willkommen."),
     s2: makeRef("s2", "b.wav", "REVIEW", "Vielen Dank und auf Wiedersehen."),

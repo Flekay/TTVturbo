@@ -4,7 +4,7 @@ This is the isolated backend core. It knows nothing about FastAPI, React or
 the Qwen3-TTS runtime. It composes :class:`ScriptLibrary` (script texts) and
 :class:`VoiceProfileStorage` (atomic persistence) and adds:
 
-* profile lifecycle (create / rename / archive / restore / delete);
+* profile lifecycle (create / rename / delete);
 * reference lifecycle (attach / detach / accept-review);
 * progress derivation from the script library + stored references;
 * recording-filename safety and server-side SHA-256 computation;
@@ -247,17 +247,14 @@ class VoiceProfileService:
                 "locale": clean_locale,
                 "created_at": now,
                 "updated_at": now,
-                "archived": False,
                 "references": {},
             }
             self.storage.save_profile(payload)
             return self._with_progress(payload)
 
-    def list_profiles(self, include_archived: bool = False) -> list[dict]:
+    def list_profiles(self) -> list[dict]:
         out: list[dict] = []
         for payload in self.storage.iter_profiles():
-            if payload.get("archived") and not include_archived:
-                continue
             out.append(self._with_progress(payload))
         out.sort(key=lambda p: p.get("created_at", ""), reverse=True)
         return out
@@ -272,22 +269,6 @@ class VoiceProfileService:
         with self._lock:
             payload = self.storage.load_profile(profile_id)
             payload["name"] = clean_name
-            payload["updated_at"] = self._now_iso()
-            self.storage.save_profile(payload)
-            return self._with_progress(payload)
-
-    def archive_profile(self, profile_id: str) -> dict:
-        with self._lock:
-            payload = self.storage.load_profile(profile_id)
-            payload["archived"] = True
-            payload["updated_at"] = self._now_iso()
-            self.storage.save_profile(payload)
-            return self._with_progress(payload)
-
-    def restore_profile(self, profile_id: str) -> dict:
-        with self._lock:
-            payload = self.storage.load_profile(profile_id)
-            payload["archived"] = False
             payload["updated_at"] = self._now_iso()
             self.storage.save_profile(payload)
             return self._with_progress(payload)

@@ -1,6 +1,7 @@
-import { useMemo } from "react";
-import { Trash2, CheckCircle2, AlertTriangle } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Mic, Square, RotateCcw, Trash2, CheckCircle2, AlertTriangle, RefreshCw } from "lucide-react";
 import { Button } from "../../components/ui/Button";
+import { useRecorder } from "../../hooks/useRecorder";
 import { ReferenceStatusBadge } from "./ReferenceStatus";
 import type {
   VoiceProfileReference,
@@ -10,8 +11,11 @@ import type {
 interface PromptRecordingPanelProps {
   script: VoiceScript;
   reference: VoiceProfileReference | null;
+  profileId: string;
+  onAttachReference: (recordingFilename: string) => void;
   onDetachReference: () => void;
   onAcceptReview: () => void;
+  attachPending: boolean;
   detachPending: boolean;
   acceptPending: boolean;
 }
@@ -57,8 +61,11 @@ function audioUrlFor(filename: string): string {
 export function PromptRecordingPanel({
   script,
   reference,
+  profileId,
+  onAttachReference,
   onDetachReference,
   onAcceptReview,
+  attachPending,
   detachPending,
   acceptPending,
 }: PromptRecordingPanelProps) {
@@ -74,6 +81,59 @@ export function PromptRecordingPanel({
   const hasReference = !!reference;
   const warnings = referenceWarnings(reference);
   const rejectionReasons = status === "REJECTED" ? referenceReasons(reference) : [];
+
+  const [recorderOpen, setRecorderOpen] = useState(false);
+
+  // When a recording finishes uploading, immediately attach it to the
+  // current script (replacing any existing reference). The backend's
+  // PUT endpoint is idempotent and runs the real quality analyzer.
+  const recorder = useRecorder({
+    onUploaded: (filename) => {
+      onAttachReference(filename);
+      setRecorderOpen(false);
+    },
+    onUploadError: () => {
+      // Toast is already surfaced by the attach handler / recorder state.
+    },
+  });
+
+  // Reset the recorder whenever the user closes the inline panel or switches
+  // to a different script (component remounts on script change anyway, but
+  // being explicit avoids lingering state across toggles).
+  useEffect(() => {
+    if (!recorderOpen && recorder.state !== "idle") {
+      recorder.reset();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recorderOpen]);
+
+  const recorderBusy =
+    recorder.state === "uploading" ||
+    recorder.state === "requesting_permission" ||
+    recorder.state === "recording" ||
+    recorder.state === "converting" ||
+    attachPending;
+
+  const statusLabel = (() => {
+    switch (recorder.state) {
+      case "idle":
+        return "Bereit. Mikrofon aktivieren, um zu starten.";
+      case "requesting_permission":
+        return "Mikrofonberechtigung wird angefragt …";
+      case "ready":
+        return "Mikrofon bereit. Aufnahme starten.";
+      case "recording":
+        return "Aufnahme läuft …";
+      case "uploading":
+        return "Lade hoch und konvertiere mit FFmpeg …";
+      case "converting":
+        return "Konvertiere mit FFmpeg …";
+      case "completed":
+        return "Aufnahme gespeichert und verknüpft.";
+      case "error":
+        return "Fehler.";
+    }
+  })();
 
   return (
     <div className="vp-prompt-panel" aria-label="Prompt-Referenz-Panel">
@@ -147,13 +207,31 @@ export function PromptRecordingPanel({
       </div>
 
       <div className="vp-prompt-panel__actions">
+        {!recorderOpen ? (
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => setRecorderOpen(true)}
+            disabled={recorderBusy}
+          >
+            {hasReference ? (
+              <>
+                <RefreshCw size={14} /> Ersetzen / Neu aufnehmen
+              </>
+            ) : (
+              <>
+                <Mic size={14} /> Aufnehmen
+              </>
+            )}
+          </Button>
+        ) : null}
         {hasReference && (
           <Button
             variant="secondary"
             size="sm"
             onClick={onDetachReference}
             loading={detachPending}
-            disabled={detachPending}
+            disabled={detachPending || recorderBusy}
           >
             <Trash2 size={14} /> Verknüpfung entfernen
           </Button>
@@ -164,12 +242,75 @@ export function PromptRecordingPanel({
             size="sm"
             onClick={onAcceptReview}
             loading={acceptPending}
-            disabled={acceptPending}
+            disabled={acceptPending || recorderBusy}
           >
             <CheckCircle2 size={14} /> Review ausdrücklich akzeptieren
           </Button>
         )}
+        {recorderOpen && (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setRecorderOpen(false)}
+            disabled={recorderBusy}
+          >
+            Abbrechen
+          </Button>
+        )}
       </div>
+
+      {recorderOpen && (
+        <div className="vp-prompt-panel__recorder" aria-label="Inline Audio-Recorder">
+          <div className="recorder__status" role="status" aria-live="polite">
+            <span>{statusLabel}</span>
+          </div>
+          {recorder.error && (
+            <div className="state state--error" role="alert" style={{ padding: "12px 16px" }}>
+              <AlertTriangle size={16} />
+              <div>{recorder.error.message}</div>
+              <Button variant="secondary" size="sm" onClick={recorder.reset}>
+                <RotateCcw size={14} /> Zurücksetzen
+              </Button>
+            </div>
+          )}
+          <div className="recorder__controls">
+            {recorder.state === "idle" || recorder.state === "error" ? (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={recorder.requestPermission}
+                disabled={recorderBusy}
+              >
+                <Mic size={14} /> Mikrofon aktivieren
+              </Button>
+            ) : (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={recorder.start}
+                disabled={recorder.state === "recording" || recorderBusy}
+                loading={recorder.state === "requesting_permission"}
+              >
+                <Mic size={14} /> Aufnahme starten
+              </Button>
+            )}
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={recorder.stop}
+              disabled={recorder.state !== "recording"}
+            >
+              <Square size={14} /> Aufnahme stoppen
+            </Button>
+            <div className="recorder__duration" aria-label="Aufnahmedauer">
+              {formatDuration(recorder.durationSeconds)}
+            </div>
+          </div>
+          {/* profileId is implicit through the attach handler; referenced here
+              so the dependency is explicit and the linter stays calm. */}
+          <span className="sr-only" aria-hidden="true">{profileId}</span>
+        </div>
+      )}
     </div>
   );
 }

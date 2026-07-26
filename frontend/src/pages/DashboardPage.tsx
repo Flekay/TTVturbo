@@ -164,7 +164,7 @@ export function DashboardPage() {
                   aria-label={`Audio-Player für ${rec.filename}`}
                 />
                 <Link
-                  to="/voice-lab"
+                  to="/voice-profiles"
                   className="btn btn--ghost btn--sm"
                   aria-label="Voice Profiles öffnen"
                 >
