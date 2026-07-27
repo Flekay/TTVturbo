@@ -1,23 +1,36 @@
 import { apiClient } from "../../api/client";
-import { uploadListResponseSchema } from "./schemas";
-import type { UploadListResponse } from "./schemas";
+import { libraryItemListResponseSchema, libraryItemSchema } from "./schemas";
+import type { LibraryItemListResponse, LibraryItem } from "./schemas";
 
 const LIBRARY = "/api/library";
 
-export function fetchUploads(signal?: AbortSignal): Promise<UploadListResponse> {
-  return apiClient.get(`${LIBRARY}/uploads`, { schema: uploadListResponseSchema, signal });
+export function fetchLibraryItems(signal?: AbortSignal): Promise<LibraryItemListResponse> {
+  return apiClient.get(`${LIBRARY}/items`, { schema: libraryItemListResponseSchema, signal });
 }
 
-export function uploadFileUrl(uploadId: string): string {
-  return `${LIBRARY}/uploads/${encodeURIComponent(uploadId)}/file`;
+export function fetchLibraryItem(itemId: string, signal?: AbortSignal): Promise<LibraryItem> {
+  return apiClient.get(`${LIBRARY}/items/${encodeURIComponent(itemId)}`, {
+    schema: libraryItemSchema,
+    signal,
+  });
 }
 
-export async function uploadToLibrary(file: File): Promise<unknown> {
+export function libraryItemFileUrl(itemId: string): string {
+  return `${LIBRARY}/items/${encodeURIComponent(itemId)}/file`;
+}
+
+export async function uploadToLibrary(file: File): Promise<LibraryItem> {
   const formData = new FormData();
   formData.append("file", file);
-  return apiClient.post(`${LIBRARY}/uploads`, { body: formData });
+  return apiClient.post(`${LIBRARY}/uploads`, { body: formData, schema: libraryItemSchema });
 }
 
-export async function deleteUpload(uploadId: string): Promise<unknown> {
-  return apiClient.delete(`${LIBRARY}/uploads/${encodeURIComponent(uploadId)}`);
+export async function deleteLibraryItem(itemId: string): Promise<unknown> {
+  return apiClient.delete(`${LIBRARY}/items/${encodeURIComponent(itemId)}`);
+}
+
+// Legacy compatibility: keep the old upload file URL builder for any
+// callers that still reference uploads by upload_id.
+export function uploadFileUrl(uploadId: string): string {
+  return `${LIBRARY}/uploads/${encodeURIComponent(uploadId)}/file`;
 }

@@ -153,8 +153,15 @@ def build_media_processing_router(
     transcription_service: TranscriptionService,
     pipeline_service: PipelineService,
     upload_storage: Optional[UploadStorage] = None,
+    library_service=None,
 ) -> APIRouter:
-    """Build the media-processing API router bound to service instances."""
+    """Build the media-processing API router bound to service instances.
+
+    ``library_service`` is the new persistent video store. When provided,
+    upload endpoints create library items instead of using the legacy
+    ``UploadStorage``. The ``upload_storage`` parameter is kept for
+    backward compatibility (transcription of legacy uploads).
+    """
     router = APIRouter(prefix="/api", tags=["media-processing"])
 
     # ----------------------------------------------------------------- transcription status
@@ -203,27 +210,45 @@ def build_media_processing_router(
     ) -> JSONResponse:
         """Upload a media file and start a transcription for it.
 
-        Independent of the VOD downloader — the file is stored in the
-        uploads directory and transcribed directly.
+        The file is stored as a library item and transcribed directly.
         """
-        if upload_storage is None:
+        if library_service is None and upload_storage is None:
             return _error_response(503, "uploads_disabled", "File uploads are not configured.")
         if not file.filename:
             return _error_response(400, "upload_validation", "File name is required.")
-        # Save the uploaded file.
-        meta = upload_storage.create_upload(file_name=file.filename, title=file.filename)
-        upload_id = meta["id"]
-        upload_dir = upload_storage.upload_dir(upload_id)
-        dest = upload_dir / file.filename
-        try:
-            content = await file.read()
-            with open(dest, "wb") as fh:
-                fh.write(content)
-        except Exception as exc:
-            upload_storage.delete_upload(upload_id)
-            return _error_response(500, "upload_save_failed", str(exc))
-        finally:
-            await file.close()
+        # Save the uploaded file via the library (preferred) or legacy upload storage.
+        if library_service is not None:
+            try:
+                meta = library_service.create_upload_item(file_name=file.filename, title=file.filename)
+                upload_id = meta["id"]
+                dest = library_service.storage._item_dir(upload_id) / file.filename  # noqa: SLF001
+                content = await file.read()
+                with open(dest, "wb") as fh:
+                    fh.write(content)
+                meta["file_size_bytes"] = dest.stat().st_size
+                library_service.storage.save_item(meta)
+            except Exception as exc:
+                try:
+                    library_service.delete_item(upload_id)
+                except Exception:
+                    pass
+                return _error_response(500, "upload_save_failed", str(exc))
+            finally:
+                await file.close()
+        else:
+            meta = upload_storage.create_upload(file_name=file.filename, title=file.filename)
+            upload_id = meta["id"]
+            upload_dir = upload_storage.upload_dir(upload_id)
+            dest = upload_dir / file.filename
+            try:
+                content = await file.read()
+                with open(dest, "wb") as fh:
+                    fh.write(content)
+            except Exception as exc:
+                upload_storage.delete_upload(upload_id)
+                return _error_response(500, "upload_save_failed", str(exc))
+            finally:
+                await file.close()
         # Start transcription for the uploaded file.
         try:
             job = transcription_service.start_transcription(
@@ -233,17 +258,44 @@ def build_media_processing_router(
                 model=model,
             )
         except Exception as exc:
-            upload_storage.delete_upload(upload_id)
+            if library_service is not None:
+                library_service.delete_item(upload_id)
+            else:
+                upload_storage.delete_upload(upload_id)
             return _map_media_error(exc)
         return JSONResponse(status_code=201, content=job)
 
     # ------------------------------------------------------------------
-    # Library: list / upload / download / delete uploaded media files.
+    # Library upload endpoints are now in library_api.py.
+    # The legacy /library/uploads/* endpoints below are kept for backward
+    # compatibility with existing frontend builds until migration completes.
     # ------------------------------------------------------------------
 
     @router.get("/library/uploads")
     def list_uploads() -> JSONResponse:
-        """List all uploaded media files in the library."""
+        """List all uploaded media files (legacy endpoint, delegates to library)."""
+        if library_service is not None:
+            try:
+                items = library_service.list_items()
+                # Filter to upload-source items only, map to legacy shape.
+                uploads = [
+                    {
+                        "id": it["id"],
+                        "source_type": "file_upload",
+                        "title": it.get("title", ""),
+                        "file_name": it.get("file_name", ""),
+                        "duration_seconds": it.get("duration_seconds"),
+                        "status": "READY",
+                        "file_size_bytes": it.get("file_size_bytes"),
+                        "created_at": it.get("created_at", ""),
+                        "updated_at": it.get("updated_at", ""),
+                    }
+                    for it in items
+                    if it.get("source") == "upload"
+                ]
+            except Exception as exc:
+                return _error_response(500, "upload_list_failed", str(exc))
+            return JSONResponse(content={"uploads": uploads})
         if upload_storage is None:
             return _error_response(503, "uploads_disabled", "File uploads are not configured.")
         try:
@@ -252,36 +304,15 @@ def build_media_processing_router(
             return _error_response(500, "upload_list_failed", str(exc))
         return JSONResponse(content={"uploads": uploads})
 
-    @router.post("/library/uploads")
-    async def upload_to_library(file: UploadFile = File(...)) -> JSONResponse:
-        """Upload a media file to the library (no transcription, just storage)."""
-        if upload_storage is None:
-            return _error_response(503, "uploads_disabled", "File uploads are not configured.")
-        if not file.filename:
-            return _error_response(400, "upload_validation", "File name is required.")
-        try:
-            meta = upload_storage.create_upload(file_name=file.filename, title=file.filename)
-            upload_id = meta["id"]
-            upload_dir = upload_storage.upload_dir(upload_id)
-            dest = upload_dir / file.filename
-            content = await file.read()
-            with open(dest, "wb") as fh:
-                fh.write(content)
-            # Enrich metadata with file size.
-            meta["file_size_bytes"] = dest.stat().st_size
-        except Exception as exc:
-            try:
-                upload_storage.delete_upload(upload_id)
-            except Exception:
-                pass
-            return _error_response(500, "upload_save_failed", str(exc))
-        finally:
-            await file.close()
-        return JSONResponse(status_code=201, content=meta)
-
     @router.get("/library/uploads/{upload_id}/file")
     def download_upload(upload_id: str):
-        """Download an uploaded file from the library."""
+        """Download an uploaded file (legacy endpoint, delegates to library)."""
+        if library_service is not None:
+            try:
+                path = library_service.item_file_path(upload_id)
+                return FileResponse(path, filename=path.name)
+            except Exception as exc:
+                return _map_media_error(exc)
         if upload_storage is None:
             return _error_response(503, "uploads_disabled", "File uploads are not configured.")
         try:
@@ -295,7 +326,15 @@ def build_media_processing_router(
 
     @router.delete("/library/uploads/{upload_id}")
     def delete_upload(upload_id: str) -> JSONResponse:
-        """Delete an uploaded file from the library."""
+        """Delete an uploaded file (legacy endpoint, delegates to library)."""
+        if library_service is not None:
+            try:
+                deleted = library_service.delete_item(upload_id)
+            except Exception as exc:
+                return _map_media_error(exc)
+            if not deleted:
+                return _error_response(404, "upload_not_found", "Upload not found.")
+            return JSONResponse(content={"deleted": True, "id": upload_id})
         if upload_storage is None:
             return _error_response(503, "uploads_disabled", "File uploads are not configured.")
         try:

@@ -1,0 +1,219 @@
+"""Atomic, file-based persistence for library items.
+
+Mirrors the safety guarantees of :mod:`vod_pipeline.storage`:
+* ids must be valid canonical UUIDs (path-traversal protection);
+* the resolved item directory must stay inside the library root;
+* corrupt JSON files are logged and skipped during listing;
+* an unknown ``schema_version`` is rejected;
+* atomic writes via ``*.tmp`` -> ``os.replace``.
+"""
+
+from __future__ import annotations
+
+import datetime as _dt
+import json
+import logging
+import os
+import shutil
+import time
+import uuid
+from pathlib import Path
+from typing import Iterator, Optional
+
+from .schemas import (
+    SCHEMA_VERSION,
+    SUPPORTED_SCHEMA_VERSIONS,
+    LibraryNotFoundError,
+    LibraryStorageError,
+)
+
+logger = logging.getLogger("ttvturbo.library.storage")
+
+ITEM_FILENAME = "metadata.json"
+TMP_SUFFIX = ".tmp"
+SOURCE_BASENAME = "source"
+
+
+def _now_iso() -> str:
+    return _dt.datetime.now(tz=_dt.timezone.utc).astimezone().replace(microsecond=0).isoformat()
+
+
+def _validate_uuid(value: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise LibraryStorageError("item id must be a non-empty string")
+    try:
+        parsed = uuid.UUID(value)
+    except (ValueError, AttributeError, TypeError) as exc:
+        raise LibraryStorageError(f"invalid item id: {value!r}") from exc
+    canonical = str(parsed)
+    if canonical != value:
+        raise LibraryStorageError(
+            f"item id must be canonical uuid form: {value!r}"
+        )
+    return value
+
+
+class LibraryStorage:
+    """Filesystem-backed store for library items."""
+
+    def __init__(self, library_dir: Path) -> None:
+        self.library_dir = Path(library_dir)
+        self.library_dir.mkdir(parents=True, exist_ok=True)
+
+    # ------------------------------------------------------------------ paths
+    def _item_dir(self, item_id: str) -> Path:
+        _validate_uuid(item_id)
+        base = self.library_dir.resolve()
+        candidate = (self.library_dir / item_id).resolve()
+        try:
+            candidate.relative_to(base)
+        except ValueError as exc:
+            raise LibraryStorageError(
+                f"item id escapes storage root: {item_id!r}"
+            ) from exc
+        return candidate
+
+    def _metadata_path(self, item_id: str) -> Path:
+        return self._item_dir(item_id) / ITEM_FILENAME
+
+    def source_file_path(self, item_id: str, container: str = "mp4") -> Path:
+        """Return the canonical source file path for an item."""
+        safe = container if container in ("mp4", "mkv", "webm") else "mp4"
+        return self._item_dir(item_id) / f"{SOURCE_BASENAME}.{safe}"
+
+    # ------------------------------------------------------------------ write
+    @staticmethod
+    def _atomic_write_json(path: Path, payload: dict) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(
+            f".{path.name}.{os.getpid()}.{time.monotonic_ns()}.tmp"
+        )
+        last_exc: Optional[Exception] = None
+        for attempt in range(5):
+            try:
+                with open(tmp, "w", encoding="utf-8") as fh:
+                    json.dump(payload, fh, indent=2, ensure_ascii=False)
+                    fh.flush()
+                    try:
+                        os.fsync(fh.fileno())
+                    except OSError:
+                        pass
+                os.replace(tmp, path)
+                return
+            except PermissionError as exc:
+                last_exc = exc
+                time.sleep(0.05 * (attempt + 1))
+            except OSError as exc:
+                try:
+                    if tmp.exists():
+                        tmp.unlink()
+                except OSError:
+                    pass
+                raise LibraryStorageError(f"could not write {path}: {exc}") from exc
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except OSError:
+            pass
+        raise LibraryStorageError(f"could not write {path}: {last_exc}") from last_exc
+
+    def save_item(self, payload: dict) -> None:
+        if not isinstance(payload, dict):
+            raise LibraryStorageError("payload must be a dict")
+        if payload.get("schema_version") not in SUPPORTED_SCHEMA_VERSIONS:
+            raise LibraryStorageError(
+                f"unsupported item schema_version {payload.get('schema_version')!r}"
+            )
+        if not payload.get("id"):
+            raise LibraryStorageError("payload missing id")
+        self._atomic_write_json(self._metadata_path(str(payload["id"])), payload)
+
+    def create_item_dir(self, item_id: str) -> Path:
+        """Create the item directory and return it."""
+        d = self._item_dir(item_id)
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    # ------------------------------------------------------------------ read
+    @staticmethod
+    def _read_json(path: Path) -> dict:
+        last_exc: Optional[Exception] = None
+        for attempt in range(5):
+            try:
+                with open(path, "r", encoding="utf-8-sig") as fh:
+                    payload = json.load(fh)
+                break
+            except PermissionError as exc:
+                last_exc = exc
+                time.sleep(0.05 * (attempt + 1))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise LibraryStorageError(f"corrupt file {path}: {exc}") from exc
+        else:
+            raise LibraryStorageError(f"corrupt file {path}: {last_exc}") from last_exc
+        if not isinstance(payload, dict):
+            raise LibraryStorageError(f"{path} is not a JSON object")
+        return payload
+
+    def load_item(self, item_id: str) -> dict:
+        path = self._metadata_path(item_id)
+        if not path.is_file():
+            raise LibraryNotFoundError(f"library item not found: {item_id}")
+        payload = self._read_json(path)
+        if payload.get("schema_version") not in SUPPORTED_SCHEMA_VERSIONS:
+            raise LibraryStorageError(
+                f"unknown item schema_version {payload.get('schema_version')!r}"
+            )
+        return payload
+
+    def iter_items(self) -> Iterator[dict]:
+        try:
+            entries = list(self.library_dir.iterdir())
+        except OSError as exc:  # pragma: no cover - defensive
+            logger.warning("Could not scan library root %s: %s", self.library_dir, exc)
+            return
+        for entry in entries:
+            if not entry.is_dir():
+                continue
+            try:
+                _validate_uuid(entry.name)
+            except LibraryStorageError:
+                continue
+            path = entry / ITEM_FILENAME
+            if not path.is_file():
+                continue
+            try:
+                payload = self._read_json(path)
+            except LibraryStorageError as exc:
+                logger.warning("Skipping unreadable library item %s: %s", path, exc)
+                continue
+            if payload.get("schema_version") not in SUPPORTED_SCHEMA_VERSIONS:
+                logger.warning("Skipping library item %s: unknown schema_version", path)
+                continue
+            yield payload
+
+    # ------------------------------------------------------------------ delete
+    def delete_item(self, item_id: str) -> bool:
+        item_dir = self._item_dir(item_id)
+        if not item_dir.exists():
+            return False
+        tmp = item_dir.with_name(item_dir.name + ".deleting")
+        try:
+            os.replace(item_dir, tmp)
+        except OSError as exc:
+            raise LibraryStorageError(f"could not delete item {item_id}: {exc}") from exc
+        shutil.rmtree(tmp, ignore_errors=True)
+        return True
+
+    # ------------------------------------------------------------------ helpers
+    def enrich_with_file_info(self, meta: dict) -> dict:
+        """Add file_size_bytes and file_exists to a metadata dict."""
+        item_dir = self._item_dir(meta["id"])
+        file_name = meta.get("file_name", "")
+        src = item_dir / file_name if file_name else None
+        if src and src.is_file():
+            meta["file_size_bytes"] = src.stat().st_size
+            meta["file_exists"] = True
+        else:
+            meta["file_size_bytes"] = None
+            meta["file_exists"] = False
+        return meta

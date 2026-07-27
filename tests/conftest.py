@@ -230,6 +230,25 @@ def vod_service(vod_data_dir: Path, vod_download_dir: Path, channel_lister: Fake
 
 
 @pytest.fixture()
+def vod_service_with_library(vod_data_dir: Path, vod_download_dir: Path, channel_lister: FakeChannelLister):
+    """A VodPipelineService wired to a real LibraryService."""
+    from vod_pipeline import VodPipelineStorage
+    from vod_pipeline.service import VodPipelineService
+    from library import LibraryService, LibraryStorage
+    storage = VodPipelineStorage(vod_data_dir)
+    library_service = LibraryService(LibraryStorage(vod_data_dir / "library"))
+    return VodPipelineService(
+        storage=storage,
+        channel_lister=channel_lister,
+        download_dir=vod_download_dir,
+        max_concurrent=1,
+        timeout_seconds=0.0,
+        sync_limit=100,
+        library_service=library_service,
+    )
+
+
+@pytest.fixture()
 def make_real_mp4():
     """Generate a tiny, FFprobe-verifiable MP4 with ffmpeg."""
     def _make(path: Path, duration_seconds: float = 1.0) -> None:

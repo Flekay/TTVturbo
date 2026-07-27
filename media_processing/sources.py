@@ -74,9 +74,11 @@ class MediaSourceResolver:
         self,
         vod_storage: VodPipelineStorage,
         upload_storage: Optional[UploadStorage] = None,
+        library_service: Optional[Any] = None,
     ) -> None:
         self.vod_storage = vod_storage
         self.upload_storage = upload_storage
+        self.library_service = library_service
 
     def resolve(self, source_type: str, source_id: str) -> ResolvedMediaSource:
         if source_type not in SUPPORTED_SOURCE_TYPES:
@@ -155,10 +157,46 @@ class MediaSourceResolver:
         )
 
     def _resolve_file_upload(self, upload_id: str) -> ResolvedMediaSource:
-        if self.upload_storage is None:
-            raise MediaSourceError("file_upload sources are not configured")
         if not isinstance(upload_id, str) or not upload_id.strip():
             raise MediaSourceError("upload_id must be a non-empty string")
+        # Prefer the library (new system) over legacy upload storage.
+        if self.library_service is not None:
+            try:
+                meta = self.library_service.get_item(upload_id)
+            except Exception as exc:
+                raise MediaSourceNotFoundError(f"library item not found: {upload_id}") from exc
+            file_name = meta.get("file_name")
+            if not file_name:
+                raise MediaSourceNotReadyError(
+                    f"library item {upload_id} has no registered file_name."
+                )
+            try:
+                file_path = self.library_service.item_file_path(upload_id)
+            except Exception as exc:
+                raise MediaSourceNotReadyError(
+                    f"library item {upload_id} source file is missing: {exc}"
+                ) from exc
+            if file_path.stat().st_size <= 0:
+                raise MediaSourceNotReadyError(
+                    f"library item {upload_id} source file is empty."
+                )
+            item_dir = self.library_service.storage._item_dir(upload_id)  # noqa: SLF001
+            return ResolvedMediaSource(
+                source_type="file_upload",
+                source_id=upload_id,
+                file_path=file_path,
+                file_name=file_name,
+                title=meta.get("title") or file_name,
+                duration_seconds=meta.get("duration_seconds"),
+                profile_id=None,
+                profile_login=None,
+                download_status="READY",
+                vod_dir=item_dir,
+                vod=meta,
+            )
+        # Legacy fallback.
+        if self.upload_storage is None:
+            raise MediaSourceError("file_upload sources are not configured")
         try:
             meta = self.upload_storage.load_upload(upload_id)
         except UploadNotFoundError as exc:

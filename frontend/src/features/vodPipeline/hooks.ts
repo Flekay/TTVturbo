@@ -149,11 +149,14 @@ export function useImportVodMutation() {
     mutationFn: (request: ImportVodRequest) => importVod(request),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: vodsQueryKey({}) });
-      queryClient.invalidateQueries({
-        queryKey: vodsQueryKey({ profile_id: data.profile_id }),
-      });
+      if (data.profile_id) {
+        queryClient.invalidateQueries({
+          queryKey: vodsQueryKey({ profile_id: data.profile_id }),
+        });
+      }
       queryClient.invalidateQueries({ queryKey: twitchProfilesQueryKey });
       queryClient.invalidateQueries({ queryKey: ["status"] });
+      queryClient.invalidateQueries({ queryKey: ["library", "items"] });
     },
   });
 }
@@ -166,6 +169,7 @@ export function useStartDownloadMutation() {
       queryClient.invalidateQueries({ queryKey: vodsQueryKey({}) });
       queryClient.invalidateQueries({ queryKey: vodQueryKey(data.id) });
       queryClient.invalidateQueries({ queryKey: ["status"] });
+      queryClient.invalidateQueries({ queryKey: ["library", "items"] });
     },
   });
 }

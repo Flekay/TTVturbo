@@ -93,12 +93,67 @@ def test_delete_profile_without_vods(vod_service, channel_lister):
         vod_service.get_profile(profile["id"])
 
 
-def test_delete_profile_with_vods_blocked(vod_service, channel_lister):
+def test_delete_profile_deletes_vods(vod_service, channel_lister):
+    """Deleting a profile deletes VOD metadata but library items survive."""
     channel_lister.add_vod("casepayt", "100")
     profile = vod_service.create_profile("casepayt")
     vod_service.sync_vods(profile["id"])
-    with pytest.raises(TwitchProfileConflictError):
-        vod_service.delete_profile(profile["id"])
+    vods = vod_service.list_vods(profile_id=profile["id"])
+    assert len(vods) == 1
+    assert vod_service.delete_profile(profile["id"]) is True
+    # VOD metadata is gone with the profile.
+    all_vods = vod_service.list_vods()
+    assert len(all_vods) == 0
+
+
+def test_sync_auto_links_library_item(vod_service_with_library, channel_lister):
+    """Re-syncing after profile deletion auto-links already-downloaded VODs.
+
+    When a VOD's twitch_video_id is already in the library (downloaded
+    before, profile was deleted), the next sync marks the VOD as READY
+    and links the library item back — no need to click download again.
+    """
+    channel_lister.add_vod("casepayt", "100")
+    profile = vod_service_with_library.create_profile("casepayt")
+    vod_service_with_library.sync_vods(profile["id"])
+    vods = vod_service_with_library.list_vods(profile_id=profile["id"])
+    vod_id = vods[0]["id"]
+
+    # Simulate: the VOD was downloaded and promoted to the library.
+    from library import LibraryService, LibraryStorage
+    lib_service = vod_service_with_library.library_service
+    # Create a library item for this VOD (as promote_vod_file would).
+    item = lib_service.create_item(
+        source="vod",
+        title="Test VOD",
+        file_name="source.mp4",
+        container="mp4",
+        twitch_video_id="100",
+        vod_id=vod_id,
+    )
+    # Link the VOD to the library item.
+    vods[0]["library_item_id"] = item["id"]
+    vods[0]["status"] = VodStatus.READY.value
+    vod_service_with_library.storage.save_vod(vods[0])
+
+    # Delete the profile → VOD metadata gone, library item survives with vod_id=null.
+    vod_service_with_library.delete_profile(profile["id"])
+    assert len(vod_service_with_library.list_vods()) == 0
+    # Library item still exists, vod_id is nulled.
+    lib_item = lib_service.get_item(item["id"])
+    assert lib_item["vod_id"] is None
+
+    # Re-create the profile and sync again.
+    profile2 = vod_service_with_library.create_profile("casepayt")
+    vod_service_with_library.sync_vods(profile2["id"])
+    vods2 = vod_service_with_library.list_vods(profile_id=profile2["id"])
+    assert len(vods2) == 1
+    # The VOD should be auto-linked: status READY, library_item_id set.
+    assert vods2[0]["status"] == VodStatus.READY.value
+    assert vods2[0]["library_item_id"] == item["id"]
+    # The library item's vod_id should now point to the new VOD.
+    lib_item2 = lib_service.get_item(item["id"])
+    assert lib_item2["vod_id"] == vods2[0]["id"]
 
 
 def test_atomic_persistence_tmp_not_treated_as_profile(vod_data_dir):
@@ -251,18 +306,27 @@ def test_parse_twitch_video_url_rejects_bad_inputs():
 def test_import_vod_valid(vod_service, channel_lister):
     channel_lister.add_vod("casepayt", "100")
     profile = vod_service.create_profile("casepayt")
-    vod = vod_service.import_vod(profile["id"], "https://www.twitch.tv/videos/100")
+    vod = vod_service.import_vod("https://www.twitch.tv/videos/100", profile_id=profile["id"])
     assert vod["twitch_video_id"] == "100"
     assert vod["profile_id"] == profile["id"]
     assert vod["status"] == VodStatus.DISCOVERED.value
     assert vod["type"] == "archive"
 
 
+def test_import_vod_without_profile(vod_service, channel_lister):
+    """VODs can be imported without a profile."""
+    channel_lister.add_vod("casepayt", "100")
+    vod = vod_service.import_vod("https://www.twitch.tv/videos/100")
+    assert vod["twitch_video_id"] == "100"
+    assert vod["profile_id"] is None
+    assert vod["status"] == VodStatus.DISCOVERED.value
+
+
 def test_import_clip_valid(vod_service, channel_lister):
     channel_lister.add_clip("casepayt", "ClipSlug1")
     profile = vod_service.create_profile("casepayt")
     vod = vod_service.import_vod(
-        profile["id"], "https://www.twitch.tv/casepayt/clip/ClipSlug1"
+        "https://www.twitch.tv/casepayt/clip/ClipSlug1", profile_id=profile["id"]
     )
     assert vod["type"] == "clip"
     assert vod["status"] == VodStatus.DISCOVERED.value
@@ -271,21 +335,21 @@ def test_import_clip_valid(vod_service, channel_lister):
 def test_import_vod_duplicate_returns_existing(vod_service, channel_lister):
     channel_lister.add_vod("casepayt", "100")
     profile = vod_service.create_profile("casepayt")
-    first = vod_service.import_vod(profile["id"], "https://www.twitch.tv/videos/100")
-    second = vod_service.import_vod(profile["id"], "https://www.twitch.tv/videos/100")
+    first = vod_service.import_vod("https://www.twitch.tv/videos/100", profile_id=profile["id"])
+    second = vod_service.import_vod("https://www.twitch.tv/videos/100", profile_id=profile["id"])
     assert first["id"] == second["id"]
 
 
 def test_import_vod_invalid_url(vod_service, channel_lister):
     profile = vod_service.create_profile("casepayt")
     with pytest.raises(VodValidationError):
-        vod_service.import_vod(profile["id"], "https://youtube.com/watch?v=1")
+        vod_service.import_vod("https://youtube.com/watch?v=1", profile_id=profile["id"])
 
 
 def test_import_vod_not_found(vod_service, channel_lister):
     profile = vod_service.create_profile("casepayt")
     with pytest.raises(VodValidationError):
-        vod_service.import_vod(profile["id"], "https://www.twitch.tv/videos/999999")
+        vod_service.import_vod("https://www.twitch.tv/videos/999999", profile_id=profile["id"])
 
 
 # ---------------------------------------------------------------------------

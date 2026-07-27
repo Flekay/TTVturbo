@@ -269,6 +269,7 @@ class VodPipelineService:
         max_concurrent: int = DEFAULT_MAX_CONCURRENT,
         timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
         sync_limit: int = DEFAULT_SYNC_LIMIT,
+        library_service: Optional[Any] = None,
     ) -> None:
         self.storage = storage
         self.lister = channel_lister
@@ -277,6 +278,7 @@ class VodPipelineService:
         self.max_concurrent = max(1, int(max_concurrent))
         self.timeout_seconds = float(timeout_seconds)
         self.sync_limit = max(1, int(sync_limit))
+        self.library_service = library_service
         self._lock = threading.Lock()
         self._active: dict[str, subprocess.Popen] = {}
         self._active_log_fh: dict[str, Any] = {}
@@ -459,11 +461,13 @@ class VodPipelineService:
     def delete_profile(self, profile_id: str) -> bool:
         # Validate id + existence first (raises NotFound / Storage).
         self.storage.load_profile(profile_id)
-        vods = self.storage.find_vods_for_profile(profile_id)
-        if vods:
-            raise TwitchProfileConflictError(
-                f"Profile has {len(vods)} VOD(s) attached. Delete them first."
-            )
+        # VODs are session data tied to the profile for sync. Delete VOD
+        # metadata + temp files, but the downloaded video files live in
+        # the library and survive — we just unlink the back-reference.
+        for vod in self.storage.find_vods_for_profile(profile_id):
+            if vod.get("library_item_id") and self.library_service:
+                self.library_service.unlink_vod(vod["id"])
+            self.storage.delete_vod(vod["id"])
         return self.storage.delete_profile(profile_id)
 
     def profile_vod_count(self, profile_id: str) -> int:
@@ -501,9 +505,32 @@ class VodPipelineService:
             source_url = str(entry.get("url", ""))
             if not source_url:
                 continue
-            existing = self.storage.find_vod_by_twitch_video_id(str(entry.get("id", "")))
+            video_id = str(entry.get("id", ""))
+            existing = self.storage.find_vod_by_twitch_video_id(video_id)
             if existing is None:
                 vod = _entry_to_vod(entry, profile_id)
+                # Auto-link: if this VOD's twitch_video_id is already in
+                # the library (downloaded before, possibly under a deleted
+                # profile), mark it READY immediately and link the library
+                # item back to this new VOD record. This restores the
+                # connection automatically on re-sync without requiring
+                # the user to click download again.
+                if self.library_service is not None and video_id:
+                    lib_item = self.library_service.find_by_twitch_video_id(video_id)
+                    if lib_item is not None:
+                        vod["status"] = VodStatus.READY.value
+                        vod["library_item_id"] = lib_item["id"]
+                        download = dict(vod.get("download") or empty_download())
+                        download["completed_at"] = lib_item.get("updated_at") or self._now_iso()
+                        download["container"] = lib_item.get("container") or "mp4"
+                        download["duration_seconds"] = lib_item.get("duration_seconds")
+                        download["file_size_bytes"] = lib_item.get("file_size_bytes")
+                        vod["download"] = download
+                        # Link the library item back to this new VOD.
+                        try:
+                            self.library_service.link_vod(lib_item["id"], vod["id"])
+                        except Exception:
+                            pass
                 self.storage.save_vod(vod)
                 created += 1
                 continue
@@ -533,17 +560,26 @@ class VodPipelineService:
         }
 
     # ------------------------------------------------------------------ import
-    def import_vod(self, profile_id: str, url: str) -> dict:
-        profile = self.storage.load_profile(profile_id)
+    def import_vod(self, url: str, profile_id: Optional[str] = None) -> dict:
+        if profile_id:
+            self.storage.load_profile(profile_id)
         video_id, vod_type = parse_twitch_video_url(url)
         # Dedup by Twitch video id across all profiles first.
         existing = self.storage.find_vod_by_twitch_video_id(video_id)
         if existing is not None:
-            if existing.get("profile_id") != profile_id:
-                raise VodConflictError(
-                    "This VOD is already imported under a different profile."
-                )
-            return existing
+            if existing.get("profile_id") == profile_id:
+                return existing
+            if existing.get("profile_id") is None and profile_id:
+                # Detached VOD (profile was deleted) — re-attach to this profile.
+                existing["profile_id"] = profile_id
+                existing["updated_at"] = self._now_iso()
+                self.storage.save_vod(existing)
+                return existing
+            if profile_id is None:
+                return existing
+            raise VodConflictError(
+                "This VOD is already imported under a different profile."
+            )
         # Fetch metadata via yt-dlp (no API credentials needed).
         try:
             info = self.lister.get_video_info(url)
@@ -629,6 +665,30 @@ class VodPipelineService:
             status = VodStatus(status_str)
         except ValueError as exc:
             raise VodValidationError(f"unknown vod status {status_str!r}") from exc
+        # Duplication check: if this VOD's twitch_video_id is already in
+        # the library (downloaded before, possibly under a deleted profile),
+        # skip the download and link the existing library item instead.
+        if self.library_service is not None and vod.get("twitch_video_id"):
+            existing = self.library_service.find_by_twitch_video_id(vod["twitch_video_id"])
+            if existing is not None:
+                vod["library_item_id"] = existing["id"]
+                vod["status"] = VodStatus.READY.value
+                vod["error"] = None
+                vod["progress"] = empty_progress()
+                download = dict(vod.get("download") or empty_download())
+                download["completed_at"] = self._now_iso()
+                download["container"] = existing.get("container") or "mp4"
+                download["duration_seconds"] = existing.get("duration_seconds")
+                download["file_size_bytes"] = existing.get("file_size_bytes")
+                vod["download"] = download
+                vod["updated_at"] = self._now_iso()
+                self._write_vod(vod_id, vod)
+                # Link the library item back to this VOD.
+                try:
+                    self.library_service.link_vod(existing["id"], vod_id)
+                except Exception:
+                    pass
+                return self.storage.load_vod(vod_id)
         # Auto-recover orphaned workers: the VOD is in a transient state
         # (DOWNLOADING/QUEUED/VERIFYING) but this service instance has no
         # active worker for it. This happens after a server restart where
@@ -830,12 +890,45 @@ class VodPipelineService:
             "audio_codec": info["audio_codec"],
             "completed_at": self._now_iso(),
         })
+        # Promote the downloaded file into the persistent library. The
+        # file is moved from the VOD temp dir to the library; the VOD
+        # keeps a library_item_id back-reference for file serving.
+        library_item_id = vod.get("library_item_id")
+        if self.library_service is not None and not library_item_id:
+            try:
+                item = self.library_service.promote_vod_file(
+                    vod_id=vod_id,
+                    twitch_video_id=vod.get("twitch_video_id", ""),
+                    title=vod.get("title") or vod.get("twitch_video_id") or vod_id,
+                    source_file=src,
+                    container=info["container"],
+                    duration_seconds=info["duration_seconds"],
+                    file_size_bytes=src.stat().st_size,
+                )
+                library_item_id = item["id"]
+            except Exception as exc:
+                self._mark_failed(vod_id, f"Library promotion failed: {exc}")
+                return
+        elif self.library_service is not None and library_item_id:
+            # File already in library (e.g. re-download after profile
+            # deletion). Just update the vod_id back-reference.
+            try:
+                self.library_service.link_vod(library_item_id, vod_id)
+            except Exception:
+                pass  # best-effort
         vod["status"] = VodStatus.READY.value
         vod["error"] = None
         vod["progress"] = empty_progress()
         vod["download"] = download
+        vod["library_item_id"] = library_item_id
         vod["updated_at"] = self._now_iso()
         self._write_vod(vod_id, vod)
+        # Clean up the temp file from the VOD dir — it's now in the library.
+        if library_item_id and src.is_file():
+            try:
+                src.unlink()
+            except OSError:
+                pass
 
     # ------------------------------------------------------------------ cancel/retry
     def cancel_download(self, vod_id: str) -> dict:
@@ -921,6 +1014,12 @@ class VodPipelineService:
                     if self._active.get(vod_id) is proc:
                         self._active.pop(vod_id, None)
                 self._close_log(vod_id)
+        # Unlink the library back-reference (the library item survives).
+        if vod.get("library_item_id") and self.library_service:
+            try:
+                self.library_service.unlink_vod(vod_id)
+            except Exception:
+                pass
         return self.storage.delete_vod(vod_id)
 
     # ------------------------------------------------------------------ file
@@ -928,6 +1027,15 @@ class VodPipelineService:
         vod = self.storage.load_vod(vod_id)
         if vod.get("status") != VodStatus.READY.value:
             return None
+        # Prefer the library file (the canonical home for downloaded videos).
+        library_item_id = vod.get("library_item_id")
+        if library_item_id and self.library_service:
+            try:
+                return self.library_service.item_file_path(library_item_id)
+            except Exception:
+                pass
+        # Fallback: file still in the VOD dir (e.g. library not configured
+        # or migration in progress).
         return self._source_path_for(vod)
 
     # ------------------------------------------------------------------ misc

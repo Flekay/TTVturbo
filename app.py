@@ -64,27 +64,55 @@ from media_processing import (
 )
 from media_processing_api import build_media_processing_router
 
+from library import LibraryService, LibraryStorage
+from library_api import build_library_router
+
 logger = logging.getLogger("ttvturbo")
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 FRONTEND_DIST_DIR = BASE_DIR / "frontend" / "dist"
-RECORDINGS_DIR = BASE_DIR / "recordings"
+
+# Single runtime data root. Every persistent artifact lives under this
+# directory so runtime state has one home on disk::
+#
+#     data/
+#       recordings/        <- browser recordings (WAV)
+#       voice_clones/      <- voice-clone generations
+#       voice_profiles/    <- voice-profile JSON records
+#       twitch_profiles/   <- VOD-pipeline Twitch profiles
+#       vods/              <- VOD metadata + temp download files (session data)
+#       library/           <- persistent video store (downloaded VODs + uploads)
+#       media_jobs/        <- media-processing jobs
+#       pipeline_runs/     <- pipeline run records
+#
+# Configurable via the TTVTURBO_DATA_DIR environment variable. The whole
+# directory is git-ignored (see .gitignore).
+DATA_DIR = Path(
+    os.environ.get("TTVTURBO_DATA_DIR") or (BASE_DIR / "data")
+)
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+# Library — the persistent, independent video store. Downloaded VOD files
+# and manual uploads live here. Survives profile/VOD deletion.
+TTVTURBO_LIBRARY_DIR = Path(
+    os.environ.get("TTVTURBO_LIBRARY_DIR") or (DATA_DIR / "library")
+)
+library_storage = LibraryStorage(TTVTURBO_LIBRARY_DIR)
+library_service = LibraryService(library_storage)
+
+RECORDINGS_DIR = DATA_DIR / "recordings"
 RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Voice-clone vertical slice. The service owns persistence, validation and
 # the single Qwen3-TTS worker subprocess. It recovers persisted state on
 # startup so generations survive a server restart.
-VOICE_CLONES_DIR = BASE_DIR / "voice_clones"
+VOICE_CLONES_DIR = DATA_DIR / "voice_clones"
 
 # Project-wide cross-process GPU lock, shared between Qwen3-TTS
 # voice-clone and faster-whisper transcription. Lives on disk so two
 # separate Python processes see the same owner. Reaped on startup.
-TTVTURBO_DATA_DIR_PRE = Path(
-    os.environ.get("TTVTURBO_DATA_DIR") or (BASE_DIR / "ttvturbo_data")
-)
-TTVTURBO_DATA_DIR_PRE.mkdir(parents=True, exist_ok=True)
-gpu_lock = GpuLock(TTVTURBO_DATA_DIR_PRE)
+gpu_lock = GpuLock(DATA_DIR)
 
 voice_clone_service = VoiceCloneService(
     recordings_dir=RECORDINGS_DIR,
@@ -94,11 +122,12 @@ voice_clone_service = VoiceCloneService(
 
 # Voice-profile integration. Exactly one library, storage and service
 # instance is built at startup. The persistence directory is configurable
-# via TTVTURBO_VOICE_PROFILES_DIR and defaults to voice_profiles_data/ next
-# to the app. The real voice-clone quality analyzer is delegated to the
-# voice-profile API so reference quality is always computed server-side.
+# via TTVTURBO_VOICE_PROFILES_DIR and defaults to data/voice_profiles/
+# under the shared data root. The real voice-clone quality analyzer is
+# delegated to the voice-profile API so reference quality is always
+# computed server-side.
 VOICE_PROFILES_DIR = Path(
-    os.environ.get("TTVTURBO_VOICE_PROFILES_DIR") or (BASE_DIR / "voice_profiles_data")
+    os.environ.get("TTVTURBO_VOICE_PROFILES_DIR") or (DATA_DIR / "voice_profiles")
 )
 VOICE_PROFILES_DIR.mkdir(parents=True, exist_ok=True)
 voice_profile_service = build_voice_profile_service(
@@ -114,13 +143,13 @@ voice_profiles_router = build_voice_profiles_router(
 # download worker runs in a separate Python process so FastAPI stays
 # responsive during multi-hour downloads. Twitch credentials are read
 # from the environment and never persisted or logged.
-TTVTURBO_DATA_DIR = TTVTURBO_DATA_DIR_PRE  # already created above for the GPU lock
 TTVTURBO_VOD_DOWNLOAD_DIR = Path(
-    os.environ.get("TTVTURBO_VOD_DOWNLOAD_DIR") or (TTVTURBO_DATA_DIR / "vods")
+    os.environ.get("TTVTURBO_VOD_DOWNLOAD_DIR") or (DATA_DIR / "vods")
 )
 vod_pipeline_service = build_vod_pipeline_service(
-    data_dir=TTVTURBO_DATA_DIR,
+    data_dir=DATA_DIR,
     download_dir=TTVTURBO_VOD_DOWNLOAD_DIR,
+    library_service=library_service,
 )
 vod_pipeline_router = build_vod_pipeline_router(vod_pipeline_service)
 twitch_status_router = build_twitch_status_router(vod_pipeline_service)
@@ -131,15 +160,16 @@ twitch_status_router = build_twitch_status_router(vod_pipeline_service)
 # audio or transcription logic. The GPU lock is the same instance shared
 # with voice-clone so the two GPU workloads never load models
 # simultaneously.
-media_job_storage = MediaJobStorage(TTVTURBO_DATA_DIR)
+media_job_storage = MediaJobStorage(DATA_DIR)
 # Upload storage for independent transcription (not tied to VOD downloader).
 TTVTURBO_UPLOADS_DIR = Path(
-    os.environ.get("TTVTURBO_UPLOADS_DIR") or (TTVTURBO_DATA_DIR / "uploads")
+    os.environ.get("TTVTURBO_UPLOADS_DIR") or (DATA_DIR / "uploads")
 )
 upload_storage = UploadStorage(TTVTURBO_UPLOADS_DIR)
 media_source_resolver = MediaSourceResolver(
     vod_pipeline_service.storage,
     upload_storage=upload_storage,
+    library_service=library_service,
 )
 audio_extraction_service = AudioExtractionService(
     storage=media_job_storage,
@@ -167,7 +197,9 @@ media_processing_router = build_media_processing_router(
     transcription_service=transcription_service,
     pipeline_service=pipeline_service,
     upload_storage=upload_storage,
+    library_service=library_service,
 )
+library_router = build_library_router(library_service)
 
 # Connect the voice-clone profile mode to the voice-profile service. The
 # resolver runs server-side: it loads the profile, finds the accepted
@@ -244,6 +276,9 @@ app.include_router(twitch_status_router)
 # Media-processing API routes (transcription, audio artifacts, pipeline
 # runs). Registered before the SPA fallback so /api/* takes precedence.
 app.include_router(media_processing_router)
+
+# Library API routes (persistent video store: items, uploads, file serving).
+app.include_router(library_router)
 
 
 # --------------------------------------------------------------------------- #

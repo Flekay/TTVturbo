@@ -1,12 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchUploads, uploadToLibrary, deleteUpload } from "./api";
+import { fetchLibraryItems, uploadToLibrary, deleteLibraryItem } from "./api";
 
-const uploadsQueryKey = ["library", "uploads"] as const;
+const libraryItemsQueryKey = ["library", "items"] as const;
 
-export function useUploadsQuery() {
+export function useLibraryItemsQuery() {
   return useQuery({
-    queryKey: uploadsQueryKey,
-    queryFn: ({ signal }) => fetchUploads(signal),
+    queryKey: libraryItemsQueryKey,
+    queryFn: ({ signal }) => fetchLibraryItems(signal),
   });
 }
 
@@ -15,17 +15,27 @@ export function useUploadToLibraryMutation() {
   return useMutation({
     mutationFn: (file: File) => uploadToLibrary(file),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: uploadsQueryKey });
+      queryClient.invalidateQueries({ queryKey: libraryItemsQueryKey });
     },
   });
 }
 
-export function useDeleteUploadMutation() {
+export function useDeleteLibraryItemMutation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (uploadId: string) => deleteUpload(uploadId),
+    mutationFn: (itemId: string) => deleteLibraryItem(itemId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: uploadsQueryKey });
+      queryClient.invalidateQueries({ queryKey: libraryItemsQueryKey });
     },
   });
+}
+
+// Legacy compatibility: keep the old hook names for any callers that
+// still reference them.
+export function useUploadsQuery() {
+  return useLibraryItemsQuery();
+}
+
+export function useDeleteUploadMutation() {
+  return useDeleteLibraryItemMutation();
 }

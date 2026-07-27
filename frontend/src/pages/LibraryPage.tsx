@@ -12,12 +12,12 @@ import { useVodsQuery, useDeleteVodMutation } from "../features/vodPipeline/hook
 import { vodFileUrl } from "../features/vodPipeline/api";
 import type { TwitchVod } from "../features/vodPipeline/types";
 import {
-  useUploadsQuery,
+  useLibraryItemsQuery,
   useUploadToLibraryMutation,
-  useDeleteUploadMutation,
+  useDeleteLibraryItemMutation,
 } from "../features/library/hooks";
-import { uploadFileUrl } from "../features/library/api";
-import type { UploadItem } from "../features/library/schemas";
+import { libraryItemFileUrl } from "../features/library/api";
+import type { LibraryItem as LibraryItemRecord } from "../features/library/schemas";
 
 function isTransient(status: string): boolean {
   return status === "DOWNLOADING" || status === "QUEUED" || status === "VERIFYING";
@@ -62,17 +62,17 @@ function vodToItem(vod: TwitchVod): LibraryItem {
   };
 }
 
-function uploadToItem(upload: UploadItem): LibraryItem {
+function libraryRecordToItem(rec: LibraryItemRecord): LibraryItem {
   return {
-    id: upload.id,
-    kind: "upload",
-    title: upload.file_name,
-    subtitle: "Upload",
+    id: rec.id,
+    kind: rec.source === "vod" ? "vod" : "upload",
+    title: rec.title,
+    subtitle: rec.source === "vod" ? (rec.twitch_video_id ? `#${rec.twitch_video_id}` : "VOD") : "Upload",
     thumbnailUrl: null,
-    durationLabel: upload.duration_seconds != null ? formatDuration(upload.duration_seconds) : null,
-    fileUrl: uploadFileUrl(upload.id),
-    fileSize: upload.file_size_bytes ?? null,
-    createdAt: upload.created_at,
+    durationLabel: rec.duration_seconds != null ? formatDuration(rec.duration_seconds) : null,
+    fileUrl: libraryItemFileUrl(rec.id),
+    fileSize: rec.file_size_bytes ?? null,
+    createdAt: rec.created_at,
     status: "ready",
     percent: null,
     speedBps: null,
@@ -98,9 +98,9 @@ const STATUS_FILTER_LABELS: Record<StatusFilter, string> = {
 
 export function LibraryPage() {
   const vodsQuery = useVodsQuery({});
-  const uploadsQuery = useUploadsQuery();
+  const libraryQuery = useLibraryItemsQuery();
   const uploadMutation = useUploadToLibraryMutation();
-  const deleteUploadMutation = useDeleteUploadMutation();
+  const deleteLibraryItemMutation = useDeleteLibraryItemMutation();
   const deleteVodMutation = useDeleteVodMutation();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [confirmDelete, setConfirmDelete] = useState<LibraryItem | null>(null);
@@ -109,27 +109,34 @@ export function LibraryPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 
   const allVods = vodsQuery.data?.vods ?? [];
-  const uploads = uploadsQuery.data?.uploads ?? [];
+  const libraryRecords = libraryQuery.data?.items ?? [];
 
-  // Only VODs that belong in the library: READY or actively downloading.
-  // DISCOVERED / FAILED / CANCELED VODs are not in the library.
-  const libraryVods = useMemo(
-    () => allVods.filter((v) => v.status === "READY" || isTransient(v.status)),
+  // VODs that are actively downloading (progress tracking from the VOD API).
+  // READY VODs are represented by library items instead.
+  const downloadingVods = useMemo(
+    () => allVods.filter((v) => isTransient(v.status)),
     [allVods],
   );
 
   // Poll while any VOD is downloading.
-  const anyDownloading = libraryVods.some((v) => isTransient(v.status));
+  const anyDownloading = downloadingVods.some((v) => isTransient(v.status));
   const polledVodsQuery = useVodsQuery({}, { refetchInterval: anyDownloading ? 2000 : undefined });
-  const effectiveVods = anyDownloading
-    ? (polledVodsQuery.data?.vods ?? allVods).filter((v) => v.status === "READY" || isTransient(v.status))
-    : libraryVods;
+  const effectiveDownloadingVods = anyDownloading
+    ? (polledVodsQuery.data?.vods ?? allVods).filter((v) => isTransient(v.status))
+    : downloadingVods;
 
-  // Merge into a single unified list, sorted: downloading first, then ready by date.
+  // Merge: downloading VODs (for progress) + library items (ready files).
+  // Deduplicate: if a downloading VOD has a library_item_id, skip the
+  // corresponding library item (the VOD card shows progress).
+  const downloadingIds = new Set(effectiveDownloadingVods.map((v) => v.library_item_id).filter(Boolean));
+  const readyLibraryItems = libraryRecords
+    .filter((rec) => !downloadingIds.has(rec.id))
+    .map(libraryRecordToItem);
+
   const items = useMemo(() => {
     const merged: LibraryItem[] = [
-      ...effectiveVods.map(vodToItem),
-      ...uploads.map(uploadToItem),
+      ...effectiveDownloadingVods.map(vodToItem),
+      ...readyLibraryItems,
     ];
     merged.sort((a, b) => {
       // Downloading items first.
@@ -143,7 +150,7 @@ export function LibraryPage() {
       return bDate.localeCompare(aDate);
     });
     return merged;
-  }, [effectiveVods, uploads]);
+  }, [effectiveDownloadingVods, readyLibraryItems]);
 
   // Apply search + filters.
   const filteredItems = useMemo(() => {
@@ -168,7 +175,7 @@ export function LibraryPage() {
     }
   };
 
-  if (vodsQuery.isLoading || uploadsQuery.isLoading) {
+  if (vodsQuery.isLoading || libraryQuery.isLoading) {
     return <LoadingState message="Bibliothek wird geladen …" />;
   }
   if (vodsQuery.isError) {
@@ -180,12 +187,12 @@ export function LibraryPage() {
       />
     );
   }
-  if (uploadsQuery.isError) {
+  if (libraryQuery.isError) {
     return (
       <ErrorState
         title="Bibliothek konnte nicht geladen werden"
-        message={uploadsQuery.error instanceof ApiError ? uploadsQuery.error.message : "Unbekannter Fehler"}
-        onRetry={() => void uploadsQuery.refetch()}
+        message={libraryQuery.error instanceof ApiError ? libraryQuery.error.message : "Unbekannter Fehler"}
+        onRetry={() => void libraryQuery.refetch()}
       />
     );
   }
@@ -308,7 +315,7 @@ export function LibraryPage() {
               item={item}
               onDelete={() => setConfirmDelete(item)}
               deletePending={
-                (deleteUploadMutation.isPending && deleteUploadMutation.variables === item.id) ||
+                (deleteLibraryItemMutation.isPending && deleteLibraryItemMutation.variables === item.id) ||
                 (deleteVodMutation.isPending && deleteVodMutation.variables === item.id)
               }
             />
@@ -327,15 +334,17 @@ export function LibraryPage() {
         }
         confirmLabel="Löschen"
         cancelLabel="Abbrechen"
-        busy={deleteUploadMutation.isPending || deleteVodMutation.isPending}
+        busy={deleteLibraryItemMutation.isPending || deleteVodMutation.isPending}
         destructive
         onConfirm={async () => {
           if (!confirmDelete) return;
           try {
-            if (confirmDelete.kind === "vod") {
+            if (confirmDelete.kind === "vod" && confirmDelete.status !== "ready") {
+              // Downloading VOD: cancel + delete via VOD API.
               await deleteVodMutation.mutateAsync(confirmDelete.id);
             } else {
-              await deleteUploadMutation.mutateAsync(confirmDelete.id);
+              // Ready library item (vod or upload): delete via library API.
+              await deleteLibraryItemMutation.mutateAsync(confirmDelete.id);
             }
             setConfirmDelete(null);
           } catch {
