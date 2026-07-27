@@ -91,6 +91,7 @@ class VoiceCloneService:
         device: str = DEVICE_DEFAULT,
         dtype: str = DTYPE_DEFAULT,
         timeout_seconds: Optional[float] = None,
+        gpu_lock: Any = None,
     ) -> None:
         self.recordings_dir = recordings_dir
         self.voice_clones_dir = voice_clones_dir
@@ -98,6 +99,13 @@ class VoiceCloneService:
         self.model_id = model_id
         self.device = device
         self.dtype = dtype
+        # Optional project-wide GPU lock shared with faster-whisper
+        # transcription. When set, the service acquires the lock before
+        # spawning the worker and releases it when the worker exits, so
+        # voice-clone and transcription never load their models at the
+        # same time on the single 12 GB GPU. The lock is a
+        # media_processing.gpu_lock.GpuLock instance (duck-typed).
+        self._gpu_lock = gpu_lock
         # Optional profile-mode resolver injected by the app. When set, the
         # voice-clone service can resolve a reference from a voice profile's
         # accepted reference. Signature:
@@ -636,6 +644,13 @@ class VoiceCloneService:
                         pass
                     self._active_log_fh = None
                 self._active_log_path = None
+        # Release the project-wide GPU lock if we still own it. Done
+        # outside the service lock to avoid holding it during disk IO.
+        if self._gpu_lock is not None:
+            try:
+                self._gpu_lock.release("voice_clone", generation_id)
+            except Exception:  # pragma: no cover - defensive
+                pass
 
     def _start_worker(self, generation_id: str, job_path: Path) -> None:
         """Spawn the Qwen3-TTS subprocess. Non-blocking.
@@ -644,7 +659,30 @@ class VoiceCloneService:
         ``voice_clones/{id}/worker.log``. We never use ``stderr=PIPE``
         because the reaper thread does not continuously drain the pipe,
         and a worker that emits a lot of output would deadlock.
+
+        If a project-wide GPU lock is configured, it is acquired here
+        (before spawning) and released in :meth:`_release_slot` when the
+        worker exits. The lock owner type is ``"voice_clone"``.
         """
+        # Acquire the project-wide GPU lock before spawning the worker.
+        # The worker itself does NOT acquire the lock — the parent process
+        # owns it for the lifetime of the generation so the lock is
+        # released reliably even if the worker crashes.
+        if self._gpu_lock is not None:
+            try:
+                self._gpu_lock.acquire("voice_clone", generation_id)
+            except Exception as exc:
+                # Map a busy lock to a validation error so the API returns
+                # a clean 400/409 instead of a 500.
+                meta = self._read_metadata(generation_id) or {}
+                meta["status"] = GenerationStatus.FAILED.value
+                meta["failure_reason"] = (
+                    f"GPU is busy. Wait for the current job to finish. ({exc})"
+                )
+                meta["completed_at"] = self._now_iso()
+                self._write_metadata(generation_id, meta)
+                self._release_slot(generation_id)
+                raise ValidationError(str(exc)) from exc
         cmd = [sys.executable, "-m", "voice_clone.runtime", str(job_path)]
         log_path = self._worker_log_path(generation_id)
         try:

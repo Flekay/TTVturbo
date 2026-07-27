@@ -1,0 +1,281 @@
+"""Atomic, file-based persistence for media jobs and pipeline runs.
+
+Layout::
+
+    {root_dir}/
+        media_jobs/
+            {job_id}/
+                job.json          <- committed
+                worker.log
+        pipeline_runs/
+            {run_id}/
+                run.json          <- committed
+
+VOD-owned artifacts (audio, transcripts) live inside the existing VOD
+directory tree managed by :mod:`vod_pipeline.storage`; this module only
+owns the job/run records.
+
+Writes are atomic: ``*.tmp`` -> ``flush`` -> ``os.replace`` -> committed
+file. UUID validation and path-traversal protection mirror
+:mod:`vod_pipeline.storage`.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import time
+import uuid
+from pathlib import Path
+from typing import Iterator, Optional
+
+from .schemas import (
+    SCHEMA_VERSION,
+    SUPPORTED_SCHEMA_VERSIONS,
+    MediaJobStorageError as _MediaJobStorageError,
+    PipelineRunStorageError,
+)
+
+logger = logging.getLogger("ttvturbo.media_processing.storage")
+
+JOB_FILENAME = "job.json"
+RUN_FILENAME = "run.json"
+WORKER_LOG_NAME = "worker.log"
+TMP_SUFFIX = ".tmp"
+
+
+def _validate_uuid(value: str, kind: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise _MediaJobStorageError(f"{kind} id must be a non-empty string")
+    try:
+        parsed = uuid.UUID(value)
+    except (ValueError, AttributeError, TypeError) as exc:
+        raise _MediaJobStorageError(f"invalid {kind} id: {value!r}") from exc
+    canonical = str(parsed)
+    if canonical != value:
+        raise _MediaJobStorageError(
+            f"{kind} id must be canonical uuid form: {value!r}"
+        )
+    return value
+
+
+def _atomic_write_json(path: Path, payload: dict, error_type: type[Exception]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(
+        f".{path.name}.{os.getpid()}.{time.monotonic_ns()}.tmp"
+    )
+    last_exc: Optional[Exception] = None
+    for attempt in range(5):
+        try:
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(payload, fh, indent=2, ensure_ascii=False)
+                fh.flush()
+                try:
+                    os.fsync(fh.fileno())
+                except OSError:
+                    pass
+            os.replace(tmp, path)
+            return
+        except PermissionError as exc:
+            last_exc = exc
+            time.sleep(0.05 * (attempt + 1))
+        except OSError as exc:
+            try:
+                if tmp.exists():
+                    tmp.unlink()
+            except OSError:
+                pass
+            raise error_type(f"could not write {path}: {exc}") from exc
+    try:
+        if tmp.exists():
+            tmp.unlink()
+    except OSError:
+        pass
+    raise error_type(f"could not write {path}: {last_exc}") from last_exc
+
+
+def _read_json(path: Path, error_type: type[Exception]) -> dict:
+    last_exc: Optional[Exception] = None
+    for attempt in range(5):
+        try:
+            with open(path, "r", encoding="utf-8-sig") as fh:
+                payload = json.load(fh)
+            break
+        except PermissionError as exc:
+            last_exc = exc
+            time.sleep(0.05 * (attempt + 1))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise error_type(f"corrupt file {path}: {exc}") from exc
+    else:
+        raise error_type(f"corrupt file {path}: {last_exc}") from last_exc
+    if not isinstance(payload, dict):
+        raise error_type(f"{path} is not a JSON object")
+    return payload
+
+
+class MediaJobStorage:
+    """Filesystem-backed store for media jobs."""
+
+    def __init__(self, data_dir: Path) -> None:
+        self.data_dir = Path(data_dir)
+        self.jobs_dir = self.data_dir / "media_jobs"
+        self.runs_dir = self.data_dir / "pipeline_runs"
+        self.jobs_dir.mkdir(parents=True, exist_ok=True)
+        self.runs_dir.mkdir(parents=True, exist_ok=True)
+
+    # ------------------------------------------------------------------ paths
+    def _job_dir(self, job_id: str) -> Path:
+        _validate_uuid(job_id, "job")
+        base = self.jobs_dir.resolve()
+        candidate = (self.jobs_dir / job_id).resolve()
+        try:
+            candidate.relative_to(base)
+        except ValueError as exc:
+            raise _MediaJobStorageError(f"job id escapes storage root: {job_id!r}") from exc
+        return candidate
+
+    def job_path(self, job_id: str) -> Path:
+        return self._job_dir(job_id) / JOB_FILENAME
+
+    def worker_log_path(self, job_id: str) -> Path:
+        return self._job_dir(job_id) / WORKER_LOG_NAME
+
+    def _run_dir(self, run_id: str) -> Path:
+        _validate_uuid(run_id, "run")
+        base = self.runs_dir.resolve()
+        candidate = (self.runs_dir / run_id).resolve()
+        try:
+            candidate.relative_to(base)
+        except ValueError as exc:
+            raise PipelineRunStorageError(f"run id escapes storage root: {run_id!r}") from exc
+        return candidate
+
+    def run_path(self, run_id: str) -> Path:
+        return self._run_dir(run_id) / RUN_FILENAME
+
+    # ------------------------------------------------------------------ jobs
+    def save_job(self, payload: dict) -> None:
+        if not isinstance(payload, dict):
+            raise _MediaJobStorageError("payload must be a dict")
+        if payload.get("schema_version") not in SUPPORTED_SCHEMA_VERSIONS:
+            raise _MediaJobStorageError(
+                f"unsupported job schema_version {payload.get('schema_version')!r}"
+            )
+        if not payload.get("id"):
+            raise _MediaJobStorageError("payload missing id")
+        _atomic_write_json(self.job_path(str(payload["id"])), payload, _MediaJobStorageError)
+
+    def load_job(self, job_id: str) -> dict:
+        path = self.job_path(job_id)
+        if not path.is_file():
+            raise _MediaJobStorageError(f"job not found: {job_id}")
+        payload = _read_json(path, _MediaJobStorageError)
+        if payload.get("schema_version") not in SUPPORTED_SCHEMA_VERSIONS:
+            raise _MediaJobStorageError(
+                f"unknown job schema_version {payload.get('schema_version')!r}"
+            )
+        return payload
+
+    def iter_jobs(self) -> Iterator[dict]:
+        try:
+            entries = list(self.jobs_dir.iterdir())
+        except OSError as exc:  # pragma: no cover - defensive
+            logger.warning("Could not scan media_jobs root %s: %s", self.jobs_dir, exc)
+            return
+        for entry in entries:
+            if not entry.is_dir():
+                continue
+            try:
+                _validate_uuid(entry.name, "job")
+            except _MediaJobStorageError:
+                continue
+            path = entry / JOB_FILENAME
+            if not path.is_file():
+                continue
+            try:
+                payload = _read_json(path, _MediaJobStorageError)
+            except _MediaJobStorageError as exc:
+                logger.warning("Skipping unreadable media job %s: %s", path, exc)
+                continue
+            if payload.get("schema_version") not in SUPPORTED_SCHEMA_VERSIONS:
+                logger.warning("Skipping media job %s: unknown schema_version", path)
+                continue
+            yield payload
+
+    def delete_job(self, job_id: str) -> bool:
+        import shutil
+
+        job_dir = self._job_dir(job_id)
+        if not job_dir.exists():
+            return False
+        tmp = job_dir.with_name(job_dir.name + ".deleting")
+        try:
+            os.replace(job_dir, tmp)
+        except OSError as exc:
+            raise _MediaJobStorageError(f"could not delete job {job_id}: {exc}") from exc
+        shutil.rmtree(tmp, ignore_errors=True)
+        return True
+
+    # ------------------------------------------------------------------ runs
+    def save_run(self, payload: dict) -> None:
+        if not isinstance(payload, dict):
+            raise PipelineRunStorageError("payload must be a dict")
+        if payload.get("schema_version") not in SUPPORTED_SCHEMA_VERSIONS:
+            raise PipelineRunStorageError(
+                f"unsupported run schema_version {payload.get('schema_version')!r}"
+            )
+        if not payload.get("id"):
+            raise PipelineRunStorageError("payload missing id")
+        _atomic_write_json(self.run_path(str(payload["id"])), payload, PipelineRunStorageError)
+
+    def load_run(self, run_id: str) -> dict:
+        path = self.run_path(run_id)
+        if not path.is_file():
+            raise PipelineRunStorageError(f"run not found: {run_id}")
+        payload = _read_json(path, PipelineRunStorageError)
+        if payload.get("schema_version") not in SUPPORTED_SCHEMA_VERSIONS:
+            raise PipelineRunStorageError(
+                f"unknown run schema_version {payload.get('schema_version')!r}"
+            )
+        return payload
+
+    def iter_runs(self) -> Iterator[dict]:
+        try:
+            entries = list(self.runs_dir.iterdir())
+        except OSError as exc:  # pragma: no cover - defensive
+            logger.warning("Could not scan pipeline_runs root %s: %s", self.runs_dir, exc)
+            return
+        for entry in entries:
+            if not entry.is_dir():
+                continue
+            try:
+                _validate_uuid(entry.name, "run")
+            except _MediaJobStorageError:
+                continue
+            path = entry / RUN_FILENAME
+            if not path.is_file():
+                continue
+            try:
+                payload = _read_json(path, PipelineRunStorageError)
+            except PipelineRunStorageError as exc:
+                logger.warning("Skipping unreadable pipeline run %s: %s", path, exc)
+                continue
+            if payload.get("schema_version") not in SUPPORTED_SCHEMA_VERSIONS:
+                logger.warning("Skipping pipeline run %s: unknown schema_version", path)
+                continue
+            yield payload
+
+    def delete_run(self, run_id: str) -> bool:
+        import shutil
+
+        run_dir = self._run_dir(run_id)
+        if not run_dir.exists():
+            return False
+        tmp = run_dir.with_name(run_dir.name + ".deleting")
+        try:
+            os.replace(run_dir, tmp)
+        except OSError as exc:
+            raise PipelineRunStorageError(f"could not delete run {run_id}: {exc}") from exc
+        shutil.rmtree(tmp, ignore_errors=True)
+        return True

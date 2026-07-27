@@ -176,6 +176,7 @@ def _profile_from_login(login: str, channel_url: str) -> dict:
         "login": login,
         "channel_url": channel_url,
         "display_name": login,
+        "avatar_url": "",
         "created_at": _now_iso(),
         "updated_at": _now_iso(),
         "last_synced_at": None,
@@ -427,7 +428,18 @@ class VodPipelineService:
 
     def refresh_profile(self, profile_id: str) -> dict:
         profile = self.storage.load_profile(profile_id)
-        # No external API to refresh from — just update the timestamp.
+        login = str(profile.get("login", ""))
+        # Best-effort: fetch channel info (display name, avatar) via yt-dlp.
+        if login:
+            try:
+                info = self.lister.get_channel_info(login)
+                if info.get("display_name"):
+                    profile["display_name"] = info["display_name"]
+                if info.get("avatar_url"):
+                    profile["avatar_url"] = info["avatar_url"]
+            except Exception:
+                # Channel info is best-effort; don't fail the refresh.
+                pass
         profile["updated_at"] = self._now_iso()
         self.storage.save_profile(profile)
         return profile
@@ -459,6 +471,15 @@ class VodPipelineService:
             raise TwitchProfileValidationError(
                 f"Twitch channel not found: {login}"
             ) from exc
+        # Best-effort: update channel info (display name, avatar) during sync.
+        try:
+            info = self.lister.get_channel_info(login)
+            if info.get("display_name"):
+                profile["display_name"] = info["display_name"]
+            if info.get("avatar_url"):
+                profile["avatar_url"] = info["avatar_url"]
+        except Exception:
+            pass
         except TwitchClientError as exc:
             raise TwitchClientError(f"Could not list channel VODs: {exc}") from exc
         created = 0

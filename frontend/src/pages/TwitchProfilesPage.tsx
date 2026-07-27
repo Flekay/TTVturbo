@@ -1,5 +1,4 @@
 import { TwitchProfilesPanel } from "../features/vodPipeline";
-import { TwitchStatusBanner } from "../features/vodPipeline";
 
 export function TwitchProfilesPage() {
   return (
@@ -12,10 +11,6 @@ export function TwitchProfilesPage() {
           </p>
         </div>
       </div>
-
-      <section className="page__section">
-        <TwitchStatusBanner />
-      </section>
 
       <section className="page__section">
         <TwitchProfilesPanel />

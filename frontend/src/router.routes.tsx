@@ -13,6 +13,7 @@ import {
   Workflow,
   Send,
   Settings,
+  FileText,
   type LucideIcon,
 } from "lucide-react";
 
@@ -24,11 +25,11 @@ export interface RouteMeta {
   description: string;
   icon: LucideIcon;
   status: ModuleStatus;
-  section: "main" | "production" | "admin";
+  section: "main" | "automation" | "on_demand" | "management";
 }
 
 export interface RouteSection {
-  id: "main" | "production" | "admin";
+  id: "main" | "automation" | "on_demand" | "management";
   title: string;
   items: RouteMeta[];
 }
@@ -42,29 +43,14 @@ export const ROUTES: RouteMeta[] = [
     status: "available",
     section: "main",
   },
-  {
-    path: "/voice-profiles",
-    label: "Voice Profiles",
-    description: "Voice-Profile verwalten und Referenzen pflegen.",
-    icon: Mic2,
-    status: "available",
-    section: "admin",
-  },
+  // --- AUTOMATION ---
   {
     path: "/vod-pipeline",
     label: "VOD Pipeline",
-    description: "Twitch-VODs synchronisieren und herunterladen.",
-    icon: Film,
+    description: "Download, Audio-Extraktion und Transkription automatisieren.",
+    icon: Workflow,
     status: "available",
-    section: "main",
-  },
-  {
-    path: "/twitch-profiles",
-    label: "Twitch-Profile",
-    description: "Twitch-Channel-Profile verwalten.",
-    icon: Tv,
-    status: "available",
-    section: "admin",
+    section: "automation",
   },
   {
     path: "/clips",
@@ -72,7 +58,7 @@ export const ROUTES: RouteMeta[] = [
     description: "Vorgeschlagene Clips aus VODs.",
     icon: Scissors,
     status: "unavailable",
-    section: "main",
+    section: "automation",
   },
   {
     path: "/ideas",
@@ -80,7 +66,24 @@ export const ROUTES: RouteMeta[] = [
     description: "Gesprächsthemen und Inhaltsideen.",
     icon: Lightbulb,
     status: "unavailable",
-    section: "main",
+    section: "automation",
+  },
+  // --- ON-DEMAND TOOLS ---
+  {
+    path: "/vod-downloader",
+    label: "VOD Downloader",
+    description: "Twitch-VODs synchronisieren und herunterladen.",
+    icon: Film,
+    status: "available",
+    section: "on_demand",
+  },
+  {
+    path: "/transcription",
+    label: "Transkription",
+    description: "On-Demand Transkription mit faster-whisper.",
+    icon: FileText,
+    status: "available",
+    section: "on_demand",
   },
   {
     path: "/voice-clone",
@@ -88,7 +91,7 @@ export const ROUTES: RouteMeta[] = [
     description: "On-Demand Voice-Clone mit Qwen3-TTS.",
     icon: Wand2,
     status: "available",
-    section: "production",
+    section: "on_demand",
   },
   {
     path: "/recording-studio",
@@ -96,7 +99,7 @@ export const ROUTES: RouteMeta[] = [
     description: "Strukturierte Aufnahmesitzungen.",
     icon: AudioLines,
     status: "unavailable",
-    section: "production",
+    section: "on_demand",
   },
   {
     path: "/synthetic-studio",
@@ -104,7 +107,7 @@ export const ROUTES: RouteMeta[] = [
     description: "Voice-Clones und synthetische Aufnahmen.",
     icon: Wand2,
     status: "unavailable",
-    section: "production",
+    section: "on_demand",
   },
   {
     path: "/editor",
@@ -112,7 +115,7 @@ export const ROUTES: RouteMeta[] = [
     description: "Videos zuschneiden und arrangieren.",
     icon: Video,
     status: "unavailable",
-    section: "production",
+    section: "on_demand",
   },
   {
     path: "/layouts",
@@ -120,7 +123,24 @@ export const ROUTES: RouteMeta[] = [
     description: "Szenen und Layouts vorbereiten.",
     icon: PanelsTopLeft,
     status: "unavailable",
-    section: "production",
+    section: "on_demand",
+  },
+  // --- MANAGEMENT ---
+  {
+    path: "/voice-profiles",
+    label: "Voice Profiles",
+    description: "Voice-Profile verwalten und Referenzen pflegen.",
+    icon: Mic2,
+    status: "available",
+    section: "management",
+  },
+  {
+    path: "/twitch-profiles",
+    label: "Twitch-Profile",
+    description: "Twitch-Channel-Profile verwalten.",
+    icon: Tv,
+    status: "available",
+    section: "management",
   },
   {
     path: "/automations",
@@ -128,7 +148,7 @@ export const ROUTES: RouteMeta[] = [
     description: "Wiederkehrende Abläufe automatisieren.",
     icon: Workflow,
     status: "unavailable",
-    section: "admin",
+    section: "management",
   },
   {
     path: "/publishing",
@@ -136,7 +156,7 @@ export const ROUTES: RouteMeta[] = [
     description: "Fertige Clips veröffentlichen.",
     icon: Send,
     status: "unavailable",
-    section: "admin",
+    section: "management",
   },
   {
     path: "/settings",
@@ -144,7 +164,7 @@ export const ROUTES: RouteMeta[] = [
     description: "Lokale Anwendungseinstellungen.",
     icon: Settings,
     status: "partial",
-    section: "admin",
+    section: "management",
   },
 ];
 
@@ -155,19 +175,36 @@ export const ROUTE_SECTIONS: RouteSection[] = [
     items: ROUTES.filter((r) => r.section === "main"),
   },
   {
-    id: "production",
-    title: "Produktion",
-    items: ROUTES.filter((r) => r.section === "production"),
+    id: "automation",
+    title: "Automation",
+    items: ROUTES.filter((r) => r.section === "automation"),
   },
   {
-    id: "admin",
+    id: "on_demand",
+    title: "On-Demand Werkzeuge",
+    items: ROUTES.filter((r) => r.section === "on_demand"),
+  },
+  {
+    id: "management",
     title: "Verwaltung",
-    items: ROUTES.filter((r) => r.section === "admin"),
+    items: ROUTES.filter((r) => r.section === "management"),
   },
 ];
 
 export function findRouteMeta(pathname: string): RouteMeta | null {
-  return ROUTES.find((r) => r.path === pathname) ?? null;
+  // Check exact match first.
+  const exact = ROUTES.find((r) => r.path === pathname);
+  if (exact) return exact;
+  // Check prefix match for detail pages (e.g. /vod-pipeline/:vodId).
+  // We match the longest prefix that starts the pathname.
+  const prefixMatches = ROUTES.filter(
+    (r) => r.path !== "/" && pathname.startsWith(r.path + "/"),
+  );
+  if (prefixMatches.length > 0) {
+    // Return the longest prefix match.
+    return prefixMatches.sort((a, b) => b.path.length - a.path.length)[0];
+  }
+  return null;
 }
 
 export function statusLabel(status: ModuleStatus): string {

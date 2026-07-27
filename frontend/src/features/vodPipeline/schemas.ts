@@ -52,6 +52,7 @@ export const twitchProfileSchema = z.object({
   login: z.string(),
   channel_url: z.string().optional(),
   display_name: z.string(),
+  avatar_url: z.string().nullable().optional(),
   created_at: z.string(),
   updated_at: z.string(),
   last_synced_at: z.string().nullable().optional(),

@@ -113,9 +113,9 @@ export function DashboardPage() {
           />
           <ModuleCard
             icon={<Film size={18} />}
-            title="VOD Pipeline"
+            title="VOD Downloader"
             description="Twitch-VODs synchronisieren und herunterladen."
-            status={data.features.vod_pipeline ?? data.features.vod_analysis}
+            status={data.features.vod_downloader ?? data.features.vod_pipeline ?? "not_implemented"}
           />
           <ModuleCard
             icon={<Tv size={18} />}
@@ -134,7 +134,7 @@ export function DashboardPage() {
 
       {data.vod_pipeline && (
         <section className="page__section">
-          <h2 className="page__section-title">VOD Pipeline</h2>
+          <h2 className="page__section-title">VOD Downloader</h2>
           <div className="page__grid">
             <Card
               title="Twitch-Profile"
@@ -158,8 +158,8 @@ export function DashboardPage() {
             />
           </div>
           <div style={{ marginTop: 12 }}>
-            <Link className="btn btn--primary" to="/vod-pipeline">
-              VOD Pipeline öffnen <ArrowRight size={14} />
+            <Link className="btn btn--primary" to="/vod-downloader">
+              VOD Downloader öffnen <ArrowRight size={14} />
             </Link>
           </div>
         </section>

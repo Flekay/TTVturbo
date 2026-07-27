@@ -4,7 +4,10 @@ import { AppLayout } from "./components/layout/AppLayout";
 import { DashboardPage } from "./pages/DashboardPage";
 import { VoiceProfilesPage } from "./pages/VoiceProfilesPage";
 import { VoiceClonePage } from "./pages/VoiceClonePage";
+import { VodDownloaderPage } from "./pages/VodDownloaderPage";
 import { VodPipelinePage } from "./pages/VodPipelinePage";
+import { VodDetailPage } from "./pages/VodDetailPage";
+import { TranscriptionPage } from "./pages/TranscriptionPage";
 import { TwitchProfilesPage } from "./pages/TwitchProfilesPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
@@ -62,11 +65,39 @@ export function AppRouter() {
           </AppLayout>
         }
       />
+      {/* VOD Downloader (renamed from the old /vod-pipeline). */}
+      <Route
+        path="/vod-downloader"
+        element={
+          <AppLayout>
+            <VodDownloaderPage />
+          </AppLayout>
+        }
+      />
+      {/* New VOD Pipeline page (orchestrates download + audio + transcription). */}
       <Route
         path="/vod-pipeline"
         element={
           <AppLayout>
             <VodPipelinePage />
+          </AppLayout>
+        }
+      />
+      {/* VOD detail page: transcript, artifacts, pipeline runs for a single VOD. */}
+      <Route
+        path="/vod-pipeline/:vodId"
+        element={
+          <AppLayout>
+            <VodDetailPage />
+          </AppLayout>
+        }
+      />
+      {/* New Transcription on-demand page. */}
+      <Route
+        path="/transcription"
+        element={
+          <AppLayout>
+            <TranscriptionPage />
           </AppLayout>
         }
       />
@@ -78,8 +109,12 @@ export function AppRouter() {
           </AppLayout>
         }
       />
-      {/* Legacy redirect: the old placeholder route now lives at /vod-pipeline. */}
-      <Route path="/vod-explorer" element={<Navigate to="/vod-pipeline" replace />} />
+      {/* Legacy redirects. */}
+      <Route path="/vod-explorer" element={<Navigate to="/vod-downloader" replace />} />
+      {/* Old /vod-pipeline is now the new pipeline page; redirect the old
+          download-only intent to /vod-downloader only if the user had it
+          bookmarked as the download page. Since /vod-pipeline is now the
+          new pipeline page, no redirect is needed for that path. */}
       <Route
         path="/clips"
         element={

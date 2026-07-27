@@ -15,10 +15,13 @@ export interface StatusFeatures {
   voice_cloning: FeatureStatus;
   voice_profiles?: FeatureStatus;
   twitch_profiles?: FeatureStatus;
+  vod_downloader?: FeatureStatus;
   vod_pipeline?: FeatureStatus;
+  audio_extraction?: FeatureStatus;
+  transcription?: FeatureStatus;
+  clip_finder?: FeatureStatus;
   vod_analysis: FeatureStatus;
   video_editor: FeatureStatus;
-  transcription?: FeatureStatus;
 }
 
 export interface VodPipelineAggregate {
@@ -28,6 +31,14 @@ export interface VodPipelineAggregate {
   active: number;
   failed: number;
   downloaded_bytes: number;
+}
+
+export interface MediaProcessingAggregate {
+  audio_artifacts: number;
+  transcripts: number;
+  audio_jobs: { total: number; ready: number; failed: number; active: number };
+  transcription_jobs: { total: number; ready: number; failed: number; active: number };
+  pipeline_runs: { total: number; active: number; ready_for_clip_analysis: number; failed: number };
 }
 
 export interface BackendStatus {
@@ -44,4 +55,5 @@ export interface BackendStatus {
     complete_count: number;
   };
   vod_pipeline?: VodPipelineAggregate;
+  media_processing?: MediaProcessingAggregate;
 }

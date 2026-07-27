@@ -53,6 +53,16 @@ from vod_pipeline_api import (
     build_twitch_status_router as build_twitch_status_router,
 )
 
+from media_processing import (
+    AudioExtractionService,
+    GpuLock,
+    MediaJobStorage,
+    MediaSourceResolver,
+    PipelineService,
+    TranscriptionService,
+)
+from media_processing_api import build_media_processing_router
+
 logger = logging.getLogger("ttvturbo")
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -65,9 +75,20 @@ RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
 # the single Qwen3-TTS worker subprocess. It recovers persisted state on
 # startup so generations survive a server restart.
 VOICE_CLONES_DIR = BASE_DIR / "voice_clones"
+
+# Project-wide cross-process GPU lock, shared between Qwen3-TTS
+# voice-clone and faster-whisper transcription. Lives on disk so two
+# separate Python processes see the same owner. Reaped on startup.
+TTVTURBO_DATA_DIR_PRE = Path(
+    os.environ.get("TTVTURBO_DATA_DIR") or (BASE_DIR / "ttvturbo_data")
+)
+TTVTURBO_DATA_DIR_PRE.mkdir(parents=True, exist_ok=True)
+gpu_lock = GpuLock(TTVTURBO_DATA_DIR_PRE)
+
 voice_clone_service = VoiceCloneService(
     recordings_dir=RECORDINGS_DIR,
     voice_clones_dir=VOICE_CLONES_DIR,
+    gpu_lock=gpu_lock,
 )
 
 # Voice-profile integration. Exactly one library, storage and service
@@ -92,10 +113,7 @@ voice_profiles_router = build_voice_profiles_router(
 # download worker runs in a separate Python process so FastAPI stays
 # responsive during multi-hour downloads. Twitch credentials are read
 # from the environment and never persisted or logged.
-TTVTURBO_DATA_DIR = Path(
-    os.environ.get("TTVTURBO_DATA_DIR") or (BASE_DIR / "ttvturbo_data")
-)
-TTVTURBO_DATA_DIR.mkdir(parents=True, exist_ok=True)
+TTVTURBO_DATA_DIR = TTVTURBO_DATA_DIR_PRE  # already created above for the GPU lock
 TTVTURBO_VOD_DOWNLOAD_DIR = Path(
     os.environ.get("TTVTURBO_VOD_DOWNLOAD_DIR") or (TTVTURBO_DATA_DIR / "vods")
 )
@@ -105,6 +123,41 @@ vod_pipeline_service = build_vod_pipeline_service(
 )
 vod_pipeline_router = build_vod_pipeline_router(vod_pipeline_service)
 twitch_status_router = build_twitch_status_router(vod_pipeline_service)
+
+# Shared media-processing services: audio extraction, transcription and
+# the VOD pipeline orchestration. These reuse the same VOD storage and
+# download service above — the pipeline never re-implements download,
+# audio or transcription logic. The GPU lock is the same instance shared
+# with voice-clone so the two GPU workloads never load models
+# simultaneously.
+media_job_storage = MediaJobStorage(TTVTURBO_DATA_DIR)
+media_source_resolver = MediaSourceResolver(vod_pipeline_service.storage)
+audio_extraction_service = AudioExtractionService(
+    storage=media_job_storage,
+    source_resolver=media_source_resolver,
+)
+transcription_service = TranscriptionService(
+    storage=media_job_storage,
+    source_resolver=media_source_resolver,
+    audio_service=audio_extraction_service,
+    gpu_lock=gpu_lock,
+)
+# Wire the audio-ready callback after both services exist so dependent
+# TRANSCRIBE jobs are started immediately when audio extraction completes.
+# This complements TranscriptionService.poll_dependencies() which is called
+# by the API layer on each request as a safety net.
+audio_extraction_service._on_job_ready = transcription_service.on_audio_ready  # noqa: SLF001
+pipeline_service = PipelineService(
+    storage=media_job_storage,
+    vod_service=vod_pipeline_service,
+    audio_service=audio_extraction_service,
+    transcription_service=transcription_service,
+)
+media_processing_router = build_media_processing_router(
+    audio_service=audio_extraction_service,
+    transcription_service=transcription_service,
+    pipeline_service=pipeline_service,
+)
 
 # Connect the voice-clone profile mode to the voice-profile service. The
 # resolver runs server-side: it loads the profile, finds the accepted
@@ -177,6 +230,10 @@ app.include_router(voice_profiles_router)
 # diagnostic. Also registered before the SPA fallback.
 app.include_router(vod_pipeline_router)
 app.include_router(twitch_status_router)
+
+# Media-processing API routes (transcription, audio artifacts, pipeline
+# runs). Registered before the SPA fallback so /api/* takes precedence.
+app.include_router(media_processing_router)
 
 
 # --------------------------------------------------------------------------- #
@@ -399,6 +456,53 @@ def get_status() -> JSONResponse:
     except Exception as exc:  # pragma: no cover - defensive
         logger.warning("vod-pipeline status aggregation failed: %s", exc)
         vod_pipeline_available = "unavailable"
+    # Media-processing aggregates (audio artifacts, transcriptions,
+    # pipeline runs). Computed from the actual stores; never fabricated.
+    audio_agg = {"total": 0, "ready": 0, "failed": 0, "active": 0}
+    transcription_agg = {"total": 0, "ready": 0, "failed": 0, "active": 0}
+    pipeline_agg = {"total": 0, "active": 0, "ready_for_clip_analysis": 0, "failed": 0}
+    transcription_available = "available"
+    audio_available = "available"
+    vod_pipeline_orch_available = "available"
+    clip_finder_available = "not_implemented"
+    try:
+        audio_agg = audio_extraction_service.aggregate_status()
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("audio-extraction status aggregation failed: %s", exc)
+        audio_available = "unavailable"
+    try:
+        transcription_agg = transcription_service.aggregate_status()
+        # Transcription feature availability depends on the runtime probe.
+        rt = transcription_service.runtime_status()
+        if not rt.get("available") and not rt.get("busy"):
+            transcription_available = "unavailable"
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("transcription status aggregation failed: %s", exc)
+        transcription_available = "unavailable"
+    try:
+        pipeline_agg = pipeline_service.aggregate_status()
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("pipeline status aggregation failed: %s", exc)
+        vod_pipeline_orch_available = "unavailable"
+    # Count audio artifacts by scanning VOD dirs for the artifact metadata.
+    audio_artifacts_count = 0
+    try:
+        vods_root = vod_pipeline_service.storage.vods_dir
+        if vods_root.is_dir():
+            for vod_dir in vods_root.iterdir():
+                if not vod_dir.is_dir():
+                    continue
+                meta = vod_dir / "artifacts" / "audio" / "metadata.json"
+                if meta.is_file():
+                    audio_artifacts_count += 1
+    except Exception:  # pragma: no cover - defensive
+        pass
+    # Count transcriptions by scanning transcript metadata files.
+    transcripts_count = 0
+    try:
+        transcripts_count = len(transcription_service.list_transcriptions())
+    except Exception:  # pragma: no cover - defensive
+        pass
     return JSONResponse(content={
         "status": "online",
         "app_name": APP_NAME,
@@ -413,10 +517,13 @@ def get_status() -> JSONResponse:
             "voice_cloning": "available" if vc_status["available"] else "unavailable",
             "voice_profiles": vp_available,
             "twitch_profiles": vod_pipeline_available,
-            "vod_pipeline": vod_pipeline_available,
+            "vod_downloader": vod_pipeline_available,
+            "vod_pipeline": vod_pipeline_orch_available,
+            "audio_extraction": audio_available,
+            "transcription": transcription_available,
+            "clip_finder": clip_finder_available,
             "vod_analysis": "not_implemented",
             "video_editor": "not_implemented",
-            "transcription": "not_implemented",
         },
         # Additive voice-clone runtime diagnostics. The frontend ignores
         # unknown keys; these fields let the dashboard show the real GPU
@@ -444,6 +551,15 @@ def get_status() -> JSONResponse:
         # Additive VOD-pipeline aggregate status. The frontend ignores
         # unknown keys; no local storage paths are leaked here.
         "vod_pipeline": vod_pipeline_agg,
+        # Additive media-processing aggregates. The frontend ignores
+        # unknown keys; no local storage paths are leaked here.
+        "media_processing": {
+            "audio_artifacts": audio_artifacts_count,
+            "transcripts": transcripts_count,
+            "audio_jobs": audio_agg,
+            "transcription_jobs": transcription_agg,
+            "pipeline_runs": pipeline_agg,
+        },
     })
 
 

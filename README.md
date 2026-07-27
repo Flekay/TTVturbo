@@ -9,14 +9,16 @@ sie über ein React-Dashboard bereit.
 
 ```
 TTVturbo/
-├── app.py                # FastAPI-Backend: Aufnahmen, Voice Clone, Voice Profiles, VOD Pipeline, Status, SPA-Auslieferung
+├── app.py                # FastAPI-Backend: Aufnahmen, Voice Clone, Voice Profiles, VOD Pipeline, Media Processing, Status, SPA-Auslieferung
 ├── voice_profiles_api.py # Voice-Profile FastAPI-Router + Service-Factory
-├── vod_pipeline_api.py   # VOD-Pipeline FastAPI-Router (Twitch-Profile, VODs, Downloads, Status)
+├── vod_pipeline_api.py   # VOD-Downloader FastAPI-Router (Twitch-Profile, VODs, Downloads, Status)
+├── media_processing_api.py # Media-Processing FastAPI-Router (Transkription, Audio-Artefakte, Pipeline-Runs)
 ├── recordings/           # erzeugte WAV-Dateien (real)
 ├── voice_profiles/       # Voice-Profile-Kern (Library, Storage, Service, Schemas)
 ├── voice_profiles_data/  # persistierte Profile (JSON, konfigurierbar via TTVTURBO_VOICE_PROFILES_DIR)
 ├── vod_pipeline/         # Twitch-VOD-Pipeline-Kern (Schemas, Storage, TwitchClient, Service, Downloader-Worker)
-├── ttvturbo_data/        # persistierte Twitch-Profile + VOD-Metadaten (konfigurierbar via TTVTURBO_DATA_DIR)
+├── media_processing/     # Shared Media-Processing-Kern (Schemas, Storage, GPU-Lock, Sources, Audio-Extraktion, Transkription, Pipeline)
+├── ttvturbo_data/        # persistierte Twitch-Profile + VOD-Metadaten + Media-Jobs + Pipeline-Runs (konfigurierbar via TTVTURBO_DATA_DIR)
 ├── voice_clone/          # Qwen3-TTS Voice-Clone-Modul (Service, Runtime, Qualitätsanalyse, Diagnostics)
 ├── static/               # Legacy-Testfrontend (Fallback, wenn frontend/dist fehlt)
 ├── tests/                # pytest-Backendtests
@@ -24,7 +26,7 @@ TTVturbo/
 ├── .github/workflows/    # ci.yml - GPU-freie CI (Python + Frontend + FFmpeg)
 ├── requirements.txt      # Basissystem (FastAPI, soundfile, numpy, psutil, yt-dlp)
 ├── requirements-dev.txt  # pytest + httpx
-├── requirements-gpu.txt  # NVIDIA-/Qwen-Stack (torch+cu128, qwen-tts, transformers)
+├── requirements-gpu.txt  # NVIDIA-/Qwen-/Whisper-Stack (torch+cu128, qwen-tts, transformers, faster-whisper)
 │
 ├── frontend/             # React 19 + TypeScript + Vite Dashboard
 │   ├── index.html
@@ -39,8 +41,8 @@ TTVturbo/
 │       ├── router.routes.tsx
 │       ├── api/          # typisierter Fetch-Client + Endpunkte
 │       ├── components/   # Layout, UI-Wrappers, Recordings, ErrorBoundary
-│       ├── pages/        # Dashboard, VoiceProfiles, VoiceClone, VodPipeline, TwitchProfiles, Settings, NotFound
-│       ├── features/     # voiceProfiles + vodPipeline Feature-Module (Schemas, API, Hooks, Panels)
+│       ├── pages/        # Dashboard, VoiceProfiles, VoiceClone, VodDownloader, VodPipeline, VodDetail, Transcription, TwitchProfiles, Settings, NotFound
+│       ├── features/     # voiceProfiles + vodPipeline + mediaProcessing Feature-Module (Schemas, API, Hooks, Panels)
 │       ├── stores/       # Zustand UI-Store (localStorage)
 │       ├── hooks/        # useRecorder, useBackendStatus, TanStack Query Hooks
 │       ├── types/        # TypeScript-Typen + Zod-Schemata
@@ -93,12 +95,13 @@ FFmpeg unter Windows z. B. mit:
 winget install --id=Gyan.FFmpeg -e
 ```
 
-## NVIDIA- / Qwen-Unterstützung installieren (optional, RTX 5070)
+## NVIDIA- / Qwen- / Whisper-Unterstützung installieren (optional, RTX 5070)
 
 Diese Stufe ist nur auf der Maschine nötig, die echte Voice-Clone-Generierungen
-ausführen soll. Sie installiert die CUDA-fähigen Wheels für den
-`voice_clone.runtime`-Worker subprocess. Das FastAPI-Backend selbst importiert
-diese Pakete nie; es startet auch ohne sie.
+oder GPU-Transkriptionen ausführen soll. Sie installiert die CUDA-fähigen Wheels
+für den `voice_clone.runtime`- und `media_processing.transcription_worker`-
+Worker subprocess. Das FastAPI-Backend selbst importiert diese Pakete nie; es
+startet auch ohne sie.
 
 Getestet auf der Zielhardware (siehe `spikes/qwen_tts/REPORT.md`,
 Status `REAL_MODEL_VERIFIED`):
@@ -150,6 +153,38 @@ curl http://127.0.0.1:8765/api/voice-clone/status
 Beide zeigen ehrlich an, ob `qwen_tts` importierbar ist, ob CUDA verfügbar
 ist, welchen Device-Namen und welche VRAM-Werte `torch` meldet, und ob
 FFmpeg/soundfile/Datenverzeichnis funktionieren. Sie erfinden keine Werte.
+
+### Transkription (faster-whisper)
+
+Die GPU-Transkription nutzt `faster-whisper` und wird ebenfalls über
+`requirements-gpu.txt` installiert. Der Transkriptions-Worker läuft in einem
+eigenen Subprocess und teilt sich die GPU mit dem Voice-Clone-Worker über
+einen projektweiten Cross-Process-GPU-Lock (`ttvturbo_data/gpu.lock`). Die
+beiden Worker laden nie gleichzeitig ihre Modelle.
+
+Konfiguration via Umgebungsvariablen (siehe `.env.example`):
+
+| Variable | Default | Beschreibung |
+|----------|---------|--------------|
+| `TTVTURBO_TRANSCRIPTION_MODEL` | `large-v3` | faster-whisper Modell |
+| `TTVTURBO_TRANSCRIPTION_DEVICE` | `cuda` | `cuda` oder `cpu` |
+| `TTVTURBO_TRANSCRIPTION_COMPUTE_TYPE` | `int8_float16` | Compute-Type |
+| `TTVTURBO_TRANSCRIPTION_LANGUAGE` | `de` | Sprache oder `auto` |
+| `TTVTURBO_MAX_CONCURRENT_TRANSCRIPTIONS` | `1` | Max. parallele Jobs |
+
+Diagnostik-Endpunkt:
+
+```powershell
+curl http://127.0.0.1:8765/api/transcription/status
+```
+
+### VOD Pipeline
+
+Die VOD Pipeline orchestriert Download → Audio-Extraktion → Transkription
+in einem automatisierten Ablauf. Sie verwendet die gleichen Services wie
+die On-Demand-Seiten (VOD Downloader, Transkription) und implementiert keine
+eigene Download-, Audio- oder Transkriptionslogik. Die Clip-Suche
+(`FIND_CLIPS`) ist in dieser Phase als `NOT_IMPLEMENTED` markiert.
 
 ## Entwicklungsstart
 

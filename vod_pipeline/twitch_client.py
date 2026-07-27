@@ -157,6 +157,23 @@ class ChannelLister:
         info = self._run_ytdlp_single(url)
         return _normalize_single_info(info)
 
+    def get_channel_info(self, login: str) -> dict:
+        """Fetch channel metadata (display name, avatar URL) via yt-dlp.
+
+        Returns a dict with keys: ``login``, ``display_name``,
+        ``avatar_url``, ``channel_url``. Best-effort — missing fields
+        are empty strings. Raises :class:`TwitchNotFoundError` if the
+        channel does not exist.
+        """
+        url = f"https://www.twitch.tv/{login}"
+        info = self._run_ytdlp_single(url)
+        return {
+            "login": str(info.get("uploader_id") or info.get("channel_id") or login or ""),
+            "display_name": str(info.get("uploader") or info.get("channel") or login or ""),
+            "avatar_url": str(info.get("thumbnails", [{}])[0].get("url", "") if info.get("thumbnails") else (info.get("thumbnail") or "")),
+            "channel_url": str(info.get("webpage_url") or url or ""),
+        }
+
 
 # ---------------------------------------------------------------------------
 # Normalization helpers

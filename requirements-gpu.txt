@@ -1,9 +1,11 @@
-# GPU-only dependencies for the Qwen3-TTS voice-clone worker subprocess.
+# GPU-only dependencies for the Qwen3-TTS voice-clone worker subprocess
+# and the faster-whisper transcription worker subprocess.
 #
-# These packages are ONLY needed by `voice_clone.runtime` (the worker
-# subprocess spawned by `voice_clone.service`). The FastAPI app itself
-# (`app.py`) never imports them, so a machine without a CUDA GPU can run
-# the dashboard and the recording pipeline without this file.
+# These packages are ONLY needed by `voice_clone.runtime` and
+# `media_processing.transcription_worker` (the worker subprocesses spawned
+# by the services). The FastAPI app itself (`app.py`) never imports them,
+# so a machine without a CUDA GPU can run the dashboard and the recording
+# pipeline without this file.
 #
 # Verified on the target hardware (see spikes/qwen_tts/REPORT.md,
 # status REAL_MODEL_VERIFIED):
@@ -28,6 +30,11 @@
 #   transformers  == 4.57.3
 #   accelerate    == 1.12.0
 #
+# faster-whisper reuses the same torch wheel for CUDA. It is imported
+# lazily by the transcription worker only.
+#
+#   faster-whisper == 1.1.0
+#
 # `safetensors` is required by `transformers` to load the model weights.
 # The spike did not pin a specific version; it was pulled in transitively
 # by `transformers==4.57.3` and worked. We do NOT invent a pin here - the
@@ -45,3 +52,8 @@ accelerate==1.12.0
 # Let transformers pull a compatible safetensors wheel; do not force a
 # version that has not been tested on the RTX 5070.
 safetensors>=0.4.0
+
+# faster-whisper for GPU transcription (imported lazily by the
+# transcription worker subprocess only).
+faster-whisper==1.1.0
+

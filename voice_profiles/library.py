@@ -55,7 +55,7 @@ class ScriptLibrary:
         if not path.is_file():
             raise VoiceProfileStorageError(f"script file not found: {path}")
         try:
-            with open(path, "r", encoding="utf-8") as fh:
+            with open(path, "r", encoding="utf-8-sig") as fh:
                 raw = json.load(fh)
         except (OSError, json.JSONDecodeError) as exc:
             raise VoiceProfileStorageError(f"could not read script file {path}: {exc}") from exc

@@ -149,6 +149,7 @@ class TwitchProfile(BaseModel):
     login: str
     channel_url: str = ""
     display_name: str = ""
+    avatar_url: str = ""
     created_at: str
     updated_at: str
     last_synced_at: Optional[str] = None

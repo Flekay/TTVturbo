@@ -17,8 +17,9 @@ import {
 import { useActiveProfileStore } from "./activeProfileStore";
 import type { TwitchProfile } from "./types";
 
-function profileAvatarUrl(_p: TwitchProfile): string | null {
-  // No profile image is fetched without Twitch API credentials.
+function profileAvatarUrl(p: TwitchProfile): string | null {
+  const url = p.avatar_url;
+  if (url && url.trim()) return url.trim();
   return null;
 }
 

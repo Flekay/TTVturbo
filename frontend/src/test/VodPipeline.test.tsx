@@ -116,17 +116,13 @@ describe("VOD Pipeline frontend", () => {
     mock.restore();
   });
 
-  it("renders the VOD Pipeline route with status banner, profile and VOD list", async () => {
+  it("renders the VOD Downloader route with profile and VOD list", async () => {
     const { container } = renderWithProviders(<AppRouter />, {
-      initialEntries: ["/vod-pipeline"],
+      initialEntries: ["/vod-downloader"],
     });
     const main = mainOf(container);
     await waitFor(() => {
-      expect(within(main).getByRole("heading", { name: "VOD Pipeline", level: 1 })).toBeInTheDocument();
-    });
-    // Status banner shows the positive state.
-    await waitFor(() => {
-      expect(within(main).getByText(/VOD-Pipeline ist verfügbar/)).toBeInTheDocument();
+      expect(within(main).getByRole("heading", { name: "VOD Downloader", level: 1 })).toBeInTheDocument();
     });
     // Profile card is rendered.
     await waitFor(() => {
@@ -144,34 +140,34 @@ describe("VOD Pipeline frontend", () => {
     });
   });
 
-  it("redirects /vod-explorer to /vod-pipeline", async () => {
+  it("redirects /vod-explorer to /vod-downloader", async () => {
     const { container } = renderWithProviders(<AppRouter />, {
       initialEntries: ["/vod-explorer"],
     });
     const main = mainOf(container);
     await waitFor(() => {
-      expect(within(main).getByRole("heading", { name: "VOD Pipeline", level: 1 })).toBeInTheDocument();
+      expect(within(main).getByRole("heading", { name: "VOD Downloader", level: 1 })).toBeInTheDocument();
     });
   });
 
-  it("shows the VOD Pipeline module card on the dashboard", async () => {
+  it("shows the VOD Downloader module card on the dashboard", async () => {
     const { container } = renderWithProviders(<AppRouter />, {
       initialEntries: ["/dashboard"],
     });
     const main = mainOf(container);
-    // The dashboard renders the VOD Pipeline section heading.
+    // The dashboard renders the VOD Downloader section heading.
     await waitFor(() => {
-      const headings = within(main).getAllByRole("heading", { name: "VOD Pipeline" });
+      const headings = within(main).getAllByRole("heading", { name: "VOD Downloader" });
       expect(headings.length).toBeGreaterThanOrEqual(1);
     });
-    // VOD Pipeline aggregate section.
+    // VOD Downloader aggregate section.
     expect(within(main).getAllByText("Twitch-Profile").length).toBeGreaterThanOrEqual(1);
   });
 
   it("selecting a profile loads its VODs and shows download buttons", async () => {
     const user = userEvent.setup();
     const { container } = renderWithProviders(<AppRouter />, {
-      initialEntries: ["/vod-pipeline"],
+      initialEntries: ["/vod-downloader"],
     });
     const main = mainOf(container);
     await waitFor(() => {
@@ -196,7 +192,7 @@ describe("VOD Pipeline frontend", () => {
       status: "QUEUED",
     });
     const { container } = renderWithProviders(<AppRouter />, {
-      initialEntries: ["/vod-pipeline"],
+      initialEntries: ["/vod-downloader"],
     });
     const main = mainOf(container);
     await waitFor(() => expect(within(main).getAllByText("casepayt").length).toBeGreaterThanOrEqual(1));
@@ -215,7 +211,7 @@ describe("VOD Pipeline frontend", () => {
   it("rejects invalid VOD URLs in the import form", async () => {
     const user = userEvent.setup();
     const { container } = renderWithProviders(<AppRouter />, {
-      initialEntries: ["/vod-pipeline"],
+      initialEntries: ["/vod-downloader"],
     });
     const main = mainOf(container);
     await waitFor(() => expect(within(main).getAllByText("casepayt").length).toBeGreaterThanOrEqual(1));
@@ -231,7 +227,7 @@ describe("VOD Pipeline frontend", () => {
     });
   });
 
-  it("shows the status warning when yt-dlp is missing", async () => {
+  it("renders the VOD Downloader route even when yt-dlp is missing", async () => {
     mock.setResponse("GET /api/twitch/status", 200, {
       ...twitchStatusOk,
       available: false,
@@ -240,23 +236,29 @@ describe("VOD Pipeline frontend", () => {
       reasons: ["yt-dlp is not installed or not on PATH"],
     });
     const { container } = renderWithProviders(<AppRouter />, {
-      initialEntries: ["/vod-pipeline"],
+      initialEntries: ["/vod-downloader"],
     });
     const main = mainOf(container);
     await waitFor(() => {
-      expect(within(main).getByText(/nicht vollständig verfügbar/)).toBeInTheDocument();
+      expect(within(main).getByRole("heading", { name: "VOD Downloader", level: 1 })).toBeInTheDocument();
     });
-    // Reasons are shown.
-    expect(within(main).getByText("yt-dlp is not installed or not on PATH")).toBeInTheDocument();
+    // Profile card is still rendered.
+    await waitFor(() => {
+      expect(within(main).getAllByText("casepayt").length).toBeGreaterThanOrEqual(1);
+    });
   });
 
-  it("never renders a secret value in the status banner", async () => {
+  it("never renders a secret value on the VOD Downloader page", async () => {
     const { container } = renderWithProviders(<AppRouter />, {
-      initialEntries: ["/vod-pipeline"],
+      initialEntries: ["/vod-downloader"],
     });
     const main = mainOf(container);
-    await waitFor(() => expect(within(main).getByText(/VOD-Pipeline ist verfügbar/)).toBeInTheDocument());
+    await waitFor(() => {
+      expect(within(main).getByRole("heading", { name: "VOD Downloader", level: 1 })).toBeInTheDocument();
+    });
     expect(main.textContent ?? "").not.toContain("fake-token");
     expect(main.textContent ?? "").not.toContain("csec");
   });
 });
+
+

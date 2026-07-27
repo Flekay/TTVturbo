@@ -7,4 +7,3 @@ export * from "./hooks";
 export * from "./activeProfileStore";
 export { VodPipelinePanel } from "./VodPipelinePanel";
 export { TwitchProfilesPanel } from "./TwitchProfilesPanel";
-export { TwitchStatusBanner } from "./TwitchStatusBanner";

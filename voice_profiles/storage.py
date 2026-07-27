@@ -139,7 +139,7 @@ class VoiceProfileStorage:
 
     def _read_profile_file(self, path: Path) -> dict:
         try:
-            with open(path, "r", encoding="utf-8") as fh:
+            with open(path, "r", encoding="utf-8-sig") as fh:
                 payload = json.load(fh)
         except (OSError, json.JSONDecodeError) as exc:
             raise VoiceProfileStorageError(f"corrupt profile {path}: {exc}") from exc

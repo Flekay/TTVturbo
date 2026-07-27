@@ -1,5 +1,4 @@
 import { useNavigate } from "react-router-dom";
-import { TwitchStatusBanner } from "./TwitchStatusBanner";
 import { ProfileSelector } from "./ProfileSelector";
 import { ImportVodPanel } from "./ImportVodPanel";
 import { VodList } from "./VodList";
@@ -8,10 +7,10 @@ import { useActiveProfileStore } from "./activeProfileStore";
 /**
  * Top-level VOD Pipeline panel.
  *
- * Composes the Twitch status banner, the profile selector, the manual
- * VOD import form and the VOD list with download controls. All server
- * state is TanStack Query; only the active profile id is persisted
- * across reloads (via zustand/persist in activeProfileStore).
+ * Composes the profile selector, the manual VOD import form and the VOD
+ * list with download controls. All server state is TanStack Query; only
+ * the active profile id is persisted across reloads (via zustand/persist
+ * in activeProfileStore).
  */
 export function VodPipelinePanel() {
   const navigate = useNavigate();
@@ -19,7 +18,6 @@ export function VodPipelinePanel() {
 
   return (
     <div className="vp-vod-pipeline">
-      <TwitchStatusBanner />
       <div className="vp-vod-pipeline__layout">
         <ProfileSelector onOpenProfilesPage={() => navigate("/twitch-profiles")} />
         <div className="vp-vod-pipeline__main">

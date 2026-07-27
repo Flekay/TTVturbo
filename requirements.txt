@@ -4,6 +4,8 @@
 # recording / voice-clone orchestration endpoints to work. The Qwen3-TTS
 # model itself is NOT importable from this set; install requirements-gpu.txt
 # on a CUDA-capable machine to enable real voice-clone generation.
+# faster-whisper is also optional; install requirements-gpu.txt to enable
+# GPU transcription.
 #
 #   python -m pip install -r requirements.txt
 #   python -m pip install -r requirements-gpu.txt   # only on the RTX 5070 box
@@ -26,3 +28,10 @@ psutil==7.2.2
 # the separate downloader_worker subprocess, never in the FastAPI loop).
 httpx==0.28.1
 yt-dlp==2026.7.4
+
+# Media processing: faster-whisper is imported lazily by the transcription
+# worker subprocess only. It is NOT required for the FastAPI app to start
+# or for tests to run. Install it (and torch with CUDA) via
+# requirements-gpu.txt to enable real GPU transcription.
+# faster-whisper==1.1.0
+

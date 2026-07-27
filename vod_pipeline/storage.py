@@ -185,10 +185,12 @@ class VodPipelineStorage:
         # On Windows, os.replace() briefly holds an exclusive lock on the
         # target file. A concurrent read during that window gets
         # PermissionError. Retry a few times — the lock is short-lived.
+        # Use utf-8-sig to transparently strip a UTF-8 BOM if present
+        # (some external tools write metadata.json with a BOM).
         last_exc: Optional[Exception] = None
         for attempt in range(5):
             try:
-                with open(path, "r", encoding="utf-8") as fh:
+                with open(path, "r", encoding="utf-8-sig") as fh:
                     payload = json.load(fh)
                 break
             except PermissionError as exc:
