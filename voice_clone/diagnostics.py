@@ -164,6 +164,22 @@ def diagnose_runtime(
             f"qwen_tts is not importable: {type(exc).__name__}: {exc}"
         )
 
+    # --- model cache -----------------------------------------------------
+    # Best-effort check of the HuggingFace hub cache for the configured
+    # model repo. Failures degrade to False so the rest of the status
+    # payload stays intact.
+    model_cached = False
+    try:
+        from huggingface_hub import scan_cache_dir  # type: ignore[import-not-found]
+
+        cache_info = scan_cache_dir()
+        for repo in cache_info.repos:
+            if repo.repo_id == model_id:
+                model_cached = True
+                break
+    except Exception:
+        pass
+
     # --- soundfile -------------------------------------------------------
     sf_ok, sf_err = _soundfile_ok()
     if not sf_ok:
@@ -211,6 +227,7 @@ def diagnose_runtime(
         "vram_total_bytes": vram_total_bytes,
         "vram_free_bytes": vram_free_bytes,
         "qwen_tts_importable": qwen_tts_importable,
+        "model_cached": model_cached,
         "soundfile_ok": sf_ok,
         "ffmpeg_ok": ffmpeg_ok,
         "data_dir": data_dir,

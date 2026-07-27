@@ -40,6 +40,21 @@ export function fetchTranscriptionRuntimeStatus(
   });
 }
 
+export function preloadTranscriptionModel(): Promise<{
+  ok: boolean;
+  model: string;
+  repo_id: string;
+}> {
+  return apiClient.post("/api/transcription/preload-model", {
+    schema: z.object({
+      ok: z.boolean(),
+      model: z.string(),
+      repo_id: z.string(),
+    }),
+    timeoutMs: 600_000,
+  });
+}
+
 export function startTranscription(request: StartTranscriptionRequest): Promise<MediaJob> {
   return apiClient.post(TRANSCRIPTIONS, { body: request, schema: mediaJobSchema });
 }

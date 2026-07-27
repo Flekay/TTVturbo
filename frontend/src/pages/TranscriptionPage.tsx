@@ -7,9 +7,6 @@ import {
   Trash2,
   Download,
   AlertCircle,
-  Cpu,
-  CheckCircle2,
-  XCircle,
 } from "lucide-react";
 import { Badge, type BadgeVariant } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
@@ -21,7 +18,6 @@ import { LoadingState } from "../components/ui/LoadingState";
 import { ApiError } from "../api/client";
 import { formatDateTime, formatDuration } from "../utils/format";
 import {
-  useTranscriptionRuntimeQuery,
   useTranscriptionsQuery,
   useStartTranscriptionMutation,
   useCancelTranscriptionMutation,
@@ -199,95 +195,13 @@ function TranscriptionJobCard({
   );
 }
 
-function RuntimeStatusCard() {
-  const query = useTranscriptionRuntimeQuery();
-  if (query.isLoading) return <LoadingState message="Lade Transkriptions-Status…" />;
-  if (query.error || !query.data) {
-    return (
-      <ErrorState
-        message={query.error instanceof ApiError ? query.error.message : "Status konnte nicht geladen werden."}
-      />
-    );
-  }
-  const rt = query.data;
-  return (
-    <Card className="runtime-status-card">
-      <div className="runtime-status-card__header">
-        <Cpu size={18} />
-        <span className="runtime-status-card__title">Transkriptions-Backend</span>
-        <Badge variant={rt.available ? "success" : rt.busy ? "info" : "error"}>
-          {rt.available ? "Verfügbar" : rt.busy ? "GPU belegt" : "Nicht verfügbar"}
-        </Badge>
-      </div>
-      <div className="runtime-status-card__details">
-        <div className="runtime-status-card__row">
-          <span>Modell</span>
-          <span>{rt.model}</span>
-        </div>
-        <div className="runtime-status-card__row">
-          <span>Device</span>
-          <span>{rt.device}{rt.device_name ? ` (${rt.device_name})` : ""}</span>
-        </div>
-        <div className="runtime-status-card__row">
-          <span>Compute Type</span>
-          <span>{rt.compute_type}</span>
-        </div>
-        <div className="runtime-status-card__row">
-          <span>faster-whisper</span>
-          {rt.faster_whisper_importable ? (
-            <CheckCircle2 size={14} className="runtime-status-card__ok" />
-          ) : (
-            <XCircle size={14} className="runtime-status-card__bad" />
-          )}
-        </div>
-        <div className="runtime-status-card__row">
-          <span>Modell gecacht</span>
-          {rt.model_cached ? (
-            <CheckCircle2 size={14} className="runtime-status-card__ok" />
-          ) : (
-            <span className="runtime-status-card__muted">
-              {rt.faster_whisper_importable ? "wird beim ersten Lauf heruntergeladen" : "—"}
-            </span>
-          )}
-        </div>
-        {rt.device.startsWith("cuda") && (
-          <div className="runtime-status-card__row">
-            <span>CUDA</span>
-            {rt.cuda_available ? (
-              <CheckCircle2 size={14} className="runtime-status-card__ok" />
-            ) : (
-              <XCircle size={14} className="runtime-status-card__bad" />
-            )}
-          </div>
-        )}
-        {rt.busy && rt.busy_owner_type && (
-          <div className="runtime-status-card__row">
-            <span>GPU belegt durch</span>
-            <span>{rt.busy_owner_type === "voice_clone" ? "Voice Clone" : "Transkription"}</span>
-          </div>
-        )}
-      </div>
-      {rt.reasons.length > 0 && (
-        <div className="runtime-status-card__reasons">
-          {rt.reasons.map((r, i) => (
-            <div key={i} className="runtime-status-card__reason">
-              <AlertCircle size={12} />
-              {r}
-            </div>
-          ))}
-        </div>
-      )}
-    </Card>
-  );
-}
-
 /**
  * Transcription on-demand page.
  *
- * Lets the user pick a READY VOD and start a transcription. Shows the
- * runtime status (faster-whisper availability, GPU state) and a list of
- * all transcription jobs with progress, cancel/retry/delete and
- * download links (TXT, SRT, VTT, JSON).
+ * Lets the user pick a READY VOD and start a transcription. Shows a
+ * list of all transcription jobs with progress, cancel/retry/delete and
+ * download links (TXT, SRT, VTT, JSON). Runtime status is surfaced in
+ * the topbar status popover.
  */
 export function TranscriptionPage() {
   const [selectedVodId, setSelectedVodId] = useState<string>("");
@@ -325,10 +239,6 @@ export function TranscriptionPage() {
 
   return (
     <div className="page">
-      <section className="page__section">
-        <RuntimeStatusCard />
-      </section>
-
       <section className="page__section">
         <h2 className="page__section-title">Neue Transkription starten</h2>
         <Card className="transcription-form-card">

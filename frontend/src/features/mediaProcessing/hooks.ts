@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   fetchTranscriptionRuntimeStatus,
+  preloadTranscriptionModel,
   startTranscription,
   fetchTranscriptions,
   fetchTranscription,
@@ -54,6 +55,16 @@ export function useTranscriptionRuntimeQuery() {
     staleTime: 5_000,
     refetchInterval: 15_000,
     retry: 1,
+  });
+}
+
+export function usePreloadTranscriptionModelMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => preloadTranscriptionModel(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: transcriptionRuntimeQueryKey });
+    },
   });
 }
 

@@ -757,6 +757,23 @@ def voice_clone_status() -> JSONResponse:
     return JSONResponse(content=voice_clone_service.status())
 
 
+@app.post("/api/voice-clone/preload-model")
+async def voice_clone_preload_model() -> JSONResponse:
+    """Pre-download the configured Qwen3-TTS model into the HF cache.
+
+    Runs the (potentially long) download in a worker thread so the event
+    loop stays responsive. Returns once the download finishes.
+    """
+    import asyncio
+    from functools import partial
+
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, partial(voice_clone_service.preload_model))
+    if not result.get("ok"):
+        raise HTTPException(status_code=502, detail=result.get("error", "model preload failed"))
+    return JSONResponse(content=result)
+
+
 @app.get("/api/voice-clone/analyze-reference/{filename}")
 def voice_clone_analyze_reference(filename: str) -> JSONResponse:
     """Run the technical quality analysis on a recording and return the result.

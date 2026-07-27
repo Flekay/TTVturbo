@@ -328,11 +328,46 @@ class VoiceCloneService:
             "vram_total_bytes": diag["vram_total_bytes"],
             "vram_free_bytes": diag["vram_free_bytes"],
             "qwen_tts_importable": diag["qwen_tts_importable"],
+            "model_cached": diag.get("model_cached", False),
             "soundfile_ok": diag["soundfile_ok"],
             "ffmpeg_ok": diag["ffmpeg_ok"],
             "data_dir_writable": diag["data_dir_writable"],
             "reasons": diag["reasons"],
             "warnings": diag["warnings"],
+        }
+
+    def preload_model(self) -> dict:
+        """Pre-download the configured Qwen3-TTS model from HuggingFace Hub
+        into the local cache so the first generation does not block on a
+        multi-GB download.
+
+        Returns a dict with ``ok``, ``model_id`` and optional ``error``
+        keys. This method is synchronous and may take a while; the API
+        endpoint runs it in a thread so the FastAPI event loop stays
+        responsive.
+        """
+        try:
+            from huggingface_hub import snapshot_download  # type: ignore[import-not-found]
+        except Exception as exc:
+            return {
+                "ok": False,
+                "model_id": self.model_id,
+                "error": f"huggingface_hub not importable: {type(exc).__name__}: {exc}",
+            }
+        try:
+            snapshot_download(repo_id=self.model_id, local_files_only=False)
+        except Exception as exc:
+            return {
+                "ok": False,
+                "model_id": self.model_id,
+                "error": f"download failed: {type(exc).__name__}: {exc}",
+            }
+        # Invalidate the diagnostics cache so the next status probe reflects
+        # the newly cached model.
+        self._diagnostics_cache = None
+        return {
+            "ok": True,
+            "model_id": self.model_id,
         }
 
     def _diagnostics(self) -> dict:

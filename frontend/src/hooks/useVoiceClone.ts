@@ -6,6 +6,7 @@ import {
   fetchGenerations,
   fetchReferenceQuality,
   fetchVoiceCloneStatus,
+  preloadVoiceCloneModel,
 } from "../api/voiceClone";
 import { KNOWN_GENERATION_STATUSES, type KnownGenerationStatus } from "../types/schemas";
 import type { CreateGenerationRequest } from "../types/voiceClone";
@@ -106,6 +107,16 @@ export function useDeleteGenerationMutation() {
     mutationFn: (id: string) => deleteGeneration(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: generationsQueryKey });
+      queryClient.invalidateQueries({ queryKey: voiceCloneStatusQueryKey });
+    },
+  });
+}
+
+export function usePreloadVoiceCloneModelMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => preloadVoiceCloneModel(),
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: voiceCloneStatusQueryKey });
     },
   });

@@ -24,6 +24,20 @@ export interface StatusFeatures {
   video_editor: FeatureStatus;
 }
 
+export interface VoiceCloneRuntime {
+  available: boolean;
+  device: string | null;
+  torch_version: string | null;
+  torch_cuda_version: string | null;
+  cuda_available: boolean;
+  device_name: string | null;
+  vram_total_bytes: number | null;
+  vram_free_bytes: number | null;
+  qwen_tts_importable: boolean;
+  reasons: string[];
+  warnings: string[];
+}
+
 export interface VodPipelineAggregate {
   profiles: number;
   vods: number;
@@ -49,6 +63,7 @@ export interface BackendStatus {
   recordings: StatusRecordings;
   storage: StatusStorage;
   features: StatusFeatures;
+  voice_clone_runtime?: VoiceCloneRuntime;
   voice_profiles?: {
     count: number;
     clone_ready_count: number;

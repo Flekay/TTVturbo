@@ -5,6 +5,7 @@ Bridges :mod:`media_processing` (no FastAPI) with the running HTTP app.
 Endpoints:
 
   GET    /api/transcription/status
+  POST   /api/transcription/preload-model
   POST   /api/transcriptions
   GET    /api/transcriptions
   GET    /api/transcriptions/{id}
@@ -159,6 +160,23 @@ def build_media_processing_router(
     def transcription_status() -> JSONResponse:
         status = transcription_service.runtime_status()
         return JSONResponse(content=status)
+
+    # ----------------------------------------------------------------- transcription model preload
+    @router.post("/transcription/preload-model")
+    async def transcription_preload_model(request: Request) -> JSONResponse:
+        """Pre-download the configured faster-whisper model into the HF cache.
+
+        Runs the (potentially long) download in a worker thread so the
+        event loop stays responsive. Returns once the download finishes.
+        """
+        import asyncio
+        from functools import partial
+
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, partial(transcription_service.preload_model))
+        if not result.get("ok"):
+            raise HTTPException(status_code=502, detail=result.get("error", "model preload failed"))
+        return JSONResponse(content=result)
 
     # ----------------------------------------------------------------- transcriptions
     @router.post("/transcriptions")

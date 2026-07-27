@@ -18,10 +18,13 @@ export const backendStatusSchema = z.object({
     voice_cloning: z.enum(["available", "unavailable", "not_implemented"]),
     voice_profiles: z.enum(["available", "unavailable", "not_implemented"]).optional(),
     twitch_profiles: z.enum(["available", "unavailable", "not_implemented"]).optional(),
+    vod_downloader: z.enum(["available", "unavailable", "not_implemented"]).optional(),
     vod_pipeline: z.enum(["available", "unavailable", "not_implemented"]).optional(),
+    audio_extraction: z.enum(["available", "unavailable", "not_implemented"]).optional(),
+    transcription: z.enum(["available", "unavailable", "not_implemented"]).optional(),
+    clip_finder: z.enum(["available", "unavailable", "not_implemented"]).optional(),
     vod_analysis: z.enum(["available", "unavailable", "not_implemented"]),
     video_editor: z.enum(["available", "unavailable", "not_implemented"]),
-    transcription: z.enum(["available", "unavailable", "not_implemented"]).optional(),
   }),
   voice_profiles: z
     .object({
@@ -38,6 +41,45 @@ export const backendStatusSchema = z.object({
       active: z.number(),
       failed: z.number(),
       downloaded_bytes: z.number(),
+    })
+    .optional(),
+  voice_clone_runtime: z
+    .object({
+      available: z.boolean(),
+      device: z.string().nullable(),
+      torch_version: z.string().nullable(),
+      torch_cuda_version: z.string().nullable(),
+      cuda_available: z.boolean(),
+      device_name: z.string().nullable(),
+      vram_total_bytes: z.number().nullable(),
+      vram_free_bytes: z.number().nullable(),
+      qwen_tts_importable: z.boolean(),
+      reasons: z.array(z.string()),
+      warnings: z.array(z.string()),
+    })
+    .optional(),
+  media_processing: z
+    .object({
+      audio_artifacts: z.number(),
+      transcripts: z.number(),
+      audio_jobs: z.object({
+        total: z.number(),
+        ready: z.number(),
+        failed: z.number(),
+        active: z.number(),
+      }),
+      transcription_jobs: z.object({
+        total: z.number(),
+        ready: z.number(),
+        failed: z.number(),
+        active: z.number(),
+      }),
+      pipeline_runs: z.object({
+        total: z.number(),
+        active: z.number(),
+        ready_for_clip_analysis: z.number(),
+        failed: z.number(),
+      }),
     })
     .optional(),
 });
@@ -95,6 +137,8 @@ export const voiceCloneStatusSchema = z.object({
   device_name: z.string().nullable().optional(),
   torch_version: z.string().nullable().optional(),
   cuda_available: z.boolean().optional(),
+  qwen_tts_importable: z.boolean().optional(),
+  model_cached: z.boolean().optional(),
   reasons: z.array(z.string()).optional(),
   warnings: z.array(z.string()).optional(),
 });

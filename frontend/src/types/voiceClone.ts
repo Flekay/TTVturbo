@@ -19,6 +19,8 @@ export interface VoiceCloneStatusResponse {
   device_name?: string | null;
   torch_version?: string | null;
   cuda_available?: boolean;
+  qwen_tts_importable?: boolean;
+  model_cached?: boolean;
   reasons?: string[];
   warnings?: string[];
 }

@@ -258,6 +258,49 @@ class TranscriptionService:
         self._runtime_ts = now
         return payload
 
+    # ------------------------------------------------------------------ model preload
+    def preload_model(self) -> dict:
+        """Pre-download the configured faster-whisper model from HuggingFace
+        Hub into the local cache so the first transcription job does not
+        block on a multi-GB download.
+
+        Returns a dict with ``ok``, ``model``, ``repo_id`` and optional
+        ``error`` keys. This method is synchronous and may take a while;
+        the API endpoint runs it in a thread so the FastAPI event loop
+        stays responsive.
+        """
+        repo_id = (
+            f"Systran/faster-whisper-{self.model}"
+            if not self.model.startswith("/")
+            else self.model
+        )
+        try:
+            from huggingface_hub import snapshot_download  # type: ignore[import-not-found]
+        except Exception as exc:
+            return {
+                "ok": False,
+                "model": self.model,
+                "repo_id": repo_id,
+                "error": f"huggingface_hub not importable: {type(exc).__name__}: {exc}",
+            }
+        try:
+            snapshot_download(repo_id=repo_id, local_files_only=False)
+        except Exception as exc:
+            return {
+                "ok": False,
+                "model": self.model,
+                "repo_id": repo_id,
+                "error": f"download failed: {type(exc).__name__}: {exc}",
+            }
+        # Invalidate the runtime cache so the next status probe reflects the
+        # newly cached model.
+        self._runtime_cache = None
+        return {
+            "ok": True,
+            "model": self.model,
+            "repo_id": repo_id,
+        }
+
     # ------------------------------------------------------------------ transcripts
     def list_transcriptions(self, vod_id: Optional[str] = None) -> list[dict]:
         """List persisted transcription records (metadata.json under each

@@ -7,6 +7,7 @@ import {
   qualityMetricsSchema,
   voiceCloneStatusSchema,
 } from "../types/schemas";
+import { z } from "zod";
 import type {
   CreateGenerationRequest,
   CreateGenerationResponse,
@@ -21,6 +22,19 @@ export function fetchVoiceCloneStatus(signal?: AbortSignal): Promise<VoiceCloneS
   return apiClient.get("/api/voice-clone/status", {
     schema: voiceCloneStatusSchema,
     signal,
+  });
+}
+
+export function preloadVoiceCloneModel(): Promise<{
+  ok: boolean;
+  model_id: string;
+}> {
+  return apiClient.post("/api/voice-clone/preload-model", {
+    schema: z.object({
+      ok: z.boolean(),
+      model_id: z.string(),
+    }),
+    timeoutMs: 600_000,
   });
 }
 
