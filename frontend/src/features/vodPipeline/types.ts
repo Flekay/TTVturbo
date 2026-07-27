@@ -27,7 +27,7 @@ export interface CreateProfileRequest {
 }
 
 export interface ImportVodRequest {
-  profile_id: string;
+  profile_id?: string | null;
   url: string;
 }
 

@@ -332,7 +332,7 @@ def build_router(service: VodPipelineService) -> APIRouter:
     @router.post("/vods/import")
     def import_vod(request: ImportVodRequest) -> JSONResponse:
         try:
-            vod = svc.import_vod(request.profile_id, request.url)
+            vod = svc.import_vod(request.url, profile_id=request.profile_id)
         except Exception as exc:
             return _map_any(exc)
         return JSONResponse(status_code=201, content=vod)
@@ -511,6 +511,7 @@ def build_service(
     max_concurrent: Optional[int] = None,
     timeout_seconds: Optional[float] = None,
     sync_limit: Optional[int] = None,
+    library_service=None,
 ) -> VodPipelineService:
     """Build a :class:`VodPipelineService` instance.
 
@@ -556,5 +557,6 @@ def build_service(
         max_concurrent=int(mc),
         timeout_seconds=float(to),
         sync_limit=int(sl),
+        library_service=library_service,
     )
     return service

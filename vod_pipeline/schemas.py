@@ -185,8 +185,9 @@ class TwitchVod(BaseModel):
 
     schema_version: int = SCHEMA_VERSION
     id: str
-    profile_id: str
+    profile_id: Optional[str] = None  # nullable: VODs can be imported without a profile
     twitch_video_id: str  # yt-dlp entry id; stable for dedup
+    library_item_id: Optional[str] = None  # back-reference to library item when downloaded
     source_url: str
     title: str = ""
     description: str = ""

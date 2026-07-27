@@ -67,8 +67,9 @@ export const twitchProfileListResponseSchema = z.object({
 export const twitchVodSchema = z.object({
   schema_version: z.number().optional(),
   id: z.string(),
-  profile_id: z.string(),
+  profile_id: z.string().nullable().optional(),
   twitch_video_id: z.string(),
+  library_item_id: z.string().nullable().optional(),
   source_url: z.string(),
   title: z.string(),
   description: z.string(),

@@ -121,12 +121,14 @@ def test_api_refresh_profile(api_client, profile_with_vods):
     assert resp.json()["login"] == "casepayt"
 
 
-def test_api_delete_profile_with_vods_409(api_client, profile_with_vods):
+def test_api_delete_profile_with_vods_deletes(api_client, profile_with_vods):
+    """Deleting a profile deletes VOD metadata. Library items (if any) survive."""
     resp = api_client.delete(f"/api/twitch/profiles/{profile_with_vods['id']}")
-    assert resp.status_code == 409
-    detail = resp.json()["detail"]
-    assert detail["code"] == "twitch_profile_conflict"
-    assert detail["vod_count"] == 2
+    assert resp.status_code == 200
+    assert resp.json()["deleted"] is True
+    # VOD metadata is gone with the profile.
+    vods = api_client.get("/api/vods").json()["vods"]
+    assert len(vods) == 0
 
 
 def test_api_delete_profile_ok(api_client):
