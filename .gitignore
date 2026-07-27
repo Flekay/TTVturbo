@@ -217,18 +217,10 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# TTVturbo generated recordings
-recordings/*.wav
-
-# Voice-clone generated artifacts (metadata.json + output.wav per generation)
-voice_clones/*/
-
-# Voice-profile persisted data (JSON profile files, configurable via TTVTURBO_VOICE_PROFILES_DIR)
-voice_profiles_data/
-
-# VOD-pipeline persisted data (Twitch profiles, VOD metadata, downloaded videos)
-# configurable via TTVTURBO_DATA_DIR / TTVTURBO_VOD_DOWNLOAD_DIR
-ttvturbo_data/
+# TTVturbo runtime data root. All persistent artifacts live under data/
+# (recordings, voice clones, voice profiles, Twitch profiles, VODs, media
+# jobs, pipeline runs, uploads). Configurable via TTVTURBO_DATA_DIR.
+data/
 
 # Frontend build artifacts and dependencies
 frontend/node_modules/
