@@ -1,14 +1,10 @@
-import { useEffect } from "react";
 import { ExternalLink } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { ErrorState } from "../../components/ui/ErrorState";
 import { LoadingState } from "../../components/ui/LoadingState";
 import { ApiError } from "../../api/client";
-import {
-  useSyncVodsMutation,
-  useTwitchProfilesQuery,
-} from "./hooks";
+import { useTwitchProfilesQuery } from "./hooks";
 import { useActiveProfileStore } from "./activeProfileStore";
 import type { TwitchProfile } from "./types";
 
@@ -24,31 +20,10 @@ interface ProfileSelectorProps {
 
 export function ProfileSelector({ onOpenProfilesPage }: ProfileSelectorProps) {
   const profilesQuery = useTwitchProfilesQuery();
-  const syncMutation = useSyncVodsMutation();
   const activeProfileId = useActiveProfileStore((s) => s.activeProfileId);
   const setActiveProfile = useActiveProfileStore((s) => s.setActiveProfile);
-  const clearActiveProfile = useActiveProfileStore((s) => s.clearActiveProfile);
 
-  // Validate the persisted active id against the loaded profiles. If the
-  // id no longer matches a real profile (e.g. it was deleted on another
-  // page), clear it in an effect rather than during render.
   const profiles = profilesQuery.data?.profiles ?? [];
-  useEffect(() => {
-    if (activeProfileId && profiles.length > 0 && !profiles.some((p) => p.id === activeProfileId)) {
-      clearActiveProfile();
-    }
-  }, [activeProfileId, profiles, clearActiveProfile]);
-
-  // Auto-sync VODs for the active profile whenever it changes (covers page
-  // open / F5 / profile switch). The previous manual "VODs synchronisieren"
-  // button was removed in favour of this automatic sync.
-  useEffect(() => {
-    if (!activeProfileId) return;
-    void syncMutation.mutateAsync(activeProfileId).catch(() => {
-      // Sync errors surface via the VOD list query state; ignore here.
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeProfileId]);
 
   function handleSelect(p: TwitchProfile) {
     setActiveProfile(p.id);

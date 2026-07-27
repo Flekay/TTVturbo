@@ -220,8 +220,10 @@ describe("VOD Pipeline frontend", () => {
     await waitFor(() => expect(within(main).getAllByText("casepayt").length).toBeGreaterThanOrEqual(1));
     await user.click(within(main).getByRole("button", { name: /casepayt/ }));
     await waitFor(() => expect(within(main).getByText("First VOD")).toBeInTheDocument());
-    const loadButtons = within(main).getAllByRole("button", { name: /auf server laden/i });
-    await user.click(loadButtons[0]);
+    // Scope to the VOD list to avoid matching the import panel's "Auf Server laden" button.
+    const vodList = within(main).getByText("First VOD").closest(".vp-vod-list")!;
+    const loadButton = within(vodList as HTMLElement).getByRole("button", { name: /auf server laden/i });
+    await user.click(loadButton);
     await waitFor(() => {
       const call = mock.calls.find(
         (c) => c.url === `/api/vods/${vodDiscovered.id}/download` && c.method === "POST",
@@ -237,13 +239,15 @@ describe("VOD Pipeline frontend", () => {
     });
     const main = mainOf(container);
     await waitFor(() => expect(within(main).getAllByText("casepayt").length).toBeGreaterThanOrEqual(1));
-    await user.click(within(main).getByRole("button", { name: /casepayt/ }));
     const input = within(main).getByPlaceholderText(/twitch\.tv\/videos\//) as HTMLInputElement;
     await user.type(input, "https://youtube.com/watch?v=1");
     mock.setResponse("POST /api/vods/import", 400, {
       detail: { code: "vod_validation", message: "Only twitch.tv VOD or clip URLs are supported." },
     });
-    await user.click(within(main).getByRole("button", { name: /Importieren/ }));
+    // Scope to the import panel to avoid matching the "Auf Server laden"
+    // buttons in the VOD list below.
+    const importPanel = within(main).getByText("VOD-Link importieren").closest(".vp-import-panel")!;
+    await user.click(within(importPanel as HTMLElement).getByRole("button", { name: /Auf Server laden/ }));
     await waitFor(() => {
       expect(within(main).getByText(/Only twitch\.tv VOD or clip/)).toBeInTheDocument();
     });

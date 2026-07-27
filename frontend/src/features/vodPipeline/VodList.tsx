@@ -20,6 +20,9 @@ import type { TwitchVod } from "./types";
 
 interface VodListProps {
   profileId: string | null;
+  syncing?: boolean;
+  syncError?: string | null;
+  hasSynced?: boolean;
 }
 
 type VodTypeFilter = "all" | "vod" | "clip";
@@ -30,7 +33,7 @@ const VOD_TYPE_TABS: { id: VodTypeFilter; label: string }[] = [
   { id: "clip", label: "Clips" },
 ];
 
-export function VodList({ profileId }: VodListProps) {
+export function VodList({ profileId, syncing, syncError, hasSynced }: VodListProps) {
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<"newest" | "oldest" | "longest" | "shortest">("newest");
   const [typeFilter, setTypeFilter] = useState<VodTypeFilter>("all");
@@ -84,11 +87,26 @@ export function VodList({ profileId }: VodListProps) {
       />
     );
   }
+  // While a sync is running (or hasn't completed yet for this profile),
+  // show a loading state instead of "Keine VODs" — otherwise the user
+  // sees an empty list for the brief moment between profile selection and
+  // sync completion, and thinks nothing is happening.
+  if ((syncing || !hasSynced) && effectiveVods.length === 0) {
+    return <LoadingState message="Synchronisiere VODs …" />;
+  }
+  if (syncError && effectiveVods.length === 0) {
+    return (
+      <ErrorState
+        title="Sync fehlgeschlagen"
+        message={syncError}
+      />
+    );
+  }
   if (effectiveVods.length === 0) {
     return (
       <EmptyState
         title="Keine VODs"
-        description="Synchronisiere VODs für dieses Profil oder importiere einen VOD-Link manuell."
+        description="Für dieses Profil wurden keine VODs oder Clips gefunden."
       />
     );
   }
@@ -116,6 +134,11 @@ export function VodList({ profileId }: VodListProps) {
             </button>
           );
         })}
+        {syncing && (
+          <span className="vp-vod-list__sync-indicator" title="VODs werden synchronisiert">
+            <Loader2 size={14} className="spin" /> Sync
+          </span>
+        )}
       </div>
       <div className="vp-vod-list__toolbar">
         <div className="vp-vod-list__search">

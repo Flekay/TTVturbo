@@ -29,6 +29,16 @@ export function ConfirmDialog({
 }: ConfirmDialogProps) {
   const cancelRef = useRef<HTMLButtonElement | null>(null);
 
+  // Close the dialog (parent-controlled) and run the optional cancel hook.
+  // Both the cancel button, escape and overlay click route through here so
+  // the dialog always actually closes — previously only onCancel ran and
+  // the parent's `open` state was never reset, leaving the dialog stuck.
+  const dismiss = () => {
+    if (busy) return;
+    onCancel?.();
+    onOpenChange(false);
+  };
+
   // When the dialog opens, move focus to the safe (cancel) action so that an
   // accidental Enter keypress cannot trigger the destructive action.
   useEffect(() => {
@@ -43,13 +53,21 @@ export function ConfirmDialog({
     <AlertDialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <AlertDialogPrimitive.Portal>
         <div className="dialog-root">
-          <AlertDialogPrimitive.Overlay className="dialog-overlay" />
+          <AlertDialogPrimitive.Overlay
+            className="dialog-overlay"
+            // AlertDialog does not dismiss on overlay click by default (it is
+            // a "you must choose" dialog). The user explicitly wants overlay
+            // click to cancel, so handle it here.
+            onPointerDown={(e) => {
+              if (e.target === e.currentTarget) dismiss();
+            }}
+          />
           <AlertDialogPrimitive.Content
             className="dialog"
             onEscapeKeyDown={(e) => {
               // Escape cancels (safe default); never confirm on escape.
               e.preventDefault();
-              if (!busy) onCancel?.();
+              dismiss();
             }}
             onOpenAutoFocus={(e) => {
               // Radix would focus the first focusable element; we explicitly
@@ -68,9 +86,7 @@ export function ConfirmDialog({
               <Button
                 ref={cancelRef}
                 variant="secondary"
-                onClick={() => {
-                  if (!busy) onCancel?.();
-                }}
+                onClick={dismiss}
                 disabled={busy}
               >
                 {cancelLabel}
