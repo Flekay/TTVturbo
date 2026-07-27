@@ -80,6 +80,7 @@ export function SettingsPage() {
 
   return (
     <div className="page">
+      <div className="settings-page">
       <form className="form" onSubmit={handleSubmit(onSubmit)}>
         <Card>
           <h3 style={{ fontSize: 16, marginBottom: 12 }}>Allgemein</h3>
@@ -195,6 +196,7 @@ export function SettingsPage() {
           </span>
         </div>
       </Card>
+      </div>
     </div>
   );
 }

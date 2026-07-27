@@ -423,6 +423,18 @@ class VodPipelineService:
                     f"A profile for {existing.get('login')} already exists."
                 )
         profile = _profile_from_login(login, channel_url)
+        # Best-effort: fetch channel info (display name, avatar) via yt-dlp
+        # so the profile is populated immediately on creation.
+        if login:
+            try:
+                info = self.lister.get_channel_info(login)
+                if info.get("display_name"):
+                    profile["display_name"] = info["display_name"]
+                if info.get("avatar_url"):
+                    profile["avatar_url"] = info["avatar_url"]
+            except Exception:
+                # Channel info is best-effort; don't fail the create.
+                pass
         self.storage.save_profile(profile)
         return profile
 

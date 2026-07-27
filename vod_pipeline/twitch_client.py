@@ -14,6 +14,7 @@ import json
 import logging
 import shutil
 import subprocess
+import urllib.request
 from typing import Any, Optional
 
 from .schemas import TwitchClientError, TwitchNotFoundError
@@ -22,6 +23,12 @@ logger = logging.getLogger("ttvturbo.vod_pipeline.channel_lister")
 
 YTDLP_BIN = "yt-dlp"
 DEFAULT_TIMEOUT_SECONDS = 120.0
+
+# Twitch's public web client-id (used by the twitch.tv website itself).
+# This lets us query the GQL endpoint for channel metadata (display name,
+# avatar) without needing our own OAuth credentials.
+TWITCH_WEB_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko"
+TWITCH_GQL_URL = "https://gql.twitch.tv/gql"
 
 
 def _ytdlp_available() -> bool:
@@ -158,7 +165,11 @@ class ChannelLister:
         return _normalize_single_info(info)
 
     def get_channel_info(self, login: str) -> dict:
-        """Fetch channel metadata (display name, avatar URL) via yt-dlp.
+        """Fetch channel metadata (display name, avatar URL).
+
+        Uses the Twitch GQL endpoint (public web client-id) which works
+        for both live and offline channels. Falls back to yt-dlp if the
+        GQL call fails.
 
         Returns a dict with keys: ``login``, ``display_name``,
         ``avatar_url``, ``channel_url``. Best-effort — missing fields
@@ -166,12 +177,55 @@ class ChannelLister:
         channel does not exist.
         """
         url = f"https://www.twitch.tv/{login}"
+        # Try the Twitch GQL endpoint first — it works for offline channels
+        # (unlike yt-dlp's twitch:stream extractor which only works when live).
+        try:
+            gql_resp = self._gql_channel_info(login)
+            if gql_resp:
+                return gql_resp
+        except Exception as exc:
+            logger.debug("GQL channel info failed for %s: %s", login, exc)
+        # Fallback: yt-dlp (only works when the channel is live).
         info = self._run_ytdlp_single(url)
         return {
             "login": str(info.get("uploader_id") or info.get("channel_id") or login or ""),
             "display_name": str(info.get("uploader") or info.get("channel") or login or ""),
             "avatar_url": str(info.get("thumbnails", [{}])[0].get("url", "") if info.get("thumbnails") else (info.get("thumbnail") or "")),
             "channel_url": str(info.get("webpage_url") or url or ""),
+        }
+
+    def _gql_channel_info(self, login: str) -> Optional[dict]:
+        """Query Twitch GQL for channel display name + avatar.
+
+        Returns a dict with the same keys as :meth:`get_channel_info`,
+        or ``None`` if the channel was not found.
+        """
+        query = {
+            "query": (
+                '{user(login:"%s"){displayName profileImageURL(width:300) login}}'
+                % login.replace('"', "")
+            )
+        }
+        req = urllib.request.Request(
+            TWITCH_GQL_URL,
+            data=json.dumps(query).encode("utf-8"),
+            headers={
+                "User-Agent": "Mozilla/5.0",
+                "Content-Type": "application/json",
+                "Client-Id": TWITCH_WEB_CLIENT_ID,
+            },
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+        user = (payload.get("data") or {}).get("user")
+        if not user:
+            return None
+        avatar = str(user.get("profileImageURL") or "")
+        return {
+            "login": str(user.get("login") or login or ""),
+            "display_name": str(user.get("displayName") or login or ""),
+            "avatar_url": avatar,
+            "channel_url": f"https://www.twitch.tv/{login}",
         }
 
 
