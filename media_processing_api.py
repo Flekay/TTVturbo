@@ -39,7 +39,7 @@ import logging
 import re
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
@@ -60,6 +60,7 @@ from media_processing import (
     PipelineService,
     TranscriptionError,
     TranscriptionService,
+    UploadStorage,
 )
 from media_processing.schemas import (
     MediaJobStatus,
@@ -151,6 +152,7 @@ def build_media_processing_router(
     audio_service: AudioExtractionService,
     transcription_service: TranscriptionService,
     pipeline_service: PipelineService,
+    upload_storage: Optional[UploadStorage] = None,
 ) -> APIRouter:
     """Build the media-processing API router bound to service instances."""
     router = APIRouter(prefix="/api", tags=["media-processing"])
@@ -192,6 +194,117 @@ def build_media_processing_router(
         except Exception as exc:
             return _map_media_error(exc)
         return JSONResponse(status_code=201, content=job)
+
+    @router.post("/transcriptions/upload")
+    async def upload_and_transcribe(
+        file: UploadFile = File(...),
+        language: Optional[str] = None,
+        model: Optional[str] = None,
+    ) -> JSONResponse:
+        """Upload a media file and start a transcription for it.
+
+        Independent of the VOD downloader — the file is stored in the
+        uploads directory and transcribed directly.
+        """
+        if upload_storage is None:
+            return _error_response(503, "uploads_disabled", "File uploads are not configured.")
+        if not file.filename:
+            return _error_response(400, "upload_validation", "File name is required.")
+        # Save the uploaded file.
+        meta = upload_storage.create_upload(file_name=file.filename, title=file.filename)
+        upload_id = meta["id"]
+        upload_dir = upload_storage.upload_dir(upload_id)
+        dest = upload_dir / file.filename
+        try:
+            content = await file.read()
+            with open(dest, "wb") as fh:
+                fh.write(content)
+        except Exception as exc:
+            upload_storage.delete_upload(upload_id)
+            return _error_response(500, "upload_save_failed", str(exc))
+        finally:
+            await file.close()
+        # Start transcription for the uploaded file.
+        try:
+            job = transcription_service.start_transcription(
+                source_type="file_upload",
+                source_id=upload_id,
+                language=language,
+                model=model,
+            )
+        except Exception as exc:
+            upload_storage.delete_upload(upload_id)
+            return _map_media_error(exc)
+        return JSONResponse(status_code=201, content=job)
+
+    # ------------------------------------------------------------------
+    # Library: list / upload / download / delete uploaded media files.
+    # ------------------------------------------------------------------
+
+    @router.get("/library/uploads")
+    def list_uploads() -> JSONResponse:
+        """List all uploaded media files in the library."""
+        if upload_storage is None:
+            return _error_response(503, "uploads_disabled", "File uploads are not configured.")
+        try:
+            uploads = upload_storage.list_uploads()
+        except Exception as exc:
+            return _error_response(500, "upload_list_failed", str(exc))
+        return JSONResponse(content={"uploads": uploads})
+
+    @router.post("/library/uploads")
+    async def upload_to_library(file: UploadFile = File(...)) -> JSONResponse:
+        """Upload a media file to the library (no transcription, just storage)."""
+        if upload_storage is None:
+            return _error_response(503, "uploads_disabled", "File uploads are not configured.")
+        if not file.filename:
+            return _error_response(400, "upload_validation", "File name is required.")
+        try:
+            meta = upload_storage.create_upload(file_name=file.filename, title=file.filename)
+            upload_id = meta["id"]
+            upload_dir = upload_storage.upload_dir(upload_id)
+            dest = upload_dir / file.filename
+            content = await file.read()
+            with open(dest, "wb") as fh:
+                fh.write(content)
+            # Enrich metadata with file size.
+            meta["file_size_bytes"] = dest.stat().st_size
+        except Exception as exc:
+            try:
+                upload_storage.delete_upload(upload_id)
+            except Exception:
+                pass
+            return _error_response(500, "upload_save_failed", str(exc))
+        finally:
+            await file.close()
+        return JSONResponse(status_code=201, content=meta)
+
+    @router.get("/library/uploads/{upload_id}/file")
+    def download_upload(upload_id: str):
+        """Download an uploaded file from the library."""
+        if upload_storage is None:
+            return _error_response(503, "uploads_disabled", "File uploads are not configured.")
+        try:
+            meta = upload_storage.load_upload(upload_id)
+        except Exception as exc:
+            return _map_media_error(exc)
+        path = upload_storage.source_file_path(upload_id)
+        if not path.is_file():
+            return _error_response(404, "file_not_found", f"File not found: {meta.get('file_name', upload_id)}")
+        return FileResponse(path, filename=meta.get("file_name", path.name))
+
+    @router.delete("/library/uploads/{upload_id}")
+    def delete_upload(upload_id: str) -> JSONResponse:
+        """Delete an uploaded file from the library."""
+        if upload_storage is None:
+            return _error_response(503, "uploads_disabled", "File uploads are not configured.")
+        try:
+            deleted = upload_storage.delete_upload(upload_id)
+        except Exception as exc:
+            return _map_media_error(exc)
+        if not deleted:
+            return _error_response(404, "upload_not_found", "Upload not found.")
+        return JSONResponse(content={"deleted": True, "id": upload_id})
 
     @router.get("/transcriptions")
     def list_transcriptions(

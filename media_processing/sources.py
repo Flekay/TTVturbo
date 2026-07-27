@@ -38,10 +38,11 @@ from .schemas import (
     MediaSourceNotFoundError,
     MediaSourceNotReadyError,
 )
+from .uploads import UploadNotFoundError, UploadStorage
 
 logger = logging.getLogger("ttvturbo.media_processing.sources")
 
-SUPPORTED_SOURCE_TYPES = frozenset({"twitch_vod"})
+SUPPORTED_SOURCE_TYPES = frozenset({"twitch_vod", "file_upload"})
 
 
 @dataclass
@@ -69,8 +70,13 @@ class ResolvedMediaSource:
 class MediaSourceResolver:
     """Resolves a ``(source_type, source_id)`` to a verified media file."""
 
-    def __init__(self, vod_storage: VodPipelineStorage) -> None:
+    def __init__(
+        self,
+        vod_storage: VodPipelineStorage,
+        upload_storage: Optional[UploadStorage] = None,
+    ) -> None:
         self.vod_storage = vod_storage
+        self.upload_storage = upload_storage
 
     def resolve(self, source_type: str, source_id: str) -> ResolvedMediaSource:
         if source_type not in SUPPORTED_SOURCE_TYPES:
@@ -80,6 +86,8 @@ class MediaSourceResolver:
             )
         if source_type == "twitch_vod":
             return self._resolve_twitch_vod(source_id)
+        if source_type == "file_upload":
+            return self._resolve_file_upload(source_id)
         raise MediaSourceError(f"unsupported source_type {source_type!r}")
 
     def _resolve_twitch_vod(self, vod_id: str) -> ResolvedMediaSource:
@@ -146,6 +154,48 @@ class MediaSourceResolver:
             vod=vod,
         )
 
+    def _resolve_file_upload(self, upload_id: str) -> ResolvedMediaSource:
+        if self.upload_storage is None:
+            raise MediaSourceError("file_upload sources are not configured")
+        if not isinstance(upload_id, str) or not upload_id.strip():
+            raise MediaSourceError("upload_id must be a non-empty string")
+        try:
+            meta = self.upload_storage.load_upload(upload_id)
+        except UploadNotFoundError as exc:
+            raise MediaSourceNotFoundError(str(exc)) from exc
+        except Exception as exc:
+            raise MediaSourceNotFoundError(f"upload not found: {upload_id}") from exc
+
+        file_name = meta.get("file_name")
+        if not file_name:
+            raise MediaSourceNotReadyError(
+                f"upload {upload_id} has no registered file_name."
+            )
+        upload_dir = self.upload_storage.upload_dir(upload_id)
+        file_path = upload_dir / file_name
+        if not file_path.is_file():
+            raise MediaSourceNotReadyError(
+                f"upload {upload_id} source file {file_name} is missing on disk."
+            )
+        if file_path.stat().st_size <= 0:
+            raise MediaSourceNotReadyError(
+                f"upload {upload_id} source file {file_name} is empty."
+            )
+
+        return ResolvedMediaSource(
+            source_type="file_upload",
+            source_id=upload_id,
+            file_path=file_path,
+            file_name=file_name,
+            title=meta.get("title") or file_name,
+            duration_seconds=meta.get("duration_seconds"),
+            profile_id=None,
+            profile_login=None,
+            download_status="READY",
+            vod_dir=upload_dir,
+            vod=meta,
+        )
+
     def get_vod_dir(self, vod_id: str) -> Path:
         """Return the VOD directory for ``vod_id`` after UUID validation.
 
@@ -160,3 +210,23 @@ class MediaSourceResolver:
         except Exception as exc:
             raise MediaSourceNotFoundError(f"vod not found: {vod_id}") from exc
         return self.vod_storage._vod_dir(vod_id)  # noqa: SLF001
+
+    def get_source_dir(self, source_type: str, source_id: str) -> Path:
+        """Return the source directory for any supported source type.
+
+        This is the generalization of :meth:`get_vod_dir` that also handles
+        ``source_type = "file_upload"``. Used by services that need to
+        locate the artifacts tree without re-resolving the source.
+        """
+        if source_type == "twitch_vod":
+            return self.get_vod_dir(source_id)
+        if source_type == "file_upload":
+            if self.upload_storage is None:
+                raise MediaSourceError("file_upload sources are not configured")
+            try:
+                # Validate existence by loading metadata.
+                self.upload_storage.load_upload(source_id)
+            except UploadNotFoundError as exc:
+                raise MediaSourceNotFoundError(str(exc)) from exc
+            return self.upload_storage.upload_dir(source_id)
+        raise MediaSourceError(f"unsupported source_type {source_type!r}")

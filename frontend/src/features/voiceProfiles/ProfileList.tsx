@@ -68,6 +68,7 @@ export function ProfileList({
   return (
     <div className="vp-profile-list" aria-label="Voice-Profile">
       <div className="vp-profile-list__header">
+        <h3 className="vp-profile-list__title">Voice-Profile</h3>
         <Button
           variant="primary"
           size="sm"

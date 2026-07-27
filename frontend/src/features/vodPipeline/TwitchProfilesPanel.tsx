@@ -1,34 +1,36 @@
 import { useState } from "react";
-import { ExternalLink, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { ExternalLink, Plus, Trash2 } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { ErrorState } from "../../components/ui/ErrorState";
 import { LoadingState } from "../../components/ui/LoadingState";
+import { Tooltip } from "../../components/ui/Tooltip";
 import { ApiError } from "../../api/client";
 import { formatDateTime } from "../../utils/format";
 import {
   useCreateTwitchProfileMutation,
   useDeleteTwitchProfileMutation,
-  useRefreshTwitchProfileMutation,
-  useSyncVodsMutation,
   useTwitchProfilesQuery,
 } from "./hooks";
 import type { TwitchProfile } from "./types";
 
+function profileAvatarUrl(p: TwitchProfile): string | null {
+  const url = p.avatar_url;
+  if (url && url.trim()) return url.trim();
+  return null;
+}
+
 /**
  * Full Twitch Profiles management panel (separate page).
  *
- * Shows every profile with full metadata, VOD counts and per-profile
- * actions (sync, refresh, delete). Mirrors the structure of the Voice
- * Profiles management page.
+ * Shows every profile with full metadata and a delete action.
+ * Sync and refresh happen automatically — no manual buttons needed.
  */
 export function TwitchProfilesPanel() {
   const profilesQuery = useTwitchProfilesQuery();
   const createMutation = useCreateTwitchProfileMutation();
-  const refreshMutation = useRefreshTwitchProfileMutation();
   const deleteMutation = useDeleteTwitchProfileMutation();
-  const syncMutation = useSyncVodsMutation();
 
   const [showCreate, setShowCreate] = useState(false);
   const [createValue, setCreateValue] = useState("");
@@ -93,11 +95,7 @@ export function TwitchProfilesPanel() {
             <ProfileRow
               key={p.id}
               profile={p}
-              onSync={() => void syncMutation.mutateAsync(p.id)}
-              onRefresh={() => void refreshMutation.mutateAsync(p.id)}
               onDelete={() => setConfirmDeleteId(p.id)}
-              syncPending={syncMutation.isPending && syncMutation.variables === p.id}
-              refreshPending={refreshMutation.isPending && refreshMutation.variables === p.id}
               deletePending={deleteMutation.isPending && deleteMutation.variables === p.id}
             />
           ))}
@@ -154,10 +152,7 @@ export function TwitchProfilesPanel() {
         title="Profil löschen?"
         description={
           pendingDelete
-            ? `Das Profil "${pendingDelete.display_name}" wird entfernt. ` +
-              (typeof pendingDelete.vod_count === "number" && pendingDelete.vod_count > 0
-                ? `Es hat ${pendingDelete.vod_count} VOD(s) angehängt – lösche diese zuerst.`
-                : "Diese Aktion kann nicht rückgängig gemacht werden.")
+            ? `Das Profil "${pendingDelete.display_name}" wird entfernt. Diese Aktion kann nicht rückgängig gemacht werden.`
             : ""
         }
         confirmLabel="Löschen"
@@ -180,48 +175,44 @@ export function TwitchProfilesPanel() {
 
 interface ProfileRowProps {
   profile: TwitchProfile;
-  onSync: () => void;
-  onRefresh: () => void;
   onDelete: () => void;
-  syncPending: boolean;
-  refreshPending: boolean;
   deletePending: boolean;
 }
 
 function ProfileRow({
   profile,
-  onSync,
-  onRefresh,
   onDelete,
-  syncPending,
-  refreshPending,
   deletePending,
 }: ProfileRowProps) {
+  const avatar = profileAvatarUrl(profile);
   return (
     <li className="vp-profiles-page__row">
       <div className="vp-profiles-page__avatar">
-        <span aria-hidden="true">
-          {profile.display_name.slice(0, 1).toUpperCase()}
-        </span>
+        {avatar ? (
+          <img src={avatar} alt="" width={48} height={48} />
+        ) : (
+          <span aria-hidden="true">
+            {profile.display_name.slice(0, 1).toUpperCase()}
+          </span>
+        )}
       </div>
       <div className="vp-profiles-page__body">
         <div className="vp-profiles-page__name">
           {profile.display_name}
-          <a
-            href={`https://www.twitch.tv/${profile.login}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="vp-profiles-page__ext"
-            aria-label="Twitch-Channel öffnen"
-          >
-            <ExternalLink size={12} />
-          </a>
+          <Tooltip content="Twitch-Channel öffnen" side="top">
+            <a
+              href={`https://www.twitch.tv/${profile.login}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="vp-profiles-page__ext"
+              aria-label="Twitch-Channel öffnen"
+            >
+              <ExternalLink size={12} />
+            </a>
+          </Tooltip>
         </div>
         <div className="vp-profiles-page__meta">
           <span>@{profile.login}</span>
-          {typeof profile.vod_count === "number" && (
-            <span>{profile.vod_count} VODs</span>
-          )}
         </div>
         <div className="vp-profiles-page__dates">
           <span>Erstellt: {formatDateTime(profile.created_at)}</span>
@@ -231,35 +222,18 @@ function ProfileRow({
         </div>
       </div>
       <div className="vp-profiles-page__actions">
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={onSync}
-          loading={syncPending}
-          disabled={syncPending}
-        >
-          <RefreshCw size={14} /> Sync
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onRefresh}
-          loading={refreshPending}
-          disabled={refreshPending}
-          aria-label="Profil aktualisieren"
-        >
-          <RefreshCw size={14} />
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onDelete}
-          loading={deletePending}
-          disabled={deletePending}
-          aria-label="Profil löschen"
-        >
-          <Trash2 size={14} />
-        </Button>
+        <Tooltip content="Profil löschen" side="top">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onDelete}
+            loading={deletePending}
+            disabled={deletePending}
+            aria-label="Profil löschen"
+          >
+            <Trash2 size={14} />
+          </Button>
+        </Tooltip>
       </div>
     </li>
   );

@@ -3,6 +3,7 @@ import {
   fetchTranscriptionRuntimeStatus,
   preloadTranscriptionModel,
   startTranscription,
+  uploadAndTranscribe,
   fetchTranscriptions,
   fetchTranscription,
   cancelTranscription,
@@ -110,6 +111,18 @@ export function useStartTranscriptionMutation() {
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: transcriptionsQueryKey() });
       queryClient.invalidateQueries({ queryKey: transcriptionsQueryKey(variables.source_id) });
+      queryClient.invalidateQueries({ queryKey: ["status"] });
+    },
+  });
+}
+
+export function useUploadTranscriptionMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ file, language, model }: { file: File; language?: string; model?: string }) =>
+      uploadAndTranscribe(file, language, model),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: transcriptionsQueryKey() });
       queryClient.invalidateQueries({ queryKey: ["status"] });
     },
   });

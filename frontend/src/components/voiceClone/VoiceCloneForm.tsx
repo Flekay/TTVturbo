@@ -288,6 +288,7 @@ export function VoiceCloneForm({ onGenerationCreated, activePhaseLabel }: VoiceC
               onChange={handleFileSelected}
               disabled={busy || isUploading}
               aria-label="Referenzaufnahme hochladen"
+              className="voice-clone-form__file-input"
             />
             {referenceFilename && !isUploading && (
               <p className="page__description" style={{ marginTop: 4 }}>

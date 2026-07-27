@@ -19,11 +19,13 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import subprocess
 import time
+from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from vod_pipeline import (
@@ -378,6 +380,100 @@ def build_router(service: VodPipelineService) -> APIRouter:
                 409, "vod_not_ready", "File is only available for READY VODs."
             )
         return FileResponse(path, filename=path.name)
+
+    @router.get("/vods/{vod_id}/stream-download")
+    def stream_download(vod_id: str):
+        """On-demand browser download: stream the VOD via yt-dlp directly
+        to the browser without persisting it on the server.
+
+        Unlike ``POST /vods/{id}/download`` (which is used by the VOD
+        Pipeline and stores the file on disk for downstream processing),
+        this endpoint pipes yt-dlp's stdout directly to the HTTP response
+        so bytes flow to the browser as soon as the download starts — the
+        browser's download manager shows real-time progress immediately.
+        The VOD's persisted status is not modified.
+        """
+        try:
+            vod = svc.get_vod(vod_id)
+        except VodNotFoundError:
+            return _error_response(404, "vod_not_found", "VOD not found.")
+        except Exception as exc:
+            return _map_vod_error(exc)
+        source_url = vod.get("source_url")
+        if not source_url:
+            return _error_response(409, "vod_no_source", "VOD has no source URL.")
+        title = vod.get("title") or vod.get("twitch_video_id") or vod_id
+        # Sanitize the title into a safe filename stem.
+        safe_stem = "".join(c if c.isalnum() or c in ("-", "_", " ") else "_" for c in title).strip() or vod_id
+        filename = f"{safe_stem}.mp4"
+
+        try:
+            proc = subprocess.Popen(
+                [
+                    "python", "-m", "yt_dlp",
+                    "-o", "-",
+                    "--no-playlist",
+                    "--quiet",
+                    "--no-warnings",
+                    "--format", "best",
+                    source_url,
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+        except FileNotFoundError:
+            return _error_response(503, "yt_dlp_missing", "yt-dlp is not installed.")
+        except Exception as exc:
+            return _error_response(500, "stream_download_failed", str(exc))
+
+        # Read the first chunk synchronously so we can detect immediate
+        # errors (e.g. video doesn't exist) and return a proper error
+        # response instead of an empty/invalid download. Once we yield the
+        # first chunk the response headers are committed.
+        try:
+            first_chunk = proc.stdout.read(65536)
+        except Exception as exc:
+            proc.kill()
+            proc.stdout.close()
+            proc.stderr.close()
+            return _error_response(500, "stream_download_failed", str(exc))
+
+        if not first_chunk:
+            proc.wait()
+            stderr = proc.stderr.read().decode("utf-8", errors="replace").strip()
+            proc.stdout.close()
+            proc.stderr.close()
+            return _error_response(
+                502, "yt_dlp_failed",
+                f"yt-dlp download failed: {stderr or 'no output produced'}",
+            )
+
+        def _stream():
+            try:
+                yield first_chunk
+                while True:
+                    chunk = proc.stdout.read(65536)
+                    if not chunk:
+                        break
+                    yield chunk
+            finally:
+                proc.wait()
+                if proc.returncode != 0:
+                    stderr = proc.stderr.read().decode("utf-8", errors="replace")
+                    logger.error(
+                        "yt-dlp stream for %s ended with code %d: %s",
+                        vod_id, proc.returncode, stderr,
+                    )
+                proc.stdout.close()
+                proc.stderr.close()
+
+        return StreamingResponse(
+            _stream(),
+            media_type="video/mp4",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+            },
+        )
 
     @router.delete("/vods/{vod_id}")
     def delete_vod(vod_id: str) -> JSONResponse:

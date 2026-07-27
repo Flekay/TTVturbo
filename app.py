@@ -60,6 +60,7 @@ from media_processing import (
     MediaSourceResolver,
     PipelineService,
     TranscriptionService,
+    UploadStorage,
 )
 from media_processing_api import build_media_processing_router
 
@@ -131,7 +132,15 @@ twitch_status_router = build_twitch_status_router(vod_pipeline_service)
 # with voice-clone so the two GPU workloads never load models
 # simultaneously.
 media_job_storage = MediaJobStorage(TTVTURBO_DATA_DIR)
-media_source_resolver = MediaSourceResolver(vod_pipeline_service.storage)
+# Upload storage for independent transcription (not tied to VOD downloader).
+TTVTURBO_UPLOADS_DIR = Path(
+    os.environ.get("TTVTURBO_UPLOADS_DIR") or (TTVTURBO_DATA_DIR / "uploads")
+)
+upload_storage = UploadStorage(TTVTURBO_UPLOADS_DIR)
+media_source_resolver = MediaSourceResolver(
+    vod_pipeline_service.storage,
+    upload_storage=upload_storage,
+)
 audio_extraction_service = AudioExtractionService(
     storage=media_job_storage,
     source_resolver=media_source_resolver,
@@ -157,6 +166,7 @@ media_processing_router = build_media_processing_router(
     audio_service=audio_extraction_service,
     transcription_service=transcription_service,
     pipeline_service=pipeline_service,
+    upload_storage=upload_storage,
 )
 
 # Connect the voice-clone profile mode to the voice-profile service. The

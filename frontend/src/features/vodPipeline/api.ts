@@ -125,3 +125,13 @@ export function fetchVodLog(vodId: string, signal?: AbortSignal): Promise<VodLog
 export function vodFileUrl(vodId: string): string {
   return `${VODS}/${encodeURIComponent(vodId)}/file`;
 }
+
+/** Build the on-demand streaming download URL for a VOD.
+ *
+ * Triggers yt-dlp on the server and streams the result directly to the
+ * browser without persisting it on the server. Used by the VOD Downloader
+ * page; the VOD Pipeline uses the separate POST /download endpoint.
+ */
+export function vodStreamDownloadUrl(vodId: string): string {
+  return `${VODS}/${encodeURIComponent(vodId)}/stream-download`;
+}

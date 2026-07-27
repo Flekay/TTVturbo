@@ -7,10 +7,12 @@ import { useActiveProfileStore } from "./activeProfileStore";
 /**
  * Top-level VOD Pipeline panel.
  *
- * Composes the profile selector, the manual VOD import form and the VOD
- * list with download controls. All server state is TanStack Query; only
- * the active profile id is persisted across reloads (via zustand/persist
- * in activeProfileStore).
+ * Two distinct workflows, visually separated by a divider:
+ *  1. VOD-Link import (top, full width) — paste a twitch.tv URL.
+ *  2. Profile-based browse/sync/download (below) — profile selector +
+ *     VOD list with download controls.
+ * All server state is TanStack Query; only the active profile id is
+ * persisted across reloads (via zustand/persist in activeProfileStore).
  */
 export function VodPipelinePanel() {
   const navigate = useNavigate();
@@ -18,10 +20,11 @@ export function VodPipelinePanel() {
 
   return (
     <div className="vp-vod-pipeline">
+      <ImportVodPanel profileId={activeProfileId} />
+      <hr className="vp-vod-pipeline__divider" />
       <div className="vp-vod-pipeline__layout">
         <ProfileSelector onOpenProfilesPage={() => navigate("/twitch-profiles")} />
         <div className="vp-vod-pipeline__main">
-          <ImportVodPanel profileId={activeProfileId} />
           <VodList profileId={activeProfileId} />
         </div>
       </div>

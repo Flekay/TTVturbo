@@ -190,6 +190,11 @@ class AudioExtractionService:
         vod_dir = self.source_resolver.get_vod_dir(vod_id)
         return vod_dir / ARTIFACTS_SUBDIR / AUDIO_SUBDIR
 
+    def artifact_dir_for(self, source_type: str, source_id: str) -> Path:
+        """Generalized artifact_dir that supports any source type."""
+        source_dir = self.source_resolver.get_source_dir(source_type, source_id)
+        return source_dir / ARTIFACTS_SUBDIR / AUDIO_SUBDIR
+
     def artifact_path(self, vod_id: str) -> Path:
         return self.artifact_dir(vod_id) / AUDIO_FILENAME
 
@@ -220,7 +225,7 @@ class AudioExtractionService:
         no new job is started; the existing artifact metadata is returned
         directly (wrapped in a job-shaped dict with status READY).
         """
-        if source_type != "twitch_vod":
+        if source_type not in ("twitch_vod", "file_upload"):
             raise MediaSourceError(f"unsupported source_type {source_type!r}")
         # Verify the source is READY before creating any job.
         resolved = self.source_resolver.resolve(source_type, source_id)

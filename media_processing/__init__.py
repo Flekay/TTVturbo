@@ -54,6 +54,7 @@ from .sources import MediaSourceResolver, ResolvedMediaSource
 from .audio_extraction import AudioExtractionService, AudioExtractionError
 from .transcription import TranscriptionService, TranscriptionError
 from .pipeline import PipelineService, PipelineError
+from .uploads import UploadStorage, UploadNotFoundError, UploadStorageError
 
 __all__ = [
     "SCHEMA_VERSION",
@@ -98,4 +99,7 @@ __all__ = [
     "TranscriptionService",
     "TranscriptionStatus",
     "TranscriptionWord",
+    "UploadNotFoundError",
+    "UploadStorage",
+    "UploadStorageError",
 ]

@@ -148,9 +148,24 @@ class TranscriptionService:
         self._recover_on_startup()
 
     # ------------------------------------------------------------------ paths
+    def _source_dir_for(self, source_id: str) -> Path:
+        """Resolve the source directory for a source_id that may be either a
+        twitch_vod or a file_upload. Tries VOD storage first, then uploads.
+        """
+        try:
+            return self.source_resolver.get_vod_dir(source_id)
+        except MediaSourceNotFoundError:
+            pass
+        if self.source_resolver.upload_storage is not None:
+            try:
+                return self.source_resolver.get_source_dir("file_upload", source_id)
+            except MediaSourceError:
+                pass
+        raise MediaSourceNotFoundError(f"source not found: {source_id}")
+
     def transcripts_dir(self, vod_id: str) -> Path:
-        vod_dir = self.source_resolver.get_vod_dir(vod_id)
-        return vod_dir / ARTIFACTS_SUBDIR / TRANSCRIPTS_SUBDIR
+        source_dir = self._source_dir_for(vod_id)
+        return source_dir / ARTIFACTS_SUBDIR / TRANSCRIPTS_SUBDIR
 
     def transcript_dir(self, vod_id: str, transcription_id: str) -> Path:
         # Validate transcription_id as UUID to prevent path traversal.
@@ -319,13 +334,20 @@ class TranscriptionService:
                         if rec is not None:
                             out.append(rec)
         else:
-            # Iterate all VODs that have a transcripts dir.
+            # Iterate all source roots (VODs + uploads) that have transcripts.
+            source_roots: list[Path] = []
             vods_root = self.source_resolver.vod_storage.vods_dir
             if vods_root.is_dir():
-                for vod_dir in vods_root.iterdir():
-                    if not vod_dir.is_dir():
+                source_roots.append(vods_root)
+            if self.source_resolver.upload_storage is not None:
+                uploads_root = self.source_resolver.upload_storage.uploads_dir
+                if uploads_root.is_dir():
+                    source_roots.append(uploads_root)
+            for root in source_roots:
+                for src_dir in root.iterdir():
+                    if not src_dir.is_dir():
                         continue
-                    tdir = vod_dir / ARTIFACTS_SUBDIR / TRANSCRIPTS_SUBDIR
+                    tdir = src_dir / ARTIFACTS_SUBDIR / TRANSCRIPTS_SUBDIR
                     if not tdir.is_dir():
                         continue
                     for sub in tdir.iterdir():
@@ -384,9 +406,9 @@ class TranscriptionService:
 
         Returns the TRANSCRIBE job record.
         """
-        if source_type != "twitch_vod":
+        if source_type not in ("twitch_vod", "file_upload"):
             raise MediaSourceError(f"unsupported source_type {source_type!r}")
-        # Verify the source VOD exists and is READY.
+        # Verify the source exists and is READY.
         self.source_resolver.resolve(source_type, source_id)
 
         # NOTE: we do NOT block job creation on runtime availability here.

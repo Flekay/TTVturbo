@@ -8,6 +8,7 @@ import { VodDownloaderPage } from "./pages/VodDownloaderPage";
 import { VodPipelinePage } from "./pages/VodPipelinePage";
 import { VodDetailPage } from "./pages/VodDetailPage";
 import { TranscriptionPage } from "./pages/TranscriptionPage";
+import { LibraryPage } from "./pages/LibraryPage";
 import { TwitchProfilesPage } from "./pages/TwitchProfilesPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
@@ -106,6 +107,14 @@ export function AppRouter() {
         element={
           <AppLayout>
             <TwitchProfilesPage />
+          </AppLayout>
+        }
+      />
+      <Route
+        path="/library"
+        element={
+          <AppLayout>
+            <LibraryPage />
           </AppLayout>
         }
       />

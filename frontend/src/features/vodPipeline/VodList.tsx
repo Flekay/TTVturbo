@@ -1,98 +1,64 @@
-import { useMemo, useState } from "react";
-import {
-  Download,
-  Play,
-  RefreshCw,
-  Trash2,
-  X,
-  AlertCircle,
-  FileVideo,
-  Search,
-} from "lucide-react";
-import { Badge, type BadgeVariant } from "../../components/ui/Badge";
+import { useMemo, useState, useRef } from "react";
+import { Link } from "react-router-dom";
+import { Download, Search, Loader2, AlertCircle, X, Check, HardDrive, ExternalLink } from "lucide-react";
+import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
-import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { ErrorState } from "../../components/ui/ErrorState";
 import { LoadingState } from "../../components/ui/LoadingState";
+import { Tooltip } from "../../components/ui/Tooltip";
 import { ApiError } from "../../api/client";
-import { formatBytes, formatDateTime, formatDuration } from "../../utils/format";
+import { formatBytes, formatDateTime, formatDuration, formatSpeed, formatEta } from "../../utils/format";
 import {
-  useCancelDownloadMutation,
-  useDeleteVodMutation,
-  useRetryDownloadMutation,
   useStartDownloadMutation,
+  useCancelDownloadMutation,
   useVodsQuery,
 } from "./hooks";
-import { vodFileUrl } from "./api";
-import { KNOWN_VOD_STATUSES, type KnownVodStatus } from "./schemas";
+import { vodStreamDownloadUrl, vodFileUrl } from "./api";
+import { KNOWN_VOD_STATUSES } from "./schemas";
 import type { TwitchVod } from "./types";
-
-function statusBadge(status: string): { variant: BadgeVariant; label: string } {
-  switch (status as KnownVodStatus) {
-    case "READY":
-      return { variant: "success", label: "Bereit" };
-    case "DOWNLOADING":
-      return { variant: "info", label: "Lädt" };
-    case "VERIFYING":
-      return { variant: "info", label: "Verifiziert" };
-    case "QUEUED":
-      return { variant: "info", label: "Wartet" };
-    case "FAILED":
-      return { variant: "error", label: "Fehlgeschlagen" };
-    case "CANCELED":
-      return { variant: "muted", label: "Abgebrochen" };
-    case "DISCOVERED":
-      return { variant: "muted", label: "Entdeckt" };
-    default:
-      return { variant: "muted", label: status };
-  }
-}
-
-function isTransient(status: string): boolean {
-  return status === "DOWNLOADING" || status === "QUEUED" || status === "VERIFYING";
-}
-
-function isStartable(status: string): boolean {
-  return status === "DISCOVERED" || status === "FAILED" || status === "CANCELED";
-}
-
-function isCancellable(status: string): boolean {
-  return status === "DOWNLOADING" || status === "QUEUED" || status === "VERIFYING";
-}
-
-function isRetryable(status: string): boolean {
-  return status === "FAILED" || status === "CANCELED";
-}
 
 interface VodListProps {
   profileId: string | null;
 }
 
+type VodTypeFilter = "all" | "vod" | "clip";
+
+const VOD_TYPE_TABS: { id: VodTypeFilter; label: string }[] = [
+  { id: "all", label: "Alle" },
+  { id: "vod", label: "VODs" },
+  { id: "clip", label: "Clips" },
+];
+
 export function VodList({ profileId }: VodListProps) {
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<"newest" | "oldest" | "longest" | "shortest">("newest");
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [typeFilter, setTypeFilter] = useState<VodTypeFilter>("all");
 
-  // Poll while any VOD is in a transient state so progress updates live.
   const params = useMemo(
     () => ({ profile_id: profileId ?? undefined, search: search || undefined, sort }),
     [profileId, search, sort],
   );
-  // First fetch to detect transient states.
+  // First fetch to detect transient states (library download running).
   const vodsQuery = useVodsQuery(params);
   const vods = vodsQuery.data?.vods ?? [];
-  const anyTransient = vods.some((v) => isTransient(v.status));
-  // Re-subscribe with polling enabled when needed. We use a second query
-  // with refetchInterval so we don't poll when nothing is running.
+  const anyTransient = vods.some(
+    (v) => v.status === "DOWNLOADING" || v.status === "QUEUED" || v.status === "VERIFYING",
+  );
+  // Re-subscribe with polling when a library download is running.
   const polledQuery = useVodsQuery(params, { refetchInterval: anyTransient ? 2000 : undefined });
   const effectiveQuery = anyTransient ? polledQuery : vodsQuery;
   const effectiveVods = effectiveQuery.data?.vods ?? [];
+  // Client-side type filter (backend has no type param). The backend uses
+  // "archive" for VODs and "clip" for clips; the "vod" tab maps to "archive".
+  const visibleVods = useMemo(() => {
+    if (typeFilter === "all") return effectiveVods;
+    const backendType = typeFilter === "vod" ? "archive" : "clip";
+    return effectiveVods.filter((v) => v.type === backendType);
+  }, [effectiveVods, typeFilter]);
 
   const startMutation = useStartDownloadMutation();
   const cancelMutation = useCancelDownloadMutation();
-  const retryMutation = useRetryDownloadMutation();
-  const deleteMutation = useDeleteVodMutation();
 
   if (!profileId) {
     return (
@@ -127,10 +93,30 @@ export function VodList({ profileId }: VodListProps) {
     );
   }
 
-  const pendingDelete = effectiveVods.find((v) => v.id === confirmDeleteId) ?? null;
-
   return (
     <div className="vp-vod-list">
+      <div className="vp-vod-list__tabs" role="tablist">
+        {VOD_TYPE_TABS.map((tab) => {
+          const active = tab.id === typeFilter;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              className={[
+                "vp-vod-list__tab",
+                active ? "vp-vod-list__tab--active" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              onClick={() => setTypeFilter(tab.id)}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
       <div className="vp-vod-list__toolbar">
         <div className="vp-vod-list__search">
           <Search size={14} />
@@ -156,95 +142,293 @@ export function VodList({ profileId }: VodListProps) {
         </select>
       </div>
 
-      <ul className="vp-vod-list__items">
-        {effectiveVods.map((vod) => (
-          <VodRow
-            key={vod.id}
-            vod={vod}
-            onStart={() => void startMutation.mutateAsync(vod.id)}
-            onCancel={() => void cancelMutation.mutateAsync(vod.id)}
-            onRetry={() => void retryMutation.mutateAsync(vod.id)}
-            onDelete={() => setConfirmDeleteId(vod.id)}
-            startPending={startMutation.isPending && startMutation.variables === vod.id}
-            cancelPending={cancelMutation.isPending && cancelMutation.variables === vod.id}
-            retryPending={retryMutation.isPending && retryMutation.variables === vod.id}
-            deletePending={deleteMutation.isPending && deleteMutation.variables === vod.id}
-          />
-        ))}
-      </ul>
-
-      <ConfirmDialog
-        open={pendingDelete !== null}
-        onOpenChange={(o) => {
-          if (!o) setConfirmDeleteId(null);
-        }}
-        title="VOD löschen?"
-        description={
-          pendingDelete
-            ? `Der VOD "${pendingDelete.title || pendingDelete.twitch_video_id}" wird inkl. heruntergeladener Videodatei entfernt. Diese Aktion kann nicht rückgängig gemacht werden.`
-            : ""
-        }
-        confirmLabel="Löschen"
-        cancelLabel="Abbrechen"
-        busy={deleteMutation.isPending}
-        destructive
-        onConfirm={async () => {
-          if (!pendingDelete) return;
-          try {
-            await deleteMutation.mutateAsync(pendingDelete.id);
-            setConfirmDeleteId(null);
-          } catch {
-            // leave dialog open on error
+      {visibleVods.length === 0 ? (
+        <EmptyState
+          title={typeFilter === "clip" ? "Keine Clips" : "Keine VODs"}
+          description={
+            typeFilter === "clip"
+              ? "Für dieses Profil wurden keine Clips synchronisiert."
+              : "Für dieses Profil wurden keine VODs synchronisiert."
           }
-        }}
-      />
+        />
+      ) : (
+        <ul className="vp-vod-list__items">
+          {visibleVods.map((vod) => (
+            <VodRow
+              key={vod.id}
+              vod={vod}
+              onLibraryDownload={() => void startMutation.mutateAsync(vod.id)}
+              onLibraryCancel={() => void cancelMutation.mutateAsync(vod.id)}
+              libraryPending={
+                (startMutation.isPending && startMutation.variables === vod.id) ||
+                (cancelMutation.isPending && cancelMutation.variables === vod.id)
+              }
+            />
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
 
 interface VodRowProps {
   vod: TwitchVod;
-  onStart: () => void;
-  onCancel: () => void;
-  onRetry: () => void;
-  onDelete: () => void;
-  startPending: boolean;
-  cancelPending: boolean;
-  retryPending: boolean;
-  deletePending: boolean;
+  onLibraryDownload: () => void;
+  onLibraryCancel: () => void;
+  libraryPending: boolean;
+}
+
+type StreamState =
+  | { status: "idle" }
+  | { status: "preparing" }
+  | { status: "downloading"; bytesReceived: number; speedBps: number }
+  | { status: "done" }
+  | { status: "error"; message: string };
+
+function isLibraryTransient(status: string): boolean {
+  return status === "DOWNLOADING" || status === "QUEUED" || status === "VERIFYING";
+}
+
+/** Fixed-width status pill — icon only, no text changes → no layout shift. */
+function StatusPill({ status }: { status: string }) {
+  const transient = isLibraryTransient(status);
+  const ready = status === "READY";
+  const failed = status === "FAILED" || status === "CANCELED";
+  return (
+    <span
+      className="vp-vod-row__status-pill"
+      data-state={ready ? "ready" : transient ? "transient" : failed ? "failed" : "idle"}
+      title={
+        ready ? "Geladen" :
+        status === "DOWNLOADING" ? "Wird geladen…" :
+        status === "QUEUED" ? "In Warteschlange" :
+        status === "VERIFYING" ? "Wird verifiziert…" :
+        status === "FAILED" ? "Fehlgeschlagen" :
+        status === "CANCELED" ? "Abgebrochen" :
+        "Nicht geladen"
+      }
+    >
+      {ready ? <Check size={14} /> : transient ? <Loader2 size={14} className="spin" /> : <HardDrive size={14} />}
+    </span>
+  );
+}
+
+/**
+ * Progress thumbnail: two images stacked — bottom grayscale, top in color.
+ * The color layer is clipped via `clip-path: inset()` to reveal only
+ * `percent` of the width, creating a "fill with color" effect.
+ */
+function ProgressThumbnail({
+  src,
+  alt,
+  percent,
+  durationLabel,
+}: {
+  src: string;
+  alt: string;
+  percent: number | null;
+  durationLabel?: string;
+}) {
+  const pct = percent != null ? Math.min(100, Math.max(0, percent)) : null;
+  const clipStyle = pct != null
+    ? { clipPath: `inset(0 ${100 - pct}% 0 0)` }
+    : { clipPath: "inset(0 0 0 0)", animation: "vp-thumb-indeterminate 1.4s ease-in-out infinite" };
+  return (
+    <div className="vp-vod-row__thumb vp-vod-row__thumb--progress">
+      <img
+        className="vp-vod-row__thumb-bw"
+        src={src}
+        alt={alt}
+        loading="lazy"
+        onError={(e) => { (e.currentTarget as HTMLImageElement).parentElement!.style.display = "none"; }}
+      />
+      <img
+        className="vp-vod-row__thumb-color"
+        src={src}
+        alt=""
+        loading="lazy"
+        style={clipStyle}
+      />
+      {durationLabel && <span className="vp-vod-row__duration">{durationLabel}</span>}
+      {pct != null && (
+        <span className="vp-vod-row__thumb-pct">{Math.round(pct)}%</span>
+      )}
+    </div>
+  );
+}
+
+/** Compact stats line (speed, bytes, eta) — shown below the thumbnail. */
+function ProgressStats({
+  bytesReceived,
+  totalBytes,
+  speedBps,
+  etaSeconds,
+}: {
+  bytesReceived: number | null;
+  totalBytes: number | null;
+  speedBps: number | null;
+  etaSeconds: number | null;
+}) {
+  const hasStats =
+    bytesReceived != null || (speedBps != null && speedBps > 0) || (etaSeconds != null && etaSeconds > 0);
+  if (!hasStats) return null;
+  return (
+    <div className="vp-vod-row__progress-stats">
+      {bytesReceived != null && (
+        <span className="vp-vod-row__progress-bytes">
+          {formatBytes(bytesReceived)}{totalBytes != null ? ` / ${formatBytes(totalBytes)}` : ""}
+        </span>
+      )}
+      {speedBps != null && speedBps > 0 && (
+        <span className="vp-vod-row__progress-speed">{formatSpeed(speedBps)}</span>
+      )}
+      {etaSeconds != null && etaSeconds > 0 && (
+        <span className="vp-vod-row__progress-eta">~{formatEta(etaSeconds)}</span>
+      )}
+    </div>
+  );
 }
 
 function VodRow({
   vod,
-  onStart,
-  onCancel,
-  onRetry,
-  onDelete,
-  startPending,
-  cancelPending,
-  retryPending,
-  deletePending,
+  onLibraryDownload,
+  onLibraryCancel,
+  libraryPending,
 }: VodRowProps) {
-  const badge = statusBadge(vod.status);
-  const transient = isTransient(vod.status);
-  const startable = isStartable(vod.status);
-  const cancellable = isCancellable(vod.status);
-  const retryable = isRetryable(vod.status);
-  const ready = vod.status === "READY";
-  const progress = vod.progress;
-  const percent =
-    progress?.percent != null ? Math.max(0, Math.min(100, progress.percent)) : null;
+  const [stream, setStream] = useState<StreamState>({ status: "idle" });
+  const abortRef = useRef<AbortController | null>(null);
+
+  const libStatus = vod.status;
+  const libReady = libStatus === "READY";
+  const libTransient = isLibraryTransient(libStatus);
+  const streamBusy = stream.status === "preparing" || stream.status === "downloading";
+  const streamDownloading = stream.status === "downloading";
+
+  // Determine the active progress percent for the thumbnail.
+  // Library download takes priority, then browser stream.
+  const activePercent = libTransient
+    ? (vod.progress?.percent ?? null)
+    : streamDownloading
+      ? null  // browser stream has no percent (no Content-Length from yt-dlp)
+      : null;
+  const showProgressThumb = (libTransient || streamDownloading) && !!vod.thumbnail_url;
+
+  /** Browser download: use cached file when READY, stream from yt-dlp otherwise. */
+  const handleBrowserDownload = async () => {
+    if (streamBusy) return;
+    // READY → direct link to cached file, no fetch needed.
+    if (libReady) {
+      const a = document.createElement("a");
+      a.href = vodFileUrl(vod.id);
+      a.download = "";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      return;
+    }
+    // Not ready → stream from yt-dlp via fetch with progress.
+    setStream({ status: "preparing" });
+    const controller = new AbortController();
+    abortRef.current = controller;
+    try {
+      const res = await fetch(vodStreamDownloadUrl(vod.id), { signal: controller.signal });
+      if (!res.ok) {
+        let message = `Download fehlgeschlagen (HTTP ${res.status})`;
+        try {
+          const body = await res.json();
+          if (body?.detail?.message) message = body.detail.message;
+        } catch { /* ignore */ }
+        setStream({ status: "error", message });
+        return;
+      }
+      const reader = res.body?.getReader();
+      if (!reader) {
+        setStream({ status: "error", message: "Stream konnte nicht gelesen werden." });
+        return;
+      }
+      const chunks: BlobPart[] = [];
+      let received = 0;
+      const startTime = performance.now();
+      let lastUpdate = startTime;
+      let lastReceived = 0;
+      // Exponential moving average for smoother speed display.
+      let emaSpeed = 0;
+      setStream({ status: "downloading", bytesReceived: 0, speedBps: 0 });
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) {
+          chunks.push(value as BlobPart);
+          received += value.length;
+          const now = performance.now();
+          // Update speed at most every 250ms to avoid jitter.
+          if (now - lastUpdate >= 250) {
+            const dt = (now - lastUpdate) / 1000;
+            const instantSpeed = (received - lastReceived) / dt;
+            emaSpeed = emaSpeed === 0 ? instantSpeed : emaSpeed * 0.7 + instantSpeed * 0.3;
+            lastUpdate = now;
+            lastReceived = received;
+            setStream({ status: "downloading", bytesReceived: received, speedBps: emaSpeed });
+          }
+        }
+      }
+      const blob = new Blob(chunks, { type: res.headers.get("Content-Type") || "video/mp4" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const disp = res.headers.get("Content-Disposition") || "";
+      const m = /filename="([^"]+)"/.exec(disp);
+      a.download = m?.[1] || `${vod.title || vod.id}.mp4`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setStream({ status: "done" });
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setStream({ status: "idle" });
+      } else {
+        setStream({
+          status: "error",
+          message: err instanceof Error ? err.message : "Download fehlgeschlagen.",
+        });
+      }
+    } finally {
+      abortRef.current = null;
+    }
+  };
+
+  const handleCancelStream = () => abortRef.current?.abort();
 
   return (
     <li className="vp-vod-row">
-      <div className="vp-vod-row__head">
+      {showProgressThumb ? (
+        <ProgressThumbnail
+          src={vod.thumbnail_url!}
+          alt={vod.title || `VOD ${vod.twitch_video_id}`}
+          percent={activePercent}
+          durationLabel={vod.duration_seconds != null ? formatDuration(vod.duration_seconds) : undefined}
+        />
+      ) : vod.thumbnail_url ? (
+        <div className="vp-vod-row__thumb">
+          <img
+            src={vod.thumbnail_url}
+            alt={vod.title || `VOD ${vod.twitch_video_id}`}
+            loading="lazy"
+            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+          />
+          {vod.duration_seconds != null && (
+            <span className="vp-vod-row__duration">{formatDuration(vod.duration_seconds)}</span>
+          )}
+        </div>
+      ) : null}
+
+      <div className="vp-vod-row__body">
         <div className="vp-vod-row__title-block">
           <div className="vp-vod-row__title" title={vod.title || vod.twitch_video_id}>
             {vod.title || `VOD ${vod.twitch_video_id}`}
             {vod.type === "clip" && (
-              <Badge variant="muted" title="Clip">
-                Clip
-              </Badge>
+              <Badge variant="muted" title="Clip">Clip</Badge>
             )}
           </div>
           <div className="vp-vod-row__meta">
@@ -256,117 +440,103 @@ function VodRow({
             >
               #{vod.twitch_video_id}
             </a>
-            {vod.duration_seconds != null && (
-              <span>{formatDuration(vod.duration_seconds)}</span>
-            )}
             {vod.published_at && <span>{formatDateTime(vod.published_at)}</span>}
           </div>
         </div>
-        <Badge variant={badge.variant} title={vod.status}>
-          {badge.label}
-        </Badge>
+        <StatusPill status={libStatus} />
       </div>
 
-      {transient && (
-        <div className="vp-vod-row__progress">
-          <div className="vp-vod-row__progress-bar">
-            <div
-              className="vp-vod-row__progress-fill"
-              style={{ width: `${percent ?? 0}%` }}
-            />
-          </div>
-          <div className="vp-vod-row__progress-text">
-            {percent != null ? `${percent.toFixed(1)}%` : "Läuft …"}
-            {progress?.speed_bytes_per_second != null && (
-              <span> · {formatBytes(progress.speed_bytes_per_second)}/s</span>
-            )}
-            {progress?.eta_seconds != null && (
-              <span> · ETA {formatDuration(progress.eta_seconds)}</span>
-            )}
-          </div>
-        </div>
-      )}
+      {/* Stats line — shown while any download is active. Fixed height prevents shift. */}
+      <div className="vp-vod-row__progress-slot">
+        {libTransient && (
+          <ProgressStats
+            bytesReceived={vod.progress?.downloaded_bytes ?? null}
+            totalBytes={vod.progress?.total_bytes ?? null}
+            speedBps={vod.progress?.speed_bytes_per_second ?? null}
+            etaSeconds={vod.progress?.eta_seconds ?? null}
+          />
+        )}
+        {!libTransient && streamDownloading && (
+          <ProgressStats
+            bytesReceived={stream.bytesReceived}
+            totalBytes={null}
+            speedBps={stream.speedBps}
+            etaSeconds={null}
+          />
+        )}
+      </div>
 
-      {vod.status === "FAILED" && vod.error && (
-        <div className="vp-vod-row__error" role="alert">
+      {stream.status === "error" && (
+        <div className="vp-vod-row__dl-error" role="alert">
           <AlertCircle size={14} />
-          <span>{vod.error}</span>
-        </div>
-      )}
-      {vod.status === "CANCELED" && vod.error && (
-        <div className="vp-vod-row__error vp-vod-row__error--muted">
-          <AlertCircle size={14} />
-          <span>{vod.error}</span>
-        </div>
-      )}
-
-      {ready && vod.download.file_name && (
-        <div className="vp-vod-row__ready">
-          <FileVideo size={14} />
-          <span>
-            {vod.download.file_name} · {formatBytes(vod.download.file_size_bytes ?? 0)}
-            {vod.download.width && vod.download.height
-              ? ` · ${vod.download.width}×${vod.download.height}`
-              : ""}
-            {vod.download.video_codec ? ` · ${vod.download.video_codec}` : ""}
-          </span>
+          <span>{stream.message}</span>
         </div>
       )}
 
       <div className="vp-vod-row__actions">
-        {startable && (
+        {/* Primary: Laden (download to server library) */}
+        {libTransient ? (
           <Button
             variant="primary"
             size="sm"
-            onClick={onStart}
-            loading={startPending}
-            disabled={startPending}
-          >
-            <Download size={14} /> Herunterladen
-          </Button>
-        )}
-        {cancellable && (
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={onCancel}
-            loading={cancelPending}
-            disabled={cancelPending}
+            onClick={onLibraryCancel}
+            loading={libraryPending}
+            disabled={libraryPending}
+            aria-label="Download abbrechen"
           >
             <X size={14} /> Abbrechen
           </Button>
-        )}
-        {retryable && (
+        ) : libReady ? (
+          <Tooltip content="In Bibliothek ansehen" side="top">
+            <Link
+              to="/library"
+              className="btn btn--primary btn--sm"
+              aria-label="In Bibliothek ansehen"
+            >
+              <ExternalLink size={14} /> In Bibliothek
+            </Link>
+          </Tooltip>
+        ) : (
           <Button
-            variant="secondary"
+            variant="primary"
             size="sm"
-            onClick={onRetry}
-            loading={retryPending}
-            disabled={retryPending}
+            onClick={onLibraryDownload}
+            loading={libraryPending}
+            disabled={libraryPending || streamBusy}
+            aria-label="Auf Server laden"
           >
-            <RefreshCw size={14} /> Erneut versuchen
+            <HardDrive size={14} /> Auf Server laden
           </Button>
         )}
-        {ready && vod.download.file_name && (
-          <a
-            className="btn btn--primary btn--sm"
-            href={vodFileUrl(vod.id)}
-            download
-            aria-label="Videodatei herunterladen"
-          >
-            <Play size={14} /> Datei
-          </a>
+
+        {/* Secondary: Herunterladen (browser download — cached if READY, stream otherwise) */}
+        {stream.status === "preparing" && (
+          <Tooltip content="Wird vorbereitet …" side="top">
+            <Button variant="ghost" size="sm" disabled aria-label="Wird vorbereitet">
+              <Loader2 size={14} className="spin" />
+            </Button>
+          </Tooltip>
         )}
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onDelete}
-          loading={deletePending}
-          disabled={deletePending}
-          aria-label="VOD löschen"
-        >
-          <Trash2 size={14} />
-        </Button>
+        {stream.status === "downloading" && (
+          <Tooltip content={`${formatBytes(stream.bytesReceived)} — klick zum Abbrechen`} side="top">
+            <Button variant="ghost" size="sm" onClick={handleCancelStream} aria-label="Download abbrechen">
+              <Loader2 size={14} className="spin" />
+            </Button>
+          </Tooltip>
+        )}
+        {(stream.status === "idle" || stream.status === "done" || stream.status === "error") && (
+          <Tooltip content="Herunterladen" side="top">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleBrowserDownload}
+              disabled={streamBusy || libraryPending}
+              aria-label="Herunterladen"
+            >
+              <Download size={14} />
+            </Button>
+          </Tooltip>
+        )}
       </div>
     </li>
   );

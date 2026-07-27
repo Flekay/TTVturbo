@@ -59,6 +59,22 @@ export function startTranscription(request: StartTranscriptionRequest): Promise<
   return apiClient.post(TRANSCRIPTIONS, { body: request, schema: mediaJobSchema });
 }
 
+export function uploadAndTranscribe(
+  file: File,
+  language?: string,
+  model?: string,
+): Promise<MediaJob> {
+  const formData = new FormData();
+  formData.append("file", file);
+  if (language) formData.append("language", language);
+  if (model) formData.append("model", model);
+  return apiClient.post(`${TRANSCRIPTIONS}/upload`, {
+    body: formData,
+    schema: mediaJobSchema,
+    timeoutMs: 600_000,
+  });
+}
+
 export function fetchTranscriptions(
   sourceId?: string,
   signal?: AbortSignal,

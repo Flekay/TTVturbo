@@ -14,6 +14,7 @@ import {
   Send,
   Settings,
   FileText,
+  Library,
   type LucideIcon,
 } from "lucide-react";
 
@@ -126,6 +127,14 @@ export const ROUTES: RouteMeta[] = [
     section: "on_demand",
   },
   // --- MANAGEMENT ---
+  {
+    path: "/library",
+    label: "Bibliothek",
+    description: "Videos und Uploads verwalten und herunterladen.",
+    icon: Library,
+    status: "available",
+    section: "management",
+  },
   {
     path: "/voice-profiles",
     label: "Voice Profiles",

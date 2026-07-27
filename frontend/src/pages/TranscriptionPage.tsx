@@ -1,12 +1,12 @@
 import { useMemo, useState } from "react";
 import {
   FileText,
-  Play,
   X,
   RefreshCw,
   Trash2,
   Download,
   AlertCircle,
+  Upload,
 } from "lucide-react";
 import { Badge, type BadgeVariant } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
@@ -19,13 +19,12 @@ import { ApiError } from "../api/client";
 import { formatDateTime, formatDuration } from "../utils/format";
 import {
   useTranscriptionsQuery,
-  useStartTranscriptionMutation,
+  useUploadTranscriptionMutation,
   useCancelTranscriptionMutation,
   useRetryTranscriptionMutation,
   useDeleteTranscriptionMutation,
   transcriptFileUrl,
 } from "../features/mediaProcessing";
-import { useVodsQuery } from "../features/vodPipeline";
 import type { MediaJob } from "../features/mediaProcessing";
 
 function jobStatusBadge(status: string): { variant: BadgeVariant; label: string } {
@@ -84,7 +83,6 @@ function phaseLabel(phase?: string | null): string {
 
 function TranscriptionJobCard({
   job,
-  vodTitle,
   onCancel,
   onRetry,
   onDelete,
@@ -93,7 +91,6 @@ function TranscriptionJobCard({
   deletePending,
 }: {
   job: MediaJob;
-  vodTitle?: string;
   onCancel: () => void;
   onRetry: () => void;
   onDelete: () => void;
@@ -113,7 +110,7 @@ function TranscriptionJobCard({
       <div className="transcription-card__header">
         <div className="transcription-card__title">
           <Badge variant={status.variant}>{status.label}</Badge>
-          <span className="transcription-card__vod-title">{vodTitle ?? job.source_id}</span>
+          <span className="transcription-card__vod-title">{job.source_id}</span>
         </div>
         <div className="transcription-card__actions">
           {active && (
@@ -204,37 +201,29 @@ function TranscriptionJobCard({
  * the topbar status popover.
  */
 export function TranscriptionPage() {
-  const [selectedVodId, setSelectedVodId] = useState<string>("");
   const [language, setLanguage] = useState<string>("de");
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
   const jobsQuery = useTranscriptionsQuery(undefined, { refetchInterval: 3_000 });
-  const readyVodsQuery = useVodsQuery({ status: "READY" });
 
-  const startMutation = useStartTranscriptionMutation();
+  const uploadMutation = useUploadTranscriptionMutation();
   const cancelMutation = useCancelTranscriptionMutation();
   const retryMutation = useRetryTranscriptionMutation();
   const deleteMutation = useDeleteTranscriptionMutation();
 
   const jobs = jobsQuery.data?.transcriptions ?? [];
-  const readyVods = readyVodsQuery.data?.vods ?? [];
 
   const hasActiveJobs = useMemo(() => jobs.some((j) => isJobActive(j.status)), [jobs]);
 
-  const vodTitleMap = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const v of readyVods) m.set(v.id, v.title);
-    for (const j of jobs) if (!m.has(j.source_id)) m.set(j.source_id, j.source_id);
-    return m;
-  }, [readyVods, jobs]);
-
-  const handleStart = () => {
-    if (!selectedVodId) return;
-    startMutation.mutate({
-      source_type: "twitch_vod",
-      source_id: selectedVodId,
-      language: language || undefined,
-    });
+  const handleUpload = () => {
+    if (!uploadFile) return;
+    uploadMutation.mutate(
+      { file: uploadFile, language: language || undefined },
+      {
+        onSuccess: () => setUploadFile(null),
+      },
+    );
   };
 
   return (
@@ -244,22 +233,14 @@ export function TranscriptionPage() {
         <Card className="transcription-form-card">
           <div className="transcription-form">
             <label className="transcription-form__field">
-              <span className="transcription-form__label">VOD</span>
-              <select
-                value={selectedVodId}
-                onChange={(e) => setSelectedVodId(e.target.value)}
-                className="transcription-form__select"
-                disabled={readyVods.length === 0}
-              >
-                <option value="">
-                  {readyVods.length === 0 ? "Keine READY VODs verfügbar" : "VOD auswählen…"}
-                </option>
-                {readyVods.map((vod) => (
-                  <option key={vod.id} value={vod.id}>
-                    {vod.title} ({vod.duration_seconds ? formatDuration(vod.duration_seconds) : "?"})
-                  </option>
-                ))}
-              </select>
+              <span className="transcription-form__label">Datei hochladen</span>
+              <input
+                type="file"
+                accept="video/*,audio/*"
+                onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
+                className="transcription-form__file-input"
+                disabled={uploadMutation.isPending}
+              />
             </label>
             <label className="transcription-form__field">
               <span className="transcription-form__label">Sprache</span>
@@ -267,6 +248,7 @@ export function TranscriptionPage() {
                 value={language}
                 onChange={(e) => setLanguage(e.target.value)}
                 className="transcription-form__select"
+                disabled={uploadMutation.isPending}
               >
                 <option value="de">Deutsch</option>
                 <option value="en">Englisch</option>
@@ -275,20 +257,21 @@ export function TranscriptionPage() {
             </label>
             <Button
               variant="primary"
-              onClick={handleStart}
-              disabled={!selectedVodId || startMutation.isPending}
+              onClick={handleUpload}
+              disabled={!uploadFile || uploadMutation.isPending}
+              loading={uploadMutation.isPending}
             >
-              <Play size={14} />
-              Transkription starten
+              <Upload size={14} />
+              Hochladen & transkribieren
             </Button>
           </div>
-          {startMutation.error && (
+          {uploadMutation.error && (
             <ErrorState
-              message={startMutation.error instanceof ApiError ? startMutation.error.message : "Transkription konnte nicht gestartet werden."}
+              message={uploadMutation.error instanceof ApiError ? uploadMutation.error.message : "Upload fehlgeschlagen."}
             />
           )}
           <p className="transcription-form__hint">
-            Falls noch kein Audio-Artefakt existiert, wird es automatisch extrahiert.
+            Unabhängig vom VOD Downloader — die Datei wird direkt transkribiert.
           </p>
         </Card>
       </section>
@@ -304,7 +287,7 @@ export function TranscriptionPage() {
         {jobsQuery.data && jobs.length === 0 && (
           <EmptyState
             title="Keine Transkriptionen"
-            description="Starte eine Transkription für einen READY VOD."
+            description="Lade eine Datei hoch, um eine Transkription zu starten."
           />
         )}
         {jobs.length > 0 && (
@@ -313,7 +296,6 @@ export function TranscriptionPage() {
               <TranscriptionJobCard
                 key={job.id}
                 job={job}
-                vodTitle={vodTitleMap.get(job.source_id)}
                 onCancel={() => cancelMutation.mutate(job.transcription_id ?? job.id)}
                 onRetry={() => retryMutation.mutate(job.transcription_id ?? job.id)}
                 onDelete={() => setDeleteTarget(job.transcription_id ?? job.id)}

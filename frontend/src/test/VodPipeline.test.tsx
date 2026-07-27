@@ -181,11 +181,33 @@ describe("VOD Pipeline frontend", () => {
       expect(within(main).getByText("First VOD")).toBeInTheDocument();
       expect(within(main).getByText("Ready VOD")).toBeInTheDocument();
     });
-    // DISCOVERED VOD has a download button.
-    expect(within(main).getByRole("button", { name: /Herunterladen/ })).toBeInTheDocument();
+    // DISCOVERED VOD has an "Auf Server laden" (primary) and "Herunterladen" (secondary) button.
+    expect(within(main).getAllByRole("button", { name: /auf server laden/i }).length).toBeGreaterThanOrEqual(1);
+    expect(within(main).getAllByRole("button", { name: /herunterladen/i }).length).toBeGreaterThanOrEqual(1);
   });
 
-  it("starts a download when the download button is clicked", async () => {
+  it("renders a download button that triggers the stream-download endpoint", async () => {
+    const user = userEvent.setup();
+    mock.setResponse(`GET /api/vods/${vodDiscovered.id}/stream-download`, 200, "");
+    const { container } = renderWithProviders(<AppRouter />, {
+      initialEntries: ["/vod-downloader"],
+    });
+    const main = mainOf(container);
+    await waitFor(() => expect(within(main).getAllByText("casepayt").length).toBeGreaterThanOrEqual(1));
+    await user.click(within(main).getByRole("button", { name: /casepayt/ }));
+    await waitFor(() => expect(within(main).getByText("First VOD")).toBeInTheDocument());
+    const dlButtons = within(main).getAllByRole("button", { name: /herunterladen/i });
+    // Click the first download button (First VOD is rendered first).
+    await user.click(dlButtons[0]);
+    await waitFor(() => {
+      const call = mock.calls.find(
+        (c) => c.url === `/api/vods/${vodDiscovered.id}/stream-download` && c.method === "GET",
+      );
+      expect(call).toBeDefined();
+    });
+  });
+
+  it("starts a library download when the 'Auf Server laden' button is clicked", async () => {
     const user = userEvent.setup();
     mock.setResponse(`POST /api/vods/${vodDiscovered.id}/download`, 200, {
       ...vodDiscovered,
@@ -198,8 +220,8 @@ describe("VOD Pipeline frontend", () => {
     await waitFor(() => expect(within(main).getAllByText("casepayt").length).toBeGreaterThanOrEqual(1));
     await user.click(within(main).getByRole("button", { name: /casepayt/ }));
     await waitFor(() => expect(within(main).getByText("First VOD")).toBeInTheDocument());
-    const dlBtn = within(main).getByRole("button", { name: /Herunterladen/ });
-    await user.click(dlBtn);
+    const loadButtons = within(main).getAllByRole("button", { name: /auf server laden/i });
+    await user.click(loadButtons[0]);
     await waitFor(() => {
       const call = mock.calls.find(
         (c) => c.url === `/api/vods/${vodDiscovered.id}/download` && c.method === "POST",
