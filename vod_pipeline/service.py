@@ -350,6 +350,32 @@ class VodPipelineService:
             return None
         return p if p.is_file() else None
 
+    def _ready_source_exists(self, vod: dict) -> bool:
+        """True if a READY VOD's source file is still reachable.
+
+        Downloaded VOD files are moved into the persistent library by
+        ``promote_vod_file``; the VOD only keeps a ``library_item_id``
+        back-reference. So we must check the library first, and only fall
+        back to the VOD dir when the library is not in use.
+        """
+        library_item_id = vod.get("library_item_id")
+        if library_item_id and self.library_service is not None:
+            try:
+                path = self.library_service.item_file_path(library_item_id)
+            except Exception:
+                return False
+            return path.is_file()
+        return self._source_path_for(vod) is not None
+
+    def _library_item_file_exists(self, library_item_id: str) -> bool:
+        """True if the library item exists and its source file is on disk."""
+        if self.library_service is None:
+            return False
+        try:
+            return self.library_service.item_file_path(library_item_id).is_file()
+        except Exception:
+            return False
+
     # ------------------------------------------------------------------ startup
     def _recover_on_startup(self) -> None:
         """Mark any transient-state VOD as FAILED after a restart.
@@ -382,9 +408,11 @@ class VodPipelineService:
                     logger.warning("Could not persist recovery for %s: %s", vod["id"], exc)
             elif status == VodStatus.READY:
                 # A READY record must keep a valid source file; if it is
-                # gone, downgrade to FAILED so the user can retry.
-                src = self._source_path_for(vod)
-                if src is None:
+                # gone, downgrade to FAILED so the user can retry. The file
+                # normally lives in the library (moved there by
+                # ``promote_vod_file``); only fall back to the VOD dir when
+                # no library_item_id is set (e.g. library not configured).
+                if not self._ready_source_exists(vod):
                     vod["status"] = VodStatus.FAILED.value
                     vod["error"] = "Source file is missing for a READY VOD."
                     vod["updated_at"] = self._now_iso()
@@ -894,6 +922,20 @@ class VodPipelineService:
         # file is moved from the VOD temp dir to the library; the VOD
         # keeps a library_item_id back-reference for file serving.
         library_item_id = vod.get("library_item_id")
+        # If a library_item_id is set but the referenced item (or its file)
+        # is gone, the back-reference is dangling — treat it as unset so the
+        # freshly downloaded file gets re-promoted instead of being deleted.
+        if (
+            self.library_service is not None
+            and library_item_id
+            and not self._library_item_file_exists(library_item_id)
+        ):
+            logger.warning(
+                "VOD %s has dangling library_item_id %s; re-promoting file.",
+                vod_id, library_item_id,
+            )
+            library_item_id = None
+            vod["library_item_id"] = None
         if self.library_service is not None and not library_item_id:
             try:
                 item = self.library_service.promote_vod_file(

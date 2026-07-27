@@ -32,6 +32,18 @@ logger = logging.getLogger("ttvturbo.library.storage")
 ITEM_FILENAME = "metadata.json"
 TMP_SUFFIX = ".tmp"
 SOURCE_BASENAME = "source"
+SUPPORTED_CONTAINERS = ("mp4", "mkv", "webm")
+
+
+def sanitize_container(container: str) -> str:
+    """Normalise a container name to one of the supported on-disk extensions.
+
+    ``source_file_path`` silently rewrites unsupported containers to ``mp4``,
+    so callers that record the file name in metadata must apply the same
+    rule — otherwise the recorded ``file_name`` won't match the file on disk
+    and ``item_file_path`` will fail to locate it.
+    """
+    return container if container in SUPPORTED_CONTAINERS else "mp4"
 
 
 def _now_iso() -> str:
@@ -78,7 +90,7 @@ class LibraryStorage:
 
     def source_file_path(self, item_id: str, container: str = "mp4") -> Path:
         """Return the canonical source file path for an item."""
-        safe = container if container in ("mp4", "mkv", "webm") else "mp4"
+        safe = sanitize_container(container)
         return self._item_dir(item_id) / f"{SOURCE_BASENAME}.{safe}"
 
     # ------------------------------------------------------------------ write

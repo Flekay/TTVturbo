@@ -25,7 +25,7 @@ from .schemas import (
     LibraryStorageError,
     LibraryValidationError,
 )
-from .storage import LibraryStorage, _now_iso
+from .storage import LibraryStorage, _now_iso, sanitize_container
 
 logger = logging.getLogger("ttvturbo.library.service")
 
@@ -104,17 +104,21 @@ class LibraryService:
             raise LibraryValidationError(
                 f"source file does not exist: {source_file}"
             )
+        # Normalise the container so the recorded file_name matches the file
+        # actually written by ``source_file_path`` (which rewrites unsupported
+        # containers to mp4). Without this, a "mov" clip would be stored as
+        # source.mp4 but recorded as source.mov and become unlocatable.
+        container = sanitize_container(container)
         # Duplication check.
         existing = self.find_by_twitch_video_id(twitch_video_id)
         if existing is not None:
             # If the existing item has no file on disk, overwrite it.
-            existing_path = self.storage.source_file_path(
-                existing["id"], existing.get("container") or container
-            )
+            existing_container = sanitize_container(existing.get("container") or container)
+            existing_path = self.storage.source_file_path(existing["id"], existing_container)
             if not existing_path.is_file():
                 self._move_file(source_file, existing_path)
                 existing["file_name"] = existing_path.name
-                existing["container"] = container
+                existing["container"] = existing_container
                 existing["file_size_bytes"] = file_size_bytes or existing_path.stat().st_size
                 existing["duration_seconds"] = duration_seconds or existing.get("duration_seconds")
                 existing["vod_id"] = vod_id

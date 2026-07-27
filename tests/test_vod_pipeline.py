@@ -156,6 +156,148 @@ def test_sync_auto_links_library_item(vod_service_with_library, channel_lister):
     assert lib_item2["vod_id"] == vods2[0]["id"]
 
 
+def test_restart_recovery_preserves_ready_vod_with_library_file(
+    vod_service_with_library, channel_lister, make_real_mp4
+):
+    """A READY VOD whose source file lives in the library must survive a restart.
+
+    After ``promote_vod_file`` the source file is moved out of the VOD dir
+    into the library and the VOD only keeps a ``library_item_id`` back-
+    reference. The startup recovery must therefore check the library file,
+    not the VOD dir, before demoting a READY record to FAILED.
+    """
+    channel_lister.add_vod("casepayt", "100")
+    profile = vod_service_with_library.create_profile("casepayt")
+    vod_service_with_library.sync_vods(profile["id"])
+    vod = vod_service_with_library.list_vods(profile_id=profile["id"])[0]
+    vod_id = vod["id"]
+
+    # Simulate a completed download: write the source file, then promote it
+    # into the library exactly as the download finalizer does.
+    vod_dir = vod_service_with_library._vod_dir(vod_id)
+    src = vod_dir / "source.mp4"
+    make_real_mp4(src)
+    file_size = src.stat().st_size
+    lib_service = vod_service_with_library.library_service
+    item = lib_service.promote_vod_file(
+        vod_id=vod_id,
+        twitch_video_id=vod["twitch_video_id"],
+        title=vod["title"],
+        source_file=src,
+        container="mp4",
+        duration_seconds=1.0,
+        file_size_bytes=file_size,
+    )
+    # promote_vod_file *moves* the file into the library, so it is gone
+    # from the VOD dir — exactly what the download finalizer produces.
+    assert not src.exists()
+    # Mirror the finalizer: READY + library_item_id + download info.
+    vod["status"] = VodStatus.READY.value
+    vod["error"] = None
+    vod["library_item_id"] = item["id"]
+    vod["download"] = {
+        "started_at": vod.get("updated_at"),
+        "completed_at": vod_service_with_library._now_iso(),
+        "file_name": "source.mp4",
+        "file_size_bytes": file_size,
+        "container": "mp4",
+        "duration_seconds": 1.0,
+        "width": 320,
+        "height": 240,
+        "video_codec": "h264",
+        "audio_codec": "aac",
+    }
+    vod_service_with_library.storage.save_vod(vod)
+    # The library file is the canonical home now.
+    assert lib_service.item_file_path(item["id"]).is_file()
+
+    # "Restart": build a new service over the same data + library dirs.
+    from vod_pipeline.service import VodPipelineService
+    svc2 = VodPipelineService(
+        storage=vod_service_with_library.storage,
+        channel_lister=channel_lister,
+        download_dir=vod_service_with_library.download_dir,
+        max_concurrent=1,
+        timeout_seconds=0.0,
+        sync_limit=100,
+        library_service=lib_service,
+    )
+    recovered = svc2.get_vod(vod_id)
+    assert recovered["status"] == VodStatus.READY.value, recovered
+    assert recovered["library_item_id"] == item["id"]
+    assert recovered["error"] is None
+
+
+def test_finalize_repromotes_after_dangling_library_item(
+    vod_service_with_library, channel_lister, make_real_mp4, ffmpeg_available
+):
+    """A dangling library_item_id must not cause the downloaded file to be deleted.
+
+    If the library item referenced by a VOD has been deleted (e.g. by the
+    user from the library page), re-downloading the VOD must create a fresh
+    library item and move the new file there — not silently drop the file
+    and leave the VOD pointing at a non-existent item.
+    """
+    channel_lister.add_vod("casepayt", "100")
+    profile = vod_service_with_library.create_profile("casepayt")
+    vod_service_with_library.sync_vods(profile["id"])
+    vod = vod_service_with_library.list_vods(profile_id=profile["id"])[0]
+    vod_id = vod["id"]
+
+    # First download: promote into the library.
+    vod_dir = vod_service_with_library._vod_dir(vod_id)
+    src = vod_dir / "source.mp4"
+    make_real_mp4(src)
+    file_size = src.stat().st_size
+    lib_service = vod_service_with_library.library_service
+    item = lib_service.promote_vod_file(
+        vod_id=vod_id,
+        twitch_video_id=vod["twitch_video_id"],
+        title=vod["title"],
+        source_file=src,
+        container="mp4",
+        duration_seconds=1.0,
+        file_size_bytes=file_size,
+    )
+    vod["status"] = VodStatus.READY.value
+    vod["library_item_id"] = item["id"]
+    vod["download"] = {
+        "started_at": vod.get("updated_at"),
+        "completed_at": vod_service_with_library._now_iso(),
+        "file_name": "source.mp4",
+        "file_size_bytes": file_size,
+        "container": "mp4",
+        "duration_seconds": 1.0,
+        "width": 320,
+        "height": 240,
+        "video_codec": "h264",
+        "audio_codec": "aac",
+    }
+    vod_service_with_library.storage.save_vod(vod)
+
+    # User deletes the library item from the library page -> dangling ref.
+    assert lib_service.delete_item(item["id"]) is True
+    assert not src.exists()
+
+    # Second download: simulate the finalizer running over a freshly
+    # downloaded file while library_item_id still points at the deleted item.
+    if not ffmpeg_available:
+        pytest.skip("ffmpeg/ffprobe needed to exercise the finalizer")
+    make_real_mp4(src)
+    new_size = src.stat().st_size
+    vod_service_with_library._verify_with_ffprobe(vod_id)
+    recovered = vod_service_with_library.get_vod(vod_id)
+    assert recovered["status"] == VodStatus.READY.value, recovered
+    # A new library item was created (different id), file lives in it.
+    new_item_id = recovered["library_item_id"]
+    assert new_item_id is not None
+    assert new_item_id != item["id"]
+    assert lib_service.item_file_path(new_item_id).is_file()
+    assert lib_service.item_file_path(new_item_id).stat().st_size == new_size
+    # The temp file in the VOD dir was cleaned up (it's in the library now).
+    assert not src.exists()
+
+
 def test_atomic_persistence_tmp_not_treated_as_profile(vod_data_dir):
     storage = VodPipelineStorage(vod_data_dir)
     pid = "11111111-1111-1111-1111-111111111111"

@@ -128,6 +128,37 @@ def test_promote_vod_file_duplicate(library_service, tmp_path):
         )
 
 
+def test_promote_vod_file_sanitises_unsupported_container(library_service, tmp_path):
+    """ffprobe reports ``mov`` for MP4 files (format_name ``mov,mp4,...``).
+
+    ``source_file_path`` rewrites unsupported containers to ``mp4``, so the
+    recorded ``file_name`` must be sanitised the same way — otherwise the
+    item would record ``source.mov`` while the file lands at ``source.mp4``
+    and ``item_file_path`` could never locate it.
+    """
+    vod_dir = tmp_path / "vods" / "test-vod"
+    vod_dir.mkdir(parents=True)
+    src = vod_dir / "source.mp4"
+    src.write_bytes(b"fake video content")
+    item = library_service.promote_vod_file(
+        vod_id="vod-uuid-1",
+        twitch_video_id="400",
+        title="Test VOD",
+        source_file=src,
+        container="mov",  # ffprobe's format_name for mp4 starts with "mov"
+        duration_seconds=60.0,
+        file_size_bytes=len(b"fake video content"),
+    )
+    # The container must be normalised to a supported extension.
+    assert item["container"] == "mp4"
+    assert item["file_name"] == "source.mp4"
+    # And the file must be locatable via item_file_path.
+    lib_file = library_service.item_file_path(item["id"])
+    assert lib_file.is_file()
+    assert lib_file.name == "source.mp4"
+    assert lib_file.read_bytes() == b"fake video content"
+
+
 def test_unlink_vod(library_service):
     item = library_service.create_item(
         source="vod",
