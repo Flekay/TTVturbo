@@ -16,9 +16,30 @@ export const backendStatusSchema = z.object({
   features: z.object({
     recording: z.enum(["available", "unavailable", "not_implemented"]),
     voice_cloning: z.enum(["available", "unavailable", "not_implemented"]),
+    voice_profiles: z.enum(["available", "unavailable", "not_implemented"]).optional(),
+    twitch_profiles: z.enum(["available", "unavailable", "not_implemented"]).optional(),
+    vod_pipeline: z.enum(["available", "unavailable", "not_implemented"]).optional(),
     vod_analysis: z.enum(["available", "unavailable", "not_implemented"]),
     video_editor: z.enum(["available", "unavailable", "not_implemented"]),
+    transcription: z.enum(["available", "unavailable", "not_implemented"]).optional(),
   }),
+  voice_profiles: z
+    .object({
+      count: z.number(),
+      clone_ready_count: z.number(),
+      complete_count: z.number(),
+    })
+    .optional(),
+  vod_pipeline: z
+    .object({
+      profiles: z.number(),
+      vods: z.number(),
+      ready: z.number(),
+      active: z.number(),
+      failed: z.number(),
+      downloaded_bytes: z.number(),
+    })
+    .optional(),
 });
 
 export const recordingSchema = z.object({

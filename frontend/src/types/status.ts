@@ -13,8 +13,21 @@ export interface StatusStorage {
 export interface StatusFeatures {
   recording: FeatureStatus;
   voice_cloning: FeatureStatus;
+  voice_profiles?: FeatureStatus;
+  twitch_profiles?: FeatureStatus;
+  vod_pipeline?: FeatureStatus;
   vod_analysis: FeatureStatus;
   video_editor: FeatureStatus;
+  transcription?: FeatureStatus;
+}
+
+export interface VodPipelineAggregate {
+  profiles: number;
+  vods: number;
+  ready: number;
+  active: number;
+  failed: number;
+  downloaded_bytes: number;
 }
 
 export interface BackendStatus {
@@ -25,4 +38,10 @@ export interface BackendStatus {
   recordings: StatusRecordings;
   storage: StatusStorage;
   features: StatusFeatures;
+  voice_profiles?: {
+    count: number;
+    clone_ready_count: number;
+    complete_count: number;
+  };
+  vod_pipeline?: VodPipelineAggregate;
 }

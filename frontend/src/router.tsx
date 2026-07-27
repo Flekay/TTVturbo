@@ -4,6 +4,8 @@ import { AppLayout } from "./components/layout/AppLayout";
 import { DashboardPage } from "./pages/DashboardPage";
 import { VoiceProfilesPage } from "./pages/VoiceProfilesPage";
 import { VoiceClonePage } from "./pages/VoiceClonePage";
+import { VodPipelinePage } from "./pages/VodPipelinePage";
+import { TwitchProfilesPage } from "./pages/TwitchProfilesPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { UnavailablePage } from "./pages/UnavailablePage";
@@ -61,21 +63,23 @@ export function AppRouter() {
         }
       />
       <Route
-        path="/vod-explorer"
+        path="/vod-pipeline"
         element={
           <AppLayout>
-            <Unavailable
-              title="VOD Explorer"
-              description="Später werden hier neue Twitch-VODs erkannt, heruntergeladen und für die Gesprächsanalyse vorbereitet."
-              plannedFeatures={[
-                "Twitch-VODs automatisch erkennen",
-                "VODs herunterladen und zwischenspeichern",
-                "Vorbereitung für die Gesprächsanalyse",
-              ]}
-            />
+            <VodPipelinePage />
           </AppLayout>
         }
       />
+      <Route
+        path="/twitch-profiles"
+        element={
+          <AppLayout>
+            <TwitchProfilesPage />
+          </AppLayout>
+        }
+      />
+      {/* Legacy redirect: the old placeholder route now lives at /vod-pipeline. */}
+      <Route path="/vod-explorer" element={<Navigate to="/vod-pipeline" replace />} />
       <Route
         path="/clips"
         element={

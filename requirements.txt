@@ -20,3 +20,9 @@ soundfile==0.14.0
 
 # Used by voice_clone.runtime for peak-RAM reporting inside the worker.
 psutil==7.2.2
+
+# VOD pipeline (Phase 1): httpx for Twitch Helix API calls (also used by
+# the FastAPI TestClient), yt-dlp for VOD metadata + downloads (runs in
+# the separate downloader_worker subprocess, never in the FastAPI loop).
+httpx==0.28.1
+yt-dlp==2026.7.4

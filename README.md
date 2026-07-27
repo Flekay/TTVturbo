@@ -9,17 +9,20 @@ sie über ein React-Dashboard bereit.
 
 ```
 TTVturbo/
-├── app.py                # FastAPI-Backend: Aufnahmen, Voice Clone, Voice Profiles, Status, SPA-Auslieferung
+├── app.py                # FastAPI-Backend: Aufnahmen, Voice Clone, Voice Profiles, VOD Pipeline, Status, SPA-Auslieferung
 ├── voice_profiles_api.py # Voice-Profile FastAPI-Router + Service-Factory
+├── vod_pipeline_api.py   # VOD-Pipeline FastAPI-Router (Twitch-Profile, VODs, Downloads, Status)
 ├── recordings/           # erzeugte WAV-Dateien (real)
 ├── voice_profiles/       # Voice-Profile-Kern (Library, Storage, Service, Schemas)
 ├── voice_profiles_data/  # persistierte Profile (JSON, konfigurierbar via TTVTURBO_VOICE_PROFILES_DIR)
+├── vod_pipeline/         # Twitch-VOD-Pipeline-Kern (Schemas, Storage, TwitchClient, Service, Downloader-Worker)
+├── ttvturbo_data/        # persistierte Twitch-Profile + VOD-Metadaten (konfigurierbar via TTVTURBO_DATA_DIR)
 ├── voice_clone/          # Qwen3-TTS Voice-Clone-Modul (Service, Runtime, Qualitätsanalyse, Diagnostics)
 ├── static/               # Legacy-Testfrontend (Fallback, wenn frontend/dist fehlt)
 ├── tests/                # pytest-Backendtests
 ├── scripts/              # verify_local.ps1 - kombinierte lokale Verifikation
 ├── .github/workflows/    # ci.yml - GPU-freie CI (Python + Frontend + FFmpeg)
-├── requirements.txt      # Basissystem (FastAPI, soundfile, numpy, psutil)
+├── requirements.txt      # Basissystem (FastAPI, soundfile, numpy, psutil, yt-dlp)
 ├── requirements-dev.txt  # pytest + httpx
 ├── requirements-gpu.txt  # NVIDIA-/Qwen-Stack (torch+cu128, qwen-tts, transformers)
 │
@@ -36,7 +39,8 @@ TTVturbo/
 │       ├── router.routes.tsx
 │       ├── api/          # typisierter Fetch-Client + Endpunkte
 │       ├── components/   # Layout, UI-Wrappers, Recordings, ErrorBoundary
-│       ├── pages/        # Dashboard, VoiceLab, Settings, Unavailable, NotFound
+│       ├── pages/        # Dashboard, VoiceProfiles, VoiceClone, VodPipeline, TwitchProfiles, Settings, NotFound
+│       ├── features/     # voiceProfiles + vodPipeline Feature-Module (Schemas, API, Hooks, Panels)
 │       ├── stores/       # Zustand UI-Store (localStorage)
 │       ├── hooks/        # useRecorder, useBackendStatus, TanStack Query Hooks
 │       ├── types/        # TypeScript-Typen + Zod-Schemata
@@ -188,8 +192,10 @@ API-404s auf das Frontend um.
 |---------------------|----------------------|------------------------------|
 | `/dashboard`        | Dashboard            | funktionsfähig               |
 | `/voice-profiles`   | Voice Profiles       | funktionsfähig               |
+| `/vod-pipeline`     | VOD Pipeline         | funktionsfähig (Phase 1)     |
+| `/twitch-profiles`  | Twitch-Profile       | funktionsfähig (Phase 1)     |
 | `/settings`         | Einstellungen        | teilweise funktionsfähig     |
-| `/vod-explorer`     | VOD Explorer         | noch nicht implementiert     |
+| `/vod-explorer`     | (Weiterleitung)      | leitet auf `/vod-pipeline`   |
 | `/clips`            | Clip-Vorschläge      | noch nicht implementiert     |
 | `/ideas`            | Ideen                | noch nicht implementiert     |
 | `/recording-studio` | Aufnahmestudio       | noch nicht implementiert     |
@@ -290,6 +296,65 @@ Profile liegen als JSON-Dateien unter `voice_profiles_data/` (konfigurierbar
 über `TTVTURBO_VOICE_PROFILES_DIR`). Die zugrunde liegenden WAV-Dateien
 bleiben beim Löschen eines Profils erhalten.
 
+## VOD-Pipeline-Funktion (Phase 1)
+
+Die VOD Pipeline (`/vod-pipeline`) synchronisiert Twitch-VODs und -Clips
+und lädt sie herunter. Sie nutzt ausschließlich `yt-dlp` – keine Twitch-API-
+Credentials, kein Client-ID/Secret, kein OAuth. yt-dlp spricht Twitch's
+GraphQL-Endpoint intern selbst ab.
+
+### Voraussetzungen
+
+- `yt-dlp` und `ffprobe` müssen im PATH verfügbar sein. `yt-dlp` ist in
+  `requirements.txt` aufgeführt; `ffprobe` kommt mit FFmpeg.
+- Keine Twitch-App-Registrierung, keine Credentials, kein `.env`-Eintrag
+  nötig.
+
+Der Status-Endpunkt `/api/twitch/status` zeigt ehrlich an, ob `yt-dlp`,
+`ffprobe` und Schreibrechte im Download-Verzeichnis vorliegen.
+
+### Twitch-Profile
+
+1. Auf `/vod-pipeline` oder `/twitch-profiles` ein Profil hinzufügen –
+   entweder als Login (`casepayt`) oder als Channel-URL
+   (`https://www.twitch.tv/casepayt`).
+2. Der Server speichert Login + Channel-URL als JSON unter
+   `ttvturbo_data/twitch_profiles/<id>.json`. Keine externe API-Auflösung,
+   keine Metadaten von Twitch.
+3. Pro Profil können VODs + Clips synchronisiert
+   (`POST /api/twitch/profiles/{id}/sync-vods`) oder manuell importiert
+   werden (`POST /api/vods/import`).
+4. Profile können gelöscht werden. Ein Profil mit angehängten VODs kann
+   nicht gelöscht werden (HTTP 409 – erst die VODs löschen).
+
+### VODs und Clips
+
+- Sync ruft die neuesten VODs **und Clips** eines Channels via
+  `yt-dlp --flat-playlist` ab (limitiert via `TTVTURBO_VOD_SYNC_LIMIT`,
+  Default 100) und legt sie als `DISCOVERED`-Einträge an. Clips werden
+  mit `type: "clip"` markiert.
+- Manuelles Importieren akzeptiert `twitch.tv/videos/<id>` **und**
+  `twitch.tv/<channel>/clip/<slug>` URLs. Channel-URLs und fremde Domains
+  werden mit HTTP 400 abgelehnt.
+- Jeder VOD durchläuft die Statusmaschine
+  `DISCOVERED → QUEUED → DOWNLOADING → VERIFYING → READY`
+  (oder `FAILED` / `CANCELED`).
+- Downloads laufen über `yt-dlp` als Subprocess. Fortschritt
+  (Prozent, Bytes/s, ETA) wird live im Frontend gepollt (2 s Intervall),
+  solange VODs in einem transienten Status sind.
+- `READY`-VODs zeigen Dateiname, Größe, Auflösung und Codec; die Datei
+  kann direkt heruntergeladen werden.
+- VODs können abgebrochen (Cancel), erneut gestartet (Retry) oder
+  gelöscht werden (inkl. Videodatei).
+
+### Datenspeicher
+
+- Twitch-Profile: `ttvturbo_data/twitch_profiles/<id>.json`
+- VOD-Metadaten: `ttvturbo_data/vods/<id>.json`
+- VOD-Videodateien: `ttvturbo_data/vods/<id>/source.<ext>` (oder
+  konfigurierbar via `TTVTURBO_VOD_DOWNLOAD_DIR`)
+- Path-Traversal ist überall blockiert; IDs werden gegen UUIDs validiert.
+
 ## API-Endpunkte
 
 | Methode | Pfad                          | Beschreibung                                  |
@@ -316,6 +381,20 @@ bleiben beim Löschen eines Profils erhalten.
 | PUT     | `/api/voice-profiles/{id}/references/{script_id}` | Aufnahme als Referenz zuweisen (Server analysiert Qualität) |
 | DELETE  | `/api/voice-profiles/{id}/references/{script_id}` | Referenz-Verknüpfung entfernen |
 | POST    | `/api/voice-profiles/{id}/references/{script_id}/accept-review` | REVIEW-Referenz explizit akzeptieren |
+| GET     | `/api/twitch/status`          | Twitch-Integrationsstatus (Credentials, API, Downloader, ffprobe) |
+| GET     | `/api/twitch/profiles`        | listet alle Twitch-Profile (mit VOD-Anzahl)   |
+| POST    | `/api/twitch/profiles`        | Twitch-Profil anlegen (Login oder Channel-URL) |
+| DELETE  | `/api/twitch/profiles/{id}`   | Twitch-Profil löschen (VODs müssen zuerst entfernt werden) |
+| POST    | `/api/twitch/profiles/{id}/refresh` | Profil-Metadaten von Twitch neu abrufen |
+| POST    | `/api/twitch/profiles/{id}/sync-vods` | neueste VODs des Channels synchronisieren |
+| GET     | `/api/vods`                   | listet VODs (filterbar nach profile_id, status, search, sort) |
+| POST    | `/api/vods/import`            | VOD manuell importieren (nur twitch.tv/videos/<id>) |
+| GET     | `/api/vods/{id}`              | einzelner VOD (Metadaten + Fortschritt + Download) |
+| DELETE  | `/api/vods/{id}`              | VOD löschen (Metadaten + Videodatei)          |
+| GET     | `/api/vods/{id}/file`         | VOD-Videodatei herunterladen (READY-VODs)     |
+| POST    | `/api/vods/{id}/download`     | Download starten (DISCOVERED/FAILED/CANCELED → QUEUED) |
+| POST    | `/api/vods/{id}/cancel`       | laufenden Download abbrechen → CANCELED       |
+| POST    | `/api/vods/{id}/retry`        | fehlgeschlagenen Download neu starten         |
 
 `/api/status` liefert u. a. App-Version, Laufzeit, Aufnahmeanzahl,
 Gesamtdauer, belegten Speicher, freien Speicher und den Featurestatus.
@@ -368,6 +447,14 @@ Getestet werden u. a.:
 - Voice-Profile-Referenzen (Zuweisen mit Server-Qualitätsanalyse, Trennen, Review-Akzeptieren)
 - Aufnahme-Löschschutz bei Profil-Referenzierung (HTTP 409)
 - Voice-Clone-Profilmodus (Generierung aus akzeptierter Profilreferenz)
+- VOD-Pipeline: yt-dlp-basierter Channel-Lister (VODs + Clips, keine API-Credentials)
+- VOD-Pipeline: Twitch-Profile (Anlegen via Login/URL, Refresh, Löschen mit VOD-Schutz)
+- VOD-Pipeline: VOD-Sync (neueste VODs, Limit, Dedup-Verhalten)
+- VOD-Pipeline: VOD-Import (nur twitch.tv/videos/<id>, Channel/Clip/Fremd-Domain abgelehnt)
+- VOD-Pipeline: Download-Worker (yt-dlp-Subprocess, Statusmaschine, Restart-Recovery)
+- VOD-Pipeline: API-Integration (Status, Profile, VODs, Download-Start/Cancel/Retry, Datei-Download)
+- VOD-Pipeline: App-Integration (Router-Wiring, Status-Payload, Twitch-Status-Endpunkt)
+- VOD-Pipeline: Frontend (VOD-Pipeline-Seite, Twitch-Profile-Seite, Dashboard-Karte, Status-Banner, Profil-Auswahl, VOD-Liste mit Download-Controls, Import-Form, Redirect /vod-explorer → /vod-pipeline)
 - Dashboard-, Voice-Lab-, Voice-Clone-Tab-, Voice-Profiles-Tab- und Generierungen-Tab-Tests (Vitest + RTL)
 
 ## Bekannte Einschränkungen

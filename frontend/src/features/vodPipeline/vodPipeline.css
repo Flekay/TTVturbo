@@ -1,0 +1,528 @@
+/* VOD Pipeline feature styles.
+   Reuses TTVturbo variables and base component classes (btn, card, badge,
+   state, dialog, input). Only feature-specific layout is defined here. */
+
+.vp-vod-pipeline {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  min-height: 0;
+}
+
+.vp-vod-pipeline__layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) 1fr;
+  gap: var(--space-5);
+  align-items: start;
+  min-height: 0;
+}
+
+.vp-vod-pipeline__main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Status banner */
+.vp-status-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background-color: var(--color-bg-panel);
+  font-size: 14px;
+}
+
+.vp-status-banner--success {
+  border-color: var(--color-success);
+  background-color: rgba(66, 199, 129, 0.08);
+}
+
+.vp-status-banner--warning {
+  border-color: var(--color-warning);
+  background-color: rgba(229, 172, 69, 0.08);
+}
+
+.vp-status-banner--error {
+  border-color: var(--color-error);
+  background-color: rgba(228, 97, 97, 0.08);
+}
+
+.vp-status-banner--info {
+  border-color: var(--color-info);
+  background-color: rgba(85, 167, 232, 0.08);
+}
+
+.vp-status-banner__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+}
+
+.vp-status-banner__title {
+  font-weight: 600;
+}
+
+.vp-status-banner__reasons {
+  margin: 0;
+  padding-left: var(--space-4);
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.vp-status-banner__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+/* Profile selector */
+.vp-profile-selector {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 0;
+}
+
+.vp-profile-selector__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.vp-profile-selector__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.vp-profile-selector__actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.vp-profile-selector__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-height: calc(100vh - 320px);
+  overflow: auto;
+  padding-right: var(--space-2);
+}
+
+/* Reused profile card layout (avatar + body) for the VOD pipeline. The
+   voice-profiles feature uses a simpler card; we extend it here. */
+.vp-profile-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background-color: var(--color-bg-panel);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  color: inherit;
+  font: inherit;
+  transition: border-color var(--transition-fast), background-color var(--transition-fast);
+}
+
+.vp-profile-card:hover {
+  border-color: var(--color-text-muted);
+}
+
+.vp-profile-card:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.vp-profile-card--active {
+  border-color: var(--color-accent);
+  background-color: var(--color-bg-elevated);
+}
+
+.vp-profile-card__avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--color-bg-elevated);
+  color: var(--color-text-secondary);
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.vp-profile-card__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.vp-profile-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.vp-profile-card__name {
+  font-weight: 600;
+  font-size: 14px;
+  word-break: break-word;
+}
+
+.vp-profile-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.vp-profile-selector__active-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: var(--space-3);
+  background-color: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.vp-profile-selector__active-info {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+
+.vp-profile-selector__active-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* Import panel */
+.vp-import-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background-color: var(--color-bg-panel);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.vp-import-panel__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.vp-import-panel__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.vp-import-panel__hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.vp-import-panel__row {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.vp-import-panel__row .input {
+  flex: 1;
+  min-width: 240px;
+}
+
+.vp-form-error {
+  font-size: 13px;
+  color: var(--color-error);
+}
+
+.vp-form-success {
+  font-size: 13px;
+  color: var(--color-success);
+}
+
+/* VOD list */
+.vp-vod-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 0;
+}
+
+.vp-vod-list__toolbar {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.vp-vod-list__search {
+  position: relative;
+  flex: 1;
+  min-width: 200px;
+  display: flex;
+  align-items: center;
+}
+
+.vp-vod-list__search > svg {
+  position: absolute;
+  left: var(--space-3);
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+
+.vp-vod-list__search .input {
+  width: 100%;
+  padding-left: var(--space-6);
+}
+
+.vp-vod-list__items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.vp-vod-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background-color: var(--color-bg-panel);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.vp-vod-row__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.vp-vod-row__title-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.vp-vod-row__title {
+  font-weight: 600;
+  font-size: 15px;
+  word-break: break-word;
+}
+
+.vp-vod-row__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.vp-vod-row__link {
+  color: var(--color-text-secondary);
+  text-decoration: none;
+}
+
+.vp-vod-row__link:hover {
+  color: var(--color-accent-hover);
+  text-decoration: underline;
+}
+
+.vp-vod-row__progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.vp-vod-row__progress-bar {
+  height: 6px;
+  border-radius: 999px;
+  background-color: var(--color-bg-elevated);
+  overflow: hidden;
+}
+
+.vp-vod-row__progress-fill {
+  height: 100%;
+  background-color: var(--color-accent);
+  transition: width var(--transition-base);
+}
+
+.vp-vod-row__progress-text {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+}
+
+.vp-vod-row__error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 12px;
+  color: var(--color-error);
+}
+
+.vp-vod-row__error--muted {
+  color: var(--color-text-muted);
+}
+
+.vp-vod-row__ready {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+}
+
+.vp-vod-row__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+/* Twitch Profiles management page */
+.vp-profiles-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.vp-profiles-page__header {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.vp-profiles-page__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.vp-profiles-page__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  background-color: var(--color-bg-panel);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  flex-wrap: wrap;
+}
+
+.vp-profiles-page__avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--color-bg-elevated);
+  color: var(--color-text-secondary);
+  font-weight: 600;
+  font-size: 18px;
+}
+
+.vp-profiles-page__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.vp-profiles-page__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  flex: 1;
+  min-width: 200px;
+}
+
+.vp-profiles-page__name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.vp-profiles-page__ext {
+  color: var(--color-text-muted);
+  display: inline-flex;
+  align-items: center;
+}
+
+.vp-profiles-page__ext:hover {
+  color: var(--color-accent-hover);
+}
+
+.vp-profiles-page__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-size: 12px;
+  color: var(--color-text-muted);
+  align-items: center;
+}
+
+.vp-profiles-page__dates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.vp-profiles-page__actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* Responsive: stack the layout on narrow screens. */
+@media (max-width: 900px) {
+  .vp-vod-pipeline__layout {
+    grid-template-columns: 1fr;
+  }
+  .vp-profile-selector__list {
+    max-height: none;
+  }
+}

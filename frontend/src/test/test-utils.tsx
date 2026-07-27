@@ -45,7 +45,14 @@ export function installFetchMock() {
     const method = init?.method ?? "GET";
     calls.push({ url, method, body: init?.body });
     const key = `${method} ${url}`;
-    const exact = responses.get(key) ?? responses.get(url);
+    // Try exact match first, then match without query string, then URL-only.
+    const urlWithoutQuery = url.split("?")[0];
+    const keyWithoutQuery = `${method} ${urlWithoutQuery}`;
+    const exact =
+      responses.get(key) ??
+      responses.get(url) ??
+      responses.get(keyWithoutQuery) ??
+      responses.get(urlWithoutQuery);
     if (!exact) {
       return new Response(JSON.stringify({ detail: "Not found" }), {
         status: 404,

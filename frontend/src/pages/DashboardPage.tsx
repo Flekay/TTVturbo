@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { Mic2, Wand2, Film, Video, ArrowRight } from "lucide-react";
+import { Mic2, Wand2, Film, Video, ArrowRight, Tv } from "lucide-react";
 import { useStatusQuery } from "../hooks/useQueries";
 import { useRecordingsQuery } from "../hooks/useQueries";
 import { Card } from "../components/ui/Card";
@@ -113,9 +113,15 @@ export function DashboardPage() {
           />
           <ModuleCard
             icon={<Film size={18} />}
-            title="VOD Explorer"
-            description="Twitch-VODs erkennen und herunterladen."
-            status={data.features.vod_analysis}
+            title="VOD Pipeline"
+            description="Twitch-VODs synchronisieren und herunterladen."
+            status={data.features.vod_pipeline ?? data.features.vod_analysis}
+          />
+          <ModuleCard
+            icon={<Tv size={18} />}
+            title="Twitch-Profile"
+            description="Twitch-Channel-Profile verwalten."
+            status={data.features.twitch_profiles ?? "not_implemented"}
           />
           <ModuleCard
             icon={<Video size={18} />}
@@ -125,6 +131,39 @@ export function DashboardPage() {
           />
         </div>
       </section>
+
+      {data.vod_pipeline && (
+        <section className="page__section">
+          <h2 className="page__section-title">VOD Pipeline</h2>
+          <div className="page__grid">
+            <Card
+              title="Twitch-Profile"
+              value={data.vod_pipeline.profiles}
+              sub="angelegt"
+            />
+            <Card
+              title="VODs gesamt"
+              value={data.vod_pipeline.vods}
+              sub="importiert / synchronisiert"
+            />
+            <Card
+              title="Bereit"
+              value={data.vod_pipeline.ready}
+              sub="erfolgreich heruntergeladen"
+            />
+            <Card
+              title="Heruntergeladen"
+              value={formatBytes(data.vod_pipeline.downloaded_bytes)}
+              sub="VOD-Videos gesamt"
+            />
+          </div>
+          <div style={{ marginTop: 12 }}>
+            <Link className="btn btn--primary" to="/vod-pipeline">
+              VOD Pipeline öffnen <ArrowRight size={14} />
+            </Link>
+          </div>
+        </section>
+      )}
 
       <section className="page__section">
         <h2 className="page__section-title">Letzte Aufnahmen</h2>

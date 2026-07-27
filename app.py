@@ -47,6 +47,12 @@ from voice_profiles_api import (
     make_quality_analyzer as make_voice_profile_quality_analyzer,
 )
 
+from vod_pipeline_api import (
+    build_router as build_vod_pipeline_router,
+    build_service as build_vod_pipeline_service,
+    build_twitch_status_router as build_twitch_status_router,
+)
+
 logger = logging.getLogger("ttvturbo")
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -81,6 +87,24 @@ _voice_profile_quality_analyzer = make_voice_profile_quality_analyzer(voice_clon
 voice_profiles_router = build_voice_profiles_router(
     voice_profile_service, quality_analyzer=_voice_profile_quality_analyzer
 )
+
+# VOD pipeline (Phase 1). File-based persistence under the data dir; the
+# download worker runs in a separate Python process so FastAPI stays
+# responsive during multi-hour downloads. Twitch credentials are read
+# from the environment and never persisted or logged.
+TTVTURBO_DATA_DIR = Path(
+    os.environ.get("TTVTURBO_DATA_DIR") or (BASE_DIR / "ttvturbo_data")
+)
+TTVTURBO_DATA_DIR.mkdir(parents=True, exist_ok=True)
+TTVTURBO_VOD_DOWNLOAD_DIR = Path(
+    os.environ.get("TTVTURBO_VOD_DOWNLOAD_DIR") or (TTVTURBO_DATA_DIR / "vods")
+)
+vod_pipeline_service = build_vod_pipeline_service(
+    data_dir=TTVTURBO_DATA_DIR,
+    download_dir=TTVTURBO_VOD_DOWNLOAD_DIR,
+)
+vod_pipeline_router = build_vod_pipeline_router(vod_pipeline_service)
+twitch_status_router = build_twitch_status_router(vod_pipeline_service)
 
 # Connect the voice-clone profile mode to the voice-profile service. The
 # resolver runs server-side: it loads the profile, finds the accepted
@@ -148,6 +172,11 @@ if STATIC_DIR.is_dir():
 # Voice-profile API routes. Registered before the SPA fallback so /api/*
 # routes take precedence over the catch-all.
 app.include_router(voice_profiles_router)
+
+# VOD-pipeline API routes (Twitch profiles, VODs) and the Twitch runtime
+# diagnostic. Also registered before the SPA fallback.
+app.include_router(vod_pipeline_router)
+app.include_router(twitch_status_router)
 
 
 # --------------------------------------------------------------------------- #
@@ -353,6 +382,23 @@ def get_status() -> JSONResponse:
     except Exception as exc:  # pragma: no cover - defensive
         logger.warning("voice-profile status aggregation failed: %s", exc)
         vp_available = "unavailable"
+    # Real VOD-pipeline aggregate counts. Computed from the actual stores;
+    # never fabricated. Failures degrade to zeros so the rest of the
+    # status payload stays intact.
+    vod_pipeline_agg = {
+        "profiles": 0,
+        "vods": 0,
+        "ready": 0,
+        "active": 0,
+        "failed": 0,
+        "downloaded_bytes": 0,
+    }
+    vod_pipeline_available = "available"
+    try:
+        vod_pipeline_agg = vod_pipeline_service.aggregate_status()
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("vod-pipeline status aggregation failed: %s", exc)
+        vod_pipeline_available = "unavailable"
     return JSONResponse(content={
         "status": "online",
         "app_name": APP_NAME,
@@ -366,8 +412,11 @@ def get_status() -> JSONResponse:
             "recording": "available" if ffmpeg is not None else "unavailable",
             "voice_cloning": "available" if vc_status["available"] else "unavailable",
             "voice_profiles": vp_available,
+            "twitch_profiles": vod_pipeline_available,
+            "vod_pipeline": vod_pipeline_available,
             "vod_analysis": "not_implemented",
             "video_editor": "not_implemented",
+            "transcription": "not_implemented",
         },
         # Additive voice-clone runtime diagnostics. The frontend ignores
         # unknown keys; these fields let the dashboard show the real GPU
@@ -392,6 +441,9 @@ def get_status() -> JSONResponse:
             "clone_ready_count": vp_clone_ready,
             "complete_count": vp_complete,
         },
+        # Additive VOD-pipeline aggregate status. The frontend ignores
+        # unknown keys; no local storage paths are leaked here.
+        "vod_pipeline": vod_pipeline_agg,
     })
 
 
