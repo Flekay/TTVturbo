@@ -401,6 +401,18 @@
   text-decoration: underline;
 }
 
+.vod-detail__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.vod-detail__header .back-link {
+  margin-bottom: 0;
+}
+
 .vod-detail-card {
   padding: var(--space-4);
   display: flex;

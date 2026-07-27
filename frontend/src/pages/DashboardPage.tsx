@@ -48,15 +48,6 @@ export function DashboardPage() {
 
   return (
     <div className="page">
-      <div className="page__header">
-        <div>
-          <h1 className="page__title">Dashboard</h1>
-          <p className="page__description">
-            Echtzeit-Übersicht über Backend, Aufnahmen und verfügbare Module.
-          </p>
-        </div>
-      </div>
-
       <section className="page__section">
         <h2 className="page__section-title">Systemstatus</h2>
         <div className="page__grid">

@@ -234,15 +234,6 @@ export function VodPipelinePage() {
 
   return (
     <div className="page">
-      <div className="page__header">
-        <div>
-          <h1 className="page__title">VOD Pipeline</h1>
-          <p className="page__description">
-            Download, Audio-Extraktion und Transkription in einem automatisierten Ablauf.
-          </p>
-        </div>
-      </div>
-
       <section className="page__section">
         <h2 className="page__section-title">Pipeline starten</h2>
         {readyVodsQuery.isLoading && <LoadingState message="Lade VODs…" />}

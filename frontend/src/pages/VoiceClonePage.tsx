@@ -78,16 +78,6 @@ export function VoiceClonePage() {
 
   return (
     <div className="page">
-      <div className="page__header">
-        <div>
-          <h1 className="page__title">Voice Clone</h1>
-          <p className="page__description">
-            On-Demand Voice-Clone mit Qwen3-TTS. Standardmäßig aus einem Voice-Profil,
-            optional per manuellem WAV-Upload.
-          </p>
-        </div>
-      </div>
-
       <section className="page__section">
         <h2 className="page__section-title">Voice Clone (Qwen3-TTS)</h2>
         <p className="page__description">

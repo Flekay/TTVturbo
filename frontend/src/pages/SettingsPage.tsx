@@ -80,15 +80,6 @@ export function SettingsPage() {
 
   return (
     <div className="page">
-      <div className="page__header">
-        <div>
-          <h1 className="page__title">Einstellungen</h1>
-          <p className="page__description">
-            Lokale Anwendungseinstellungen. Es werden keine Daten an den Server gesendet.
-          </p>
-        </div>
-      </div>
-
       <form className="form" onSubmit={handleSubmit(onSubmit)}>
         <Card>
           <h3 style={{ fontSize: 16, marginBottom: 12 }}>Allgemein</h3>

@@ -325,15 +325,6 @@ export function TranscriptionPage() {
 
   return (
     <div className="page">
-      <div className="page__header">
-        <div>
-          <h1 className="page__title">Transkription</h1>
-          <p className="page__description">
-            On-Demand Transkription von VOD-Audio mit faster-whisper (GPU).
-          </p>
-        </div>
-      </div>
-
       <section className="page__section">
         <RuntimeStatusCard />
       </section>

@@ -97,17 +97,11 @@ export function VodDetailPage() {
 
   return (
     <div className="page">
-      <div className="page__header">
-        <div>
-          <Link to="/vod-pipeline" className="back-link">
-            <ArrowLeft size={14} /> Zurück zur Pipeline
-          </Link>
-          <h1 className="page__title">{vod.title}</h1>
-          <p className="page__description">
-            VOD {vod.twitch_video_id} · {vod.duration_seconds ? formatDuration(vod.duration_seconds) : "Unbekannte Dauer"}
-          </p>
-          <Badge variant={status.variant}>{status.label}</Badge>
-        </div>
+      <div className="vod-detail__header">
+        <Link to="/vod-pipeline" className="back-link">
+          <ArrowLeft size={14} /> Zurück zur Pipeline
+        </Link>
+        <Badge variant={status.variant}>{status.label}</Badge>
       </div>
 
       <section className="page__section">
