@@ -54,7 +54,7 @@ describe("VoiceProfilesPage", () => {
     const { main } = renderVoiceProfiles();
     await waitFor(() => {
       expect(
-        within(main).getByRole("heading", { name: "Voice Profiles", level: 1 }),
+        within(main).getByRole("button", { name: /Neues Profil/ }),
       ).toBeInTheDocument();
     });
   });

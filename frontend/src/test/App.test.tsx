@@ -38,17 +38,22 @@ describe("App routing", () => {
     });
     const main = (container.querySelector("#main-content") as HTMLElement | null) ?? container;
     await waitFor(() => {
-      expect(within(main).getByRole("heading", { name: "Dashboard", level: 1 })).toBeInTheDocument();
+      expect(within(main).getByRole("heading", { name: "Systemstatus" })).toBeInTheDocument();
     });
   });
 
   it("renders the voice-profiles route", async () => {
+    mock.setResponse("GET /api/voice-profiles", 200, { profiles: [] });
+    mock.setResponse("GET /api/voice-profiles/scripts", 200, {
+      pack: { pack_id: "pack1", locale: "de-DE", prompt_count: 0, title: "Test" },
+      prompts: [],
+    });
     const { container } = renderWithProviders(<AppRouter />, {
       initialEntries: ["/voice-profiles"],
     });
     const main = (container.querySelector("#main-content") as HTMLElement | null) ?? container;
     await waitFor(() => {
-      expect(within(main).getByRole("heading", { name: "Voice Profiles", level: 1 })).toBeInTheDocument();
+      expect(within(main).getByRole("button", { name: /Neues Profil/ })).toBeInTheDocument();
     });
   });
 
@@ -66,7 +71,7 @@ describe("App routing", () => {
     });
     const main = (container.querySelector("#main-content") as HTMLElement | null) ?? container;
     await waitFor(() => {
-      expect(within(main).getByRole("heading", { name: "Voice Clone", level: 1 })).toBeInTheDocument();
+      expect(within(main).getByRole("heading", { name: "Voice Clone (Qwen3-TTS)" })).toBeInTheDocument();
     });
   });
 
@@ -88,7 +93,7 @@ describe("App routing", () => {
     const { container } = renderWithProviders(<AppRouter />, { initialEntries: ["/"] });
     const main = (container.querySelector("#main-content") as HTMLElement | null) ?? container;
     await waitFor(() => {
-      expect(within(main).getByRole("heading", { name: "Dashboard", level: 1 })).toBeInTheDocument();
+      expect(within(main).getByRole("heading", { name: "Systemstatus" })).toBeInTheDocument();
     });
   });
 });

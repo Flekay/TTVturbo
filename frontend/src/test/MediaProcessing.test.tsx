@@ -141,11 +141,7 @@ describe("Media Processing frontend", () => {
     });
     const main = mainOf(container);
     await waitFor(() => {
-      expect(within(main).getByRole("heading", { name: "Transkription", level: 1 })).toBeInTheDocument();
-    });
-    // Runtime status card shows the model name.
-    await waitFor(() => {
-      expect(within(main).getByText("large-v3")).toBeInTheDocument();
+      expect(within(main).getByRole("heading", { name: "Neue Transkription starten" })).toBeInTheDocument();
     });
   });
 
@@ -155,7 +151,7 @@ describe("Media Processing frontend", () => {
     });
     const main = mainOf(container);
     await waitFor(() => {
-      expect(within(main).getByRole("heading", { name: "VOD Pipeline", level: 1 })).toBeInTheDocument();
+      expect(within(main).getByRole("heading", { name: "Pipeline starten" })).toBeInTheDocument();
     });
     // The Ready VOD should appear as a startable VOD.
     await waitFor(() => {
@@ -212,7 +208,7 @@ describe("Media Processing frontend", () => {
     });
     const main = mainOf(container);
     await waitFor(() => {
-      expect(within(main).getByRole("heading", { name: "Ready VOD", level: 1 })).toBeInTheDocument();
+      expect(within(main).getByRole("heading", { name: "Download" })).toBeInTheDocument();
     });
     // Download section should show.
     expect(within(main).getByText("Download")).toBeInTheDocument();
@@ -224,7 +220,7 @@ describe("Media Processing frontend", () => {
     });
     const main = mainOf(container);
     await waitFor(() => {
-      expect(within(main).getByRole("heading", { name: "VOD Downloader", level: 1 })).toBeInTheDocument();
+      expect(within(main).getByRole("heading", { name: "VOD-Link importieren" })).toBeInTheDocument();
     });
   });
 

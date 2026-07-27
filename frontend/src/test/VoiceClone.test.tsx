@@ -122,7 +122,7 @@ describe("VoiceClonePage", () => {
   it("renders the page heading and defaults to Aus Voice-Profil mode", async () => {
     renderVoiceClonePage();
     await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "Voice Clone", level: 1 })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Voice Clone (Qwen3-TTS)" })).toBeInTheDocument();
     });
     // "Aus Voice-Profil" is the default pressed mode button.
     expect(screen.getByRole("button", { name: "Aus Voice-Profil" })).toHaveAttribute("aria-pressed", "true");

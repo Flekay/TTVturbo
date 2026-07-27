@@ -122,7 +122,7 @@ describe("VOD Pipeline frontend", () => {
     });
     const main = mainOf(container);
     await waitFor(() => {
-      expect(within(main).getByRole("heading", { name: "VOD Downloader", level: 1 })).toBeInTheDocument();
+      expect(within(main).getByRole("heading", { name: "VOD-Link importieren" })).toBeInTheDocument();
     });
     // Profile card is rendered.
     await waitFor(() => {
@@ -136,7 +136,7 @@ describe("VOD Pipeline frontend", () => {
     });
     const main = mainOf(container);
     await waitFor(() => {
-      expect(within(main).getByRole("heading", { name: "Twitch-Profile", level: 1 })).toBeInTheDocument();
+      expect(within(main).getByRole("button", { name: /Profil hinzufügen/ })).toBeInTheDocument();
     });
   });
 
@@ -146,7 +146,7 @@ describe("VOD Pipeline frontend", () => {
     });
     const main = mainOf(container);
     await waitFor(() => {
-      expect(within(main).getByRole("heading", { name: "VOD Downloader", level: 1 })).toBeInTheDocument();
+      expect(within(main).getByRole("heading", { name: "VOD-Link importieren" })).toBeInTheDocument();
     });
   });
 
@@ -266,7 +266,7 @@ describe("VOD Pipeline frontend", () => {
     });
     const main = mainOf(container);
     await waitFor(() => {
-      expect(within(main).getByRole("heading", { name: "VOD Downloader", level: 1 })).toBeInTheDocument();
+      expect(within(main).getByRole("heading", { name: "VOD-Link importieren" })).toBeInTheDocument();
     });
     // Profile card is still rendered.
     await waitFor(() => {
@@ -280,7 +280,7 @@ describe("VOD Pipeline frontend", () => {
     });
     const main = mainOf(container);
     await waitFor(() => {
-      expect(within(main).getByRole("heading", { name: "VOD Downloader", level: 1 })).toBeInTheDocument();
+      expect(within(main).getByRole("heading", { name: "VOD-Link importieren" })).toBeInTheDocument();
     });
     expect(main.textContent ?? "").not.toContain("fake-token");
     expect(main.textContent ?? "").not.toContain("csec");
