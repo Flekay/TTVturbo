@@ -14,8 +14,8 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-TOOLS_DIR = ROOT / "tools"
-sys.path.insert(0, str(TOOLS_DIR))
+SCRIPTS_DIR = ROOT / "scripts"
+sys.path.insert(0, str(SCRIPTS_DIR))
 
 import validate_voice_scripts as vvs  # noqa: E402
 

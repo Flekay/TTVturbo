@@ -32,7 +32,6 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
 
 from voice_clone.schemas import (
     CreateGenerationRequest,
@@ -70,7 +69,6 @@ from library_api import build_library_router
 logger = logging.getLogger("ttvturbo")
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_DIR = BASE_DIR / "static"
 FRONTEND_DIST_DIR = BASE_DIR / "frontend" / "dist"
 
 # Single runtime data root. Every persistent artifact lives under this
@@ -258,12 +256,6 @@ ALLOWED_UPLOAD_EXTENSIONS = {".webm", ".ogg", ".mp4", ".m4a", ".mp3", ".wav", ".
 
 app = FastAPI(title=APP_NAME)
 
-# Keep the legacy static/ folder mounted for backwards compatibility with
-# the old vanilla test frontend (and any external references). The React
-# dashboard is served from frontend/dist via the SPA fallback below.
-if STATIC_DIR.is_dir():
-    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-
 # Voice-profile API routes. Registered before the SPA fallback so /api/*
 # routes take precedence over the catch-all.
 app.include_router(voice_profiles_router)
@@ -442,18 +434,13 @@ def _spa_index() -> FileResponse:
 
 @app.get("/")
 def index() -> FileResponse:
-    """Serve the SPA entry point.
-
-    If the React frontend has not been built yet, fall back to the legacy
-    static test page so the recording pipeline keeps working during
-    development.
-    """
+    """Serve the SPA entry point from frontend/dist."""
     if (FRONTEND_DIST_DIR / "index.html").is_file():
         return _spa_index()
-    legacy = STATIC_DIR / "index.html"
-    if legacy.is_file():
-        return FileResponse(legacy, media_type="text/html")
-    raise HTTPException(status_code=404, detail="index.html not found")
+    raise HTTPException(
+        status_code=404,
+        detail="frontend/dist/index.html not found - build the React frontend first",
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -903,7 +890,7 @@ def get_voice_clone_log(generation_id: str) -> JSONResponse:
 
 
 # --------------------------------------------------------------------------- #
-# SPA fallback (must be registered AFTER all API routes and /static mount).
+# SPA fallback (must be registered AFTER all API routes).
 # --------------------------------------------------------------------------- #
 
 @app.api_route(

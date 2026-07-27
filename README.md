@@ -103,8 +103,7 @@ für den `voice_clone.runtime`- und `media_processing.transcription_worker`-
 Worker subprocess. Das FastAPI-Backend selbst importiert diese Pakete nie; es
 startet auch ohne sie.
 
-Getestet auf der Zielhardware (siehe `spikes/qwen_tts/REPORT.md`,
-Status `REAL_MODEL_VERIFIED`):
+Getestet auf der Zielhardware (Status `REAL_MODEL_VERIFIED`):
 
 | Eigenschaft         | Wert                                                |
 |---------------------|-----------------------------------------------------|

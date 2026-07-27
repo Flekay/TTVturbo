@@ -7,8 +7,7 @@
 # so a machine without a CUDA GPU can run the dashboard and the recording
 # pipeline without this file.
 #
-# Verified on the target hardware (see spikes/qwen_tts/REPORT.md,
-# status REAL_MODEL_VERIFIED):
+# Verified on the target hardware (status REAL_MODEL_VERIFIED):
 #
 #   * GPU:  NVIDIA GeForce RTX 5070 (12 GB VRAM, Blackwell)
 #   * OS:   Windows
@@ -23,7 +22,7 @@
 #   python -m pip install -r requirements-gpu.txt \
 #       --extra-index-url https://download.pytorch.org/whl/cu128
 #
-# Verified package versions (from spikes/qwen_tts/REPORT.md):
+# Verified package versions:
 #
 #   qwen-tts      == 0.1.1
 #   torch         == 2.11.0+cu128

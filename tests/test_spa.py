@@ -7,13 +7,13 @@ from pathlib import Path
 import app as app_module
 
 
-def test_index_falls_back_to_legacy_static_when_dist_missing(client, monkeypatch, tmp_path):
+def test_index_returns_404_when_dist_missing(client, monkeypatch, tmp_path):
     # Point FRONTEND_DIST_DIR at an empty tmp dir so the built frontend is "missing".
     monkeypatch.setattr(app_module, "FRONTEND_DIST_DIR", tmp_path / "dist")
     resp = client.get("/")
-    # Legacy static/index.html should be served.
-    assert resp.status_code == 200
-    assert "TTVturbo" in resp.text
+    # No legacy fallback: a clear 404 tells the developer to build the frontend.
+    assert resp.status_code == 404
+    assert "frontend" in resp.text.lower()
 
 
 def test_index_serves_built_frontend_when_dist_present(client, monkeypatch, tmp_path):
