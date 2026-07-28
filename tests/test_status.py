@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import app as app_module
+from settings import APP_NAME, APP_VERSION
 
 
 def test_status_returns_online(client):
@@ -10,8 +10,8 @@ def test_status_returns_online(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "online"
-    assert data["app_name"] == app_module.APP_NAME
-    assert data["version"] == app_module.APP_VERSION
+    assert data["app_name"] == APP_NAME
+    assert data["version"] == APP_VERSION
 
 
 def test_status_has_required_top_level_fields(client):

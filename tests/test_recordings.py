@@ -7,8 +7,6 @@ import subprocess
 import time
 from pathlib import Path
 
-import app as app_module
-
 
 def test_list_recordings_returns_metadata(client, isolated_recordings):
     resp = client.get("/api/recordings")
@@ -78,7 +76,7 @@ def test_get_recording_rejects_path_traversal(client):
     assert resp.status_code in (400, 404)
 
 
-def test_upload_recording_converts_to_wav(client, make_test_audio, tmp_path):
+def test_upload_recording_converts_to_wav(client, make_test_audio, tmp_path, recordings_dir):
     src = tmp_path / "rec.webm"
     make_test_audio(src)
     assert src.stat().st_size > 0
@@ -90,7 +88,7 @@ def test_upload_recording_converts_to_wav(client, make_test_audio, tmp_path):
     assert resp.status_code == 201, resp.text
     data = resp.json()
     assert data["filename"].endswith(".wav")
-    wav_path = app_module.RECORDINGS_DIR / data["filename"]
+    wav_path = recordings_dir / data["filename"]
     try:
         assert wav_path.is_file()
         # Verify the produced WAV is real and playable via ffprobe.

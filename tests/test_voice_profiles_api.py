@@ -22,7 +22,6 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-import app as app_module
 from voice_profiles_api import build_router, build_service
 
 
@@ -49,7 +48,7 @@ def _write_tone_wav(path: Path, duration: float = 1.0, sample_rate: int = 22050)
 
 
 @pytest.fixture()
-def isolated_voice_profiles(tmp_path: Path, recordings_dir: Path):
+def isolated_voice_profiles(tmp_path: Path, recordings_dir: Path, app):
     """Replace the app's voice_profile_service with a temp-backed one.
 
     The router's endpoints reference the service through a mutable state
@@ -76,23 +75,18 @@ def isolated_voice_profiles(tmp_path: Path, recordings_dir: Path):
             "quality": "GOOD",
         }
 
-    router = app_module.voice_profiles_router
+    router = app.state.container.voice_profiles_router
     original_state = dict(router.state)
-    original_service = app_module.voice_profile_service
+    original_service = app.state.container.voice_profile_service
     router.state["service"] = service
     router.state["quality_analyzer"] = _stub_analyzer
-    app_module.voice_profile_service = service
+    app.state.container.voice_profile_service = service
     try:
         yield {"service": service, "vp_dir": vp_dir, "analyzer": _stub_analyzer}
     finally:
         router.state["service"] = original_state["service"]
         router.state["quality_analyzer"] = original_state["quality_analyzer"]
-        app_module.voice_profile_service = original_service
-
-
-@pytest.fixture()
-def client() -> TestClient:
-    return TestClient(app_module.app)
+        app.state.container.voice_profile_service = original_service
 
 
 @pytest.fixture()

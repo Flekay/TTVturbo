@@ -1,8 +1,8 @@
 """Integration tests for the VOD-pipeline endpoints on the real app.
 
-These hit the real ``app:app`` FastAPI instance (the same one uvicorn
-serves), so they verify the router wiring, the status payload shape and
-that no secret leaks through the public surface.
+These hit the real FastAPI instance created via ``create_app`` with
+temporary settings, so they verify the router wiring, the status payload
+shape and that no secret leaks through the public surface.
 """
 
 from __future__ import annotations
@@ -10,18 +10,17 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from app_factory import create_app
+from settings import Settings
+
 
 @pytest.fixture()
-def client(monkeypatch, tmp_path):
-    # Point the data + download dirs at a temp location so the tests never
-    # touch the developer's real ttvturbo_data directory.
-    monkeypatch.setenv("TTVTURBO_DATA_DIR", str(tmp_path / "ttvturbo_data"))
-    monkeypatch.setenv("TTVTURBO_VOD_DOWNLOAD_DIR", str(tmp_path / "vods"))
-    # Force a fresh app import so the env vars take effect.
-    import importlib
-    import app as app_module
-    importlib.reload(app_module)
-    return TestClient(app_module.app)
+def client(tmp_path):
+    """Create an app with temp data dirs so tests never touch real data/."""
+    settings = Settings(data_root=tmp_path / "ttvturbo_data")
+    app = create_app(settings=settings)
+    with TestClient(app) as c:
+        yield c
 
 
 def test_status_payload_includes_vod_pipeline(client):

@@ -13,7 +13,8 @@ from typing import Optional
 import pytest
 from fastapi.testclient import TestClient
 
-import app as app_module
+from app_factory import create_app
+from settings import Settings
 
 
 E2E_ENV = "TTVTURBO_RUN_QWEN_TTS_E2E"
@@ -38,19 +39,41 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
                 item.add_marker(skip_twitch)
 
 
+# ---------------------------------------------------------------------------
+# Core fixtures: settings, app, client, recordings_dir
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def settings(tmp_path: Path) -> Settings:
+    """Return Settings pointing at a temporary data root."""
+    return Settings(data_root=tmp_path / "ttvturbo_data")
+
+
+@pytest.fixture()
+def app(settings: Settings):
+    """Create a FastAPI app with temporary settings (no real data/ touched)."""
+    return create_app(settings=settings)
+
+
+@pytest.fixture()
+def client(app):
+    """TestClient that runs the app lifespan (constructs services in tmp_path)."""
+    with TestClient(app) as c:
+        yield c
+
+
+@pytest.fixture()
+def recordings_dir(settings: Settings) -> Path:
+    """Return the recordings directory from settings (tmp_path)."""
+    rec_dir = settings.paths().recordings
+    rec_dir.mkdir(parents=True, exist_ok=True)
+    return rec_dir
+
+
 @pytest.fixture(scope="session")
 def ffmpeg_available() -> bool:
     return shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None
-
-
-@pytest.fixture()
-def client() -> TestClient:
-    return TestClient(app_module.app)
-
-
-@pytest.fixture()
-def recordings_dir() -> Path:
-    return app_module.RECORDINGS_DIR
 
 
 def _make_real_wav(path: Path, duration: float = 1.0) -> None:
@@ -270,4 +293,3 @@ def make_real_mp4():
         if proc.returncode != 0 or not path.is_file():
             pytest.skip("could not generate test mp4: " + proc.stderr.decode("utf-8", errors="replace")[-300:])
     return _make
-

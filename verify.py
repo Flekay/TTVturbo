@@ -26,10 +26,12 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-import app as app_module
+from app_factory import create_app
+from settings import Settings
 
 BASE_DIR = Path(__file__).resolve().parent
-RECORDINGS_DIR = app_module.RECORDINGS_DIR
+_settings = Settings.from_env()
+RECORDINGS_DIR = _settings.paths().recordings
 
 
 def fail(msg: str) -> None:
@@ -68,12 +70,15 @@ def main() -> None:
     ok("ffmpeg and ffprobe available.")
 
     # 1. FastAPI starts (TestClient builds the app without a network).
+    app = create_app(_settings)
     try:
-        client = TestClient(app_module.app)
+        with TestClient(app) as client:
+            _run_verification_checks(client)
     except Exception as exc:  # noqa: BLE001
         fail(f"FastAPI app could not be constructed: {exc}")
-    ok("FastAPI app constructs.")
 
+
+def _run_verification_checks(client: TestClient) -> None:
     # 2. Start page loads. The React dashboard is served from frontend/dist
     #    when built; otherwise the legacy static test page is served.
     resp = client.get("/")

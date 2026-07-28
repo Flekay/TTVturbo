@@ -20,7 +20,6 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-import app as app_module
 from voice_clone.schemas import GenerationStatus
 from voice_clone.service import VoiceCloneService, ValidationError
 
@@ -49,7 +48,7 @@ def _make_reference(recordings_dir: Path, name: str, seconds: float = 6.0) -> Pa
 
 # --------------------------------------------------------------------- fixtures
 @pytest.fixture()
-def isolated_voice_clone(tmp_path: Path, recordings_dir: Path):
+def isolated_voice_clone(tmp_path: Path, recordings_dir: Path, app):
     """Replace the app's voice_clone_service with one using a temp dir.
 
     Returns a dict with the service, the temp voice_clones dir, and a helper
@@ -61,12 +60,12 @@ def isolated_voice_clone(tmp_path: Path, recordings_dir: Path):
         recordings_dir=recordings_dir,
         voice_clones_dir=vc_dir,
     )
-    original_service = app_module.voice_clone_service
-    app_module.voice_clone_service = service
+    original_service = app.state.container.voice_clone_service
+    app.state.container.voice_clone_service = service
     try:
         yield {"service": service, "vc_dir": vc_dir}
     finally:
-        app_module.voice_clone_service = original_service
+        app.state.container.voice_clone_service = original_service
 
 
 @pytest.fixture()
@@ -685,7 +684,8 @@ def test_e2e_real_voice_clone_via_api(tmp_path: Path, recordings_dir: Path):
     import time as _time
 
     from fastapi.testclient import TestClient
-    import app as app_module
+    from app_factory import ServiceOverrides, create_app
+    from settings import Settings
     from voice_clone.service import VoiceCloneService
 
     vc_dir = tmp_path / "voice_clones"
@@ -693,14 +693,15 @@ def test_e2e_real_voice_clone_via_api(tmp_path: Path, recordings_dir: Path):
         recordings_dir=recordings_dir,
         voice_clones_dir=vc_dir,
     )
-    original = app_module.voice_clone_service
-    app_module.voice_clone_service = service
+    e2e_settings = Settings(data_root=tmp_path / "e2e_data")
+    overrides = ServiceOverrides(voice_clone_service=service)
+    e2e_app = create_app(settings=e2e_settings, overrides=overrides)
     try:
         # Write a real reference WAV into the recordings directory.
         ref = recordings_dir / f"e2e_ref_{uuid.uuid4().hex}.wav"
         _write_wav(ref, _tone(6.0), sr=22050)
         try:
-            client = TestClient(app_module.app)
+            client = TestClient(e2e_app)
             resp = client.post(
                 "/api/voice-clone/generations",
                 json={
@@ -742,4 +743,4 @@ def test_e2e_real_voice_clone_via_api(tmp_path: Path, recordings_dir: Path):
         finally:
             ref.unlink(missing_ok=True)
     finally:
-        app_module.voice_clone_service = original
+        pass  # service is local, nothing to restore
