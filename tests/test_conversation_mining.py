@@ -118,12 +118,20 @@ def mining_settings(vod_data_dir: Path):
 
 @pytest.fixture()
 def mining_service(transcription_service, gpu_lock, mining_settings):
-    return ConversationMiningService(
+    svc = ConversationMiningService(
         transcription_service=transcription_service,
         gpu_lock=gpu_lock,
         settings=mining_settings,
         worker_python="python",
     )
+    # The test environment does not have transformers/torch installed, so
+    # stub the dependency / worker / cuda checks so the service reports
+    # available for tests that need a runnable mining service.
+    svc._check_dependencies = lambda: (True, None)  # noqa: SLF001
+    svc._check_cuda_available = lambda: True  # noqa: SLF001
+    svc._check_worker_module = lambda: True  # noqa: SLF001
+    svc._is_model_cached = lambda model_id: True  # noqa: SLF001
+    return svc
 
 
 @pytest.fixture()
@@ -600,8 +608,8 @@ class TestIsStale:
 class TestConversationMiningService:
     def test_runtime_status_unavailable_when_no_model(self, transcription_service, gpu_lock, vod_data_dir):
         s = Settings(data_root=vod_data_dir)
-        # No model configured.
-        assert s.conversation_mining_model_id is None
+        # Explicitly disable the model to simulate an operator opt-out.
+        s.conversation_mining_model_id = ""
         svc = ConversationMiningService(
             transcription_service=transcription_service,
             gpu_lock=gpu_lock,
@@ -611,6 +619,27 @@ class TestConversationMiningService:
         status = svc.runtime_status()
         assert status["available"] is False
         assert "no model configured" in status["reasons"]
+
+    def test_default_model_is_set(self):
+        s = Settings(data_root=Path("/tmp/ttv-test-default-model"))
+        assert s.conversation_mining_model_id == "Qwen/Qwen3-4B-Instruct-2507"
+        # Non-thinking mode is the default.
+        assert s.conversation_mining_thinking_enabled is False
+        # Conservative input cap.
+        assert s.conversation_mining_max_input_tokens == 8192
+
+    def test_explicit_settings_override_default(self, vod_data_dir):
+        s = Settings(data_root=vod_data_dir)
+        s.conversation_mining_model_id = "custom/model"
+        assert s.conversation_mining_model_id == "custom/model"
+        # And the explicit value reaches the worker via the service.
+        svc = ConversationMiningService(
+            transcription_service=None,  # not used here
+            gpu_lock=None,
+            settings=s,
+            worker_python="python",
+        )
+        assert svc.settings.conversation_mining_model_id == "custom/model"
 
     def test_runtime_status_available_when_model_set(self, mining_service):
         status = mining_service.runtime_status()
@@ -629,7 +658,8 @@ class TestConversationMiningService:
         vod_service, make_real_mp4, channel_lister,
     ):
         s = Settings(data_root=vod_data_dir)
-        # No model configured.
+        # Explicitly disable the model.
+        s.conversation_mining_model_id = ""
         svc = ConversationMiningService(
             transcription_service=transcription_service,
             gpu_lock=gpu_lock,
@@ -769,3 +799,248 @@ class TestArchitecture:
 
     def test_mining_config_version_is_positive(self):
         assert MINING_CONFIG_VERSION > 0
+
+    def test_model_not_loaded_at_app_start(self, mining_settings, monkeypatch):
+        """create_app must not import transformers/torch at construction."""
+        import builtins
+        real_import = builtins.__import__
+
+        blocked = {"transformers": False, "torch": False}
+
+        def fake_import(name, *args, **kwargs):
+            top = name.split(".")[0]
+            if top in blocked:
+                blocked[top] = True
+                raise ImportError(f"blocked in test: {name}")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", fake_import)
+        from ttvturbo.app_factory import create_app
+        create_app(settings=mining_settings)
+        # Neither transformers nor torch were imported during app build.
+        assert blocked["transformers"] is False
+        assert blocked["torch"] is False
+
+
+# ---------------------------------------------------------------------------
+# Settings wiring / worker contract
+# ---------------------------------------------------------------------------
+
+
+class TestSettingsWiring:
+    def test_model_id_reaches_worker_job(
+        self, mining_service, transcription_service,
+        vod_service, make_real_mp4, channel_lister,
+    ):
+        vod_id, _ = _make_ready_vod_with_transcript(
+            transcription_service, vod_service, make_real_mp4, channel_lister,
+            segments=_long_segments(20),
+        )
+        run = mining_service.start_run(vod_id)
+        # The worker_job file must carry the configured model id and the
+        # non-thinking / input-cap parameters.
+        from ttvturbo.media_processing.conversation_mining import ConversationMiningStore
+        store = ConversationMiningStore(
+            ConversationMiningStore.mining_dir_for_transcript(
+                mining_service.transcription_service, run["transcript_id"]
+            ) / run["id"]
+        )
+        with open(store.worker_job_path(), "r", encoding="utf-8-sig") as fh:
+            wjob = json.load(fh)
+        assert wjob["model_id"] == "fake-model/test"
+        assert wjob["thinking_enabled"] is False
+        assert wjob["max_input_tokens"] == 8192
+        assert wjob["max_new_tokens"] == 2048
+
+    def test_worker_reads_non_thinking_default(self):
+        from ttvturbo.settings import Settings
+        s = Settings(data_root=Path("/tmp/ttv-test-worker-non-thinking"))
+        assert s.conversation_mining_thinking_enabled is False
+
+    def test_no_second_env_source_in_worker(self):
+        """The worker must read model_id from the worker_job file, not from env."""
+        import inspect
+        from ttvturbo.media_processing import conversation_mining_worker as worker
+        src = inspect.getsource(worker)
+        # The worker must not read TTVTURBO_CONVERSATION_MINING_MODEL_ID.
+        assert "TTVTURBO_CONVERSATION_MINING_MODEL_ID" not in src
+
+
+# ---------------------------------------------------------------------------
+# Preflight
+# ---------------------------------------------------------------------------
+
+
+class TestPreflight:
+    def test_preflight_ok_when_configured(self, mining_service):
+        ok, reasons = mining_service.preflight()
+        assert ok is True
+        assert reasons == []
+
+    def test_preflight_fails_when_no_model(self, transcription_service, gpu_lock, vod_data_dir):
+        s = Settings(data_root=vod_data_dir)
+        s.conversation_mining_model_id = ""
+        svc = ConversationMiningService(
+            transcription_service=transcription_service,
+            gpu_lock=gpu_lock,
+            settings=s,
+            worker_python="python",
+        )
+        # Stub deps so only the model check fails.
+        svc._check_dependencies = lambda: (True, None)  # noqa: SLF001
+        svc._check_worker_module = lambda: True  # noqa: SLF001
+        svc._check_cuda_available = lambda: True  # noqa: SLF001
+        ok, reasons = mining_service_preflight(svc)
+        assert ok is False
+        assert any("not configured" in r for r in reasons)
+
+    def test_preflight_fails_when_dependency_missing(self, mining_service):
+        mining_service._check_dependencies = lambda: (False, "transformers missing")  # noqa: SLF001
+        ok, reasons = mining_service.preflight()
+        assert ok is False
+        assert any("dependencies" in r for r in reasons)
+
+    def test_pipeline_start_returns_503_when_no_model(
+        self, transcription_service, gpu_lock, vod_data_dir,
+        vod_service, make_real_mp4, channel_lister, media_storage, audio_service,
+    ):
+        from ttvturbo.media_processing import PipelineService
+        from ttvturbo.media_processing import PipelineRunUnavailableError
+        s = Settings(data_root=vod_data_dir)
+        s.conversation_mining_model_id = ""
+        mining_svc = ConversationMiningService(
+            transcription_service=transcription_service,
+            gpu_lock=gpu_lock,
+            settings=s,
+            worker_python="python",
+        )
+        mining_svc._check_dependencies = lambda: (True, None)  # noqa: SLF001
+        mining_svc._check_worker_module = lambda: True  # noqa: SLF001
+        mining_svc._check_cuda_available = lambda: True  # noqa: SLF001
+        pipe = PipelineService(
+            storage=media_storage,
+            vod_service=vod_service,
+            audio_service=audio_service,
+            transcription_service=transcription_service,
+            mining_service=mining_svc,
+        )
+        vod_id, _ = _make_ready_vod(vod_service, make_real_mp4, channel_lister)
+        with pytest.raises(PipelineRunUnavailableError):
+            pipe.start_run("twitch_vod", vod_id)
+
+    def test_pipeline_start_returns_503_when_dependency_missing(
+        self, mining_service, media_storage, vod_service, audio_service,
+        transcription_service, make_real_mp4, channel_lister,
+    ):
+        from ttvturbo.media_processing import PipelineService, PipelineRunUnavailableError
+        mining_service._check_dependencies = lambda: (False, "transformers missing")  # noqa: SLF001
+        pipe = PipelineService(
+            storage=media_storage,
+            vod_service=vod_service,
+            audio_service=audio_service,
+            transcription_service=transcription_service,
+            mining_service=mining_service,
+        )
+        vod_id, _ = _make_ready_vod(vod_service, make_real_mp4, channel_lister)
+        with pytest.raises(PipelineRunUnavailableError):
+            pipe.start_run("twitch_vod", vod_id)
+
+    def test_pipeline_start_succeeds_when_preflight_ok(
+        self, mining_service, media_storage, vod_service, audio_service,
+        transcription_service, make_real_mp4, channel_lister,
+    ):
+        from ttvturbo.media_processing import PipelineService
+        pipe = PipelineService(
+            storage=media_storage,
+            vod_service=vod_service,
+            audio_service=audio_service,
+            transcription_service=transcription_service,
+            mining_service=mining_service,
+        )
+        vod_id, _ = _make_ready_vod(vod_service, make_real_mp4, channel_lister)
+        run = pipe.start_run("twitch_vod", vod_id)
+        assert run["status"] in ("RUNNING", "QUEUED")
+
+
+def mining_service_preflight(svc):
+    """Helper to call preflight (defined for clarity)."""
+    return svc.preflight()
+
+
+# ---------------------------------------------------------------------------
+# Retry from conversation mining
+# ---------------------------------------------------------------------------
+
+
+class TestRetryFromMining:
+    def test_retry_does_not_repeat_previous_steps(
+        self, mining_service, transcription_service,
+        vod_service, make_real_mp4, channel_lister, media_storage, audio_service,
+    ):
+        """A pipeline retry must keep DOWNLOAD/AUDIO/TRANSCRIBE artifacts
+        and only re-run the failed CONVERSATION_MINING step."""
+        from ttvturbo.media_processing import PipelineService
+        from ttvturbo.media_processing.schemas import PipelineStepStatus
+        pipe = PipelineService(
+            storage=media_storage,
+            vod_service=vod_service,
+            audio_service=audio_service,
+            transcription_service=transcription_service,
+            mining_service=mining_service,
+        )
+        vod_id, _ = _make_ready_vod_with_transcript(
+            transcription_service, vod_service, make_real_mp4, channel_lister,
+            segments=_long_segments(20),
+        )
+        run = pipe.start_run("twitch_vod", vod_id)
+        # Manually mark the run as FAILED at the mining step with the
+        # upstream steps READY (simulating the real failure mode).
+        run = pipe.get_run(run["id"])
+        steps = run["steps"]
+        for step in steps:
+            if step["type"] in ("RESOLVE_SOURCE", "DOWNLOAD", "EXTRACT_AUDIO", "TRANSCRIBE"):
+                step["status"] = PipelineStepStatus.READY.value
+            elif step["type"] == "CONVERSATION_MINING":
+                step["status"] = PipelineStepStatus.FAILED.value
+                step["error"] = "conversation mining model is not configured"
+                step["attempt"] = 1
+        run["status"] = "FAILED"
+        run["error"] = "Conversation Mining failed"
+        media_storage.save_run(run)
+        # Retry.
+        retried = pipe.retry_run(run["id"])
+        rsteps = {s["type"]: s for s in retried["steps"]}
+        # Upstream steps keep their READY status (artifacts preserved).
+        assert rsteps["DOWNLOAD"]["status"] == PipelineStepStatus.READY.value
+        assert rsteps["EXTRACT_AUDIO"]["status"] == PipelineStepStatus.READY.value
+        assert rsteps["TRANSCRIBE"]["status"] == PipelineStepStatus.READY.value
+        # Mining step was reset and its attempt counter bumped.
+        assert rsteps["CONVERSATION_MINING"]["status"] == PipelineStepStatus.PENDING.value
+        assert rsteps["CONVERSATION_MINING"]["attempt"] == 2
+
+
+# ---------------------------------------------------------------------------
+# Worker metrics / shutdown
+# ---------------------------------------------------------------------------
+
+
+class TestWorkerMetrics:
+    def test_empty_metrics_are_null_not_zero(self):
+        from ttvturbo.media_processing.conversation_mining_worker import _empty_metrics
+        m = _empty_metrics()
+        assert m["peak_vram_bytes"] is None
+        assert m["peak_ram_bytes"] is None
+        assert m["model_load_seconds"] is None
+        assert m["inference_seconds"] is None
+
+    def test_worker_shutdown_terminates_orchestrator(self, mining_service):
+        # shutdown must be idempotent and not raise even with no active runs.
+        mining_service.shutdown()
+        mining_service.shutdown()
+
+    def test_generate_signature_carries_thinking_flag(self):
+        import inspect
+        from ttvturbo.media_processing.conversation_mining_worker import _generate
+        params = inspect.signature(_generate).parameters
+        assert "thinking_enabled" in params
+        assert "max_input_tokens" in params
