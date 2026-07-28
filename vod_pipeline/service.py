@@ -337,7 +337,7 @@ class VodPipelineService:
             return None
 
     def _vod_dir(self, vod_id: str) -> Path:
-        return self.storage._vod_dir(vod_id)  # noqa: SLF001 - same package
+        return self.storage.vod_dir(vod_id)
 
     def _source_path_for(self, vod: dict) -> Optional[Path]:
         name = (vod.get("download") or {}).get("file_name")

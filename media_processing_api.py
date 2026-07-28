@@ -226,10 +226,8 @@ def build_media_processing_router(
             try:
                 meta = library_service.create_upload_item(file_name=file.filename, title=file.filename)
                 upload_id = meta["id"]
-                dest = library_service.storage._item_dir(upload_id) / file.filename  # noqa: SLF001
                 content = await file.read()
-                with open(dest, "wb") as fh:
-                    fh.write(content)
+                dest = library_service.storage.write_item_file(upload_id, file.filename, content)
                 meta["file_size_bytes"] = dest.stat().st_size
                 library_service.storage.save_item(meta)
             except Exception as exc:

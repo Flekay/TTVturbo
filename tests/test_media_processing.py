@@ -155,7 +155,7 @@ def _make_ready_vod(
     vod = vods[0]
     vod_id = vod["id"]
     # Place a real MP4 in the VOD dir and mark it READY.
-    vod_dir = vod_service.storage._vod_dir(vod_id)  # noqa: SLF001
+    vod_dir = vod_service.storage.vod_dir(vod_id)
     vod_dir.mkdir(parents=True, exist_ok=True)
     mp4_path = vod_dir / "source.mp4"
     make_real_mp4(mp4_path, duration_seconds=1.0)
@@ -221,6 +221,49 @@ class TestMediaSourceResolver:
         mp4_path.unlink()
         with pytest.raises(MediaSourceNotReadyError):
             source_resolver.resolve("twitch_vod", vod_id)
+
+    def test_resolves_vod_promoted_to_library(
+        self, vod_service, make_real_mp4, channel_lister, vod_data_dir
+    ):
+        """VOD-Promotion: file moved to library, resolver follows it.
+
+        When a VOD is promoted to the library, the source file is moved
+        from ``vods/{vod_id}/source.mp4`` to ``library/{item_id}/source.mp4``.
+        The resolver must follow the ``library_item_id`` link and find the
+        file in its new location.
+        """
+        from library import LibraryService, LibraryStorage
+        from media_processing.sources import MediaSourceResolver
+
+        vod_id, mp4_path = _make_ready_vod(vod_service, make_real_mp4, channel_lister)
+        library_service = LibraryService(LibraryStorage(vod_data_dir / "library"))
+        resolver = MediaSourceResolver(
+            vod_service.storage,
+            library_service=library_service,
+        )
+
+        # Promote: move the file to the library and set library_item_id.
+        item = library_service.create_upload_item(
+            file_name="source.mp4",
+            title="Promoted VOD",
+        )
+        item_id = item["id"]
+        dest = library_service.storage.item_dir(item_id) / "source.mp4"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        mp4_path.rename(dest)
+        item["file_name"] = "source.mp4"
+        item["file_size_bytes"] = dest.stat().st_size
+        library_service.storage.save_item(item)
+
+        # Update the VOD record to point at the library item.
+        vod = vod_service.storage.load_vod(vod_id)
+        vod["library_item_id"] = item_id
+        vod_service.storage.save_vod(vod)
+
+        # The resolver should find the file in the library.
+        resolved = resolver.resolve("twitch_vod", vod_id)
+        assert resolved.file_path == dest
+        assert resolved.file_path.is_file()
 
 
 # ---------------------------------------------------------------------------

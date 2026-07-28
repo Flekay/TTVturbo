@@ -84,6 +84,14 @@ class VodPipelineStorage:
     def _vod_dir(self, vod_id: str) -> Path:
         return safe_record_dir(self.vods_dir, vod_id, "vod", VodStorageError)
 
+    def vod_dir(self, vod_id: str) -> Path:
+        """Public accessor for the VOD directory (UUID-validated, traversal-safe).
+
+        External callers (source resolver, tests) should use this instead
+        of the private ``_vod_dir``.
+        """
+        return self._vod_dir(vod_id)
+
     def _vod_path(self, vod_id: str) -> Path:
         return self._vod_dir(vod_id) / VOD_FILENAME
 

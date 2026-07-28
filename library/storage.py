@@ -71,6 +71,32 @@ class LibraryStorage:
     def _item_dir(self, item_id: str) -> Path:
         return safe_record_dir(self.library_dir, item_id, "item", LibraryStorageError)
 
+    def item_dir(self, item_id: str) -> Path:
+        """Public accessor for the item directory (UUID-validated, traversal-safe).
+
+        External callers (API modules, migration scripts, source resolver)
+        should use this instead of the private ``_item_dir``.
+        """
+        return self._item_dir(item_id)
+
+    def write_item_file(self, item_id: str, file_name: str, content: bytes) -> Path:
+        """Write *content* to ``{item_dir}/{file_name}`` and return the path.
+
+        Validates *file_name* for path-traversal safety.  The item directory
+        is created if it does not exist.
+        """
+        if not file_name or "/" in file_name or "\\" in file_name:
+            raise LibraryStorageError(f"invalid file_name: {file_name!r}")
+        if file_name.startswith(".") or file_name.startswith("~"):
+            raise LibraryStorageError(f"invalid file_name: {file_name!r}")
+        dest = self._item_dir(item_id) / Path(file_name).name
+        if dest.name != file_name:
+            raise LibraryStorageError(f"invalid file_name: {file_name!r}")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        with open(dest, "wb") as fh:
+            fh.write(content)
+        return dest
+
     def _metadata_path(self, item_id: str) -> Path:
         return self._item_dir(item_id) / ITEM_FILENAME
 

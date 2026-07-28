@@ -130,7 +130,7 @@ def migrate_uploads(data_dir: Path, library_service) -> int:
                 title=meta.get("title") or file_name,
                 duration_seconds=meta.get("duration_seconds"),
             )
-            dest = library_service.storage._item_dir(lib_meta["id"]) / file_name  # noqa: SLF001
+            dest = library_service.storage.item_dir(lib_meta["id"]) / file_name
             shutil.move(str(src), str(dest))
             lib_meta["file_size_bytes"] = dest.stat().st_size
             library_service.storage.save_item(lib_meta)

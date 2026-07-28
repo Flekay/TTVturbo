@@ -230,7 +230,7 @@ class LibraryService:
     def item_file_path(self, item_id: str) -> Path:
         """Return the on-disk file path for a library item."""
         meta = self.storage.load_item(item_id)
-        item_dir = self.storage._item_dir(item_id)  # noqa: SLF001
+        item_dir = self.storage.item_dir(item_id)
         file_name = meta.get("file_name", "")
         if not file_name:
             raise LibraryStorageError(f"item {item_id} has no file_name")

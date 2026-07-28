@@ -84,12 +84,9 @@ def build_library_router(service: LibraryService) -> APIRouter:
         try:
             meta = service.create_upload_item(file_name=file.filename, title=file.filename)
             item_id = meta["id"]
-            # Write the file into the item directory.
-            from library.storage import LibraryStorage
-            dest = service.storage._item_dir(item_id) / file.filename  # noqa: SLF001
+            # Write the file into the item directory via the public helper.
             content = await file.read()
-            with open(dest, "wb") as fh:
-                fh.write(content)
+            dest = service.storage.write_item_file(item_id, file.filename, content)
             meta["file_size_bytes"] = dest.stat().st_size
             service.storage.save_item(meta)
         except Exception as exc:

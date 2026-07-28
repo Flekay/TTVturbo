@@ -119,8 +119,20 @@ class MediaSourceResolver:
                 f"VOD {vod_id} is READY but has no registered file_name."
             )
 
-        vod_dir = self.vod_storage._vod_dir(vod_id)  # noqa: SLF001 - same-package-ish, validated
+        vod_dir = self.vod_storage.vod_dir(vod_id)
         file_path = vod_dir / file_name
+
+        # If the VOD has been promoted to the library, the source file has
+        # been moved to the library directory.  Resolve it from there.
+        library_item_id = vod.get("library_item_id")
+        if not file_path.is_file() and library_item_id and self.library_service is not None:
+            try:
+                lib_file_path = self.library_service.item_file_path(library_item_id)
+            except Exception:
+                lib_file_path = None
+            if lib_file_path is not None and lib_file_path.is_file():
+                file_path = lib_file_path
+
         if not file_path.is_file():
             raise MediaSourceNotReadyError(
                 f"VOD {vod_id} source file {file_name} is missing on disk."
@@ -180,7 +192,7 @@ class MediaSourceResolver:
                 raise MediaSourceNotReadyError(
                     f"library item {upload_id} source file is empty."
                 )
-            item_dir = self.library_service.storage._item_dir(upload_id)  # noqa: SLF001
+            item_dir = self.library_service.storage.item_dir(upload_id)
             return ResolvedMediaSource(
                 source_type="file_upload",
                 source_id=upload_id,
@@ -247,7 +259,7 @@ class MediaSourceResolver:
             raise MediaSourceNotFoundError(str(exc)) from exc
         except Exception as exc:
             raise MediaSourceNotFoundError(f"vod not found: {vod_id}") from exc
-        return self.vod_storage._vod_dir(vod_id)  # noqa: SLF001
+        return self.vod_storage.vod_dir(vod_id)
 
     def get_source_dir(self, source_type: str, source_id: str) -> Path:
         """Return the source directory for any supported source type.
@@ -265,7 +277,7 @@ class MediaSourceResolver:
                     self.library_service.get_item(source_id)
                 except Exception as exc:
                     raise MediaSourceNotFoundError(f"library item not found: {source_id}") from exc
-                return self.library_service.storage._item_dir(source_id)  # noqa: SLF001
+                return self.library_service.storage.item_dir(source_id)
             if self.upload_storage is None:
                 raise MediaSourceError("file_upload sources are not configured")
             try:
