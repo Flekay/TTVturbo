@@ -55,6 +55,22 @@ from .audio_extraction import AudioExtractionService, AudioExtractionError
 from .transcription import TranscriptionService, TranscriptionError
 from .pipeline import PipelineService, PipelineError
 from .uploads import UploadStorage, UploadNotFoundError, UploadStorageError
+from .asr_presets import (
+    AsrDefaultPresetStore,
+    AsrPreset,
+    AsrPresetError,
+    AsrPresetNotFoundError,
+    BUILTIN_PRESETS,
+    LEGACY_CURRENT,
+    MULTILINGUAL_LARGE_V3_NO_VAD,
+    MULTILINGUAL_LARGE_V3_QUALITY,
+    MULTILINGUAL_LARGE_V3_TURBO,
+    check_preset_compatibility,
+    faster_whisper_version,
+    get_preset,
+    is_production_eligible,
+    list_presets,
+)
 
 __all__ = [
     "SCHEMA_VERSION",
@@ -102,4 +118,18 @@ __all__ = [
     "UploadNotFoundError",
     "UploadStorage",
     "UploadStorageError",
+    "AsrDefaultPresetStore",
+    "AsrPreset",
+    "AsrPresetError",
+    "AsrPresetNotFoundError",
+    "BUILTIN_PRESETS",
+    "LEGACY_CURRENT",
+    "MULTILINGUAL_LARGE_V3_NO_VAD",
+    "MULTILINGUAL_LARGE_V3_QUALITY",
+    "MULTILINGUAL_LARGE_V3_TURBO",
+    "check_preset_compatibility",
+    "faster_whisper_version",
+    "get_preset",
+    "is_production_eligible",
+    "list_presets",
 ]

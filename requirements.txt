@@ -35,3 +35,8 @@ yt-dlp==2026.7.4
 # requirements-gpu.txt to enable real GPU transcription.
 # faster-whisper==1.1.0
 
+# ASR benchmark quality metrics (WER/CER). Imported lazily by
+# media_processing.asr_metrics so the app still starts without it; tests
+# that need it install it via requirements-dev.txt.
+jiwer==4.0.0
+

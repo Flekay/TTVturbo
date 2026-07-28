@@ -54,5 +54,10 @@ safetensors>=0.4.0
 
 # faster-whisper for GPU transcription (imported lazily by the
 # transcription worker subprocess only).
-faster-whisper==1.1.0
+# Pinned to >=1.1.0 because the multilingual ASR presets forward the
+# `multilingual`, `hallucination_silence_threshold` and `hotwords`
+# parameters, which are only supported from 1.1.0 onward. The runtime
+# compatibility check in media_processing.asr_presets refuses to forward
+# any parameter the installed version does not understand.
+faster-whisper==1.2.1
 
