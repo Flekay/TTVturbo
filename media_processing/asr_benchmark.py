@@ -39,10 +39,11 @@ import shutil
 import subprocess
 import sys
 import threading
-import time
 import uuid
 from pathlib import Path
 from typing import Any, Optional
+
+from storage_utils import atomic_write_json, now_iso, read_json_optional
 
 from .asr_diagnostics import (
     VadDiagnosis,
@@ -98,7 +99,8 @@ MAX_REFERENCE_LEN = 5000
 
 
 def _now_iso() -> str:
-    return _dt.datetime.now(tz=_dt.timezone.utc).astimezone().replace(microsecond=0).isoformat()
+    """Backward-compat wrapper around :func:`storage_utils.now_iso`."""
+    return now_iso()
 
 
 def _new_uuid() -> str:
@@ -114,29 +116,13 @@ class AsrBenchmarkNotFoundError(AsrBenchmarkError):
 
 
 def _atomic_write_json(path: Path, payload: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.{time.monotonic_ns()}.tmp")
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(payload, fh, indent=2, ensure_ascii=False)
-        fh.flush()
-        try:
-            os.fsync(fh.fileno())
-        except OSError:
-            pass
-    os.replace(tmp, path)
+    """Backward-compat wrapper around :func:`storage_utils.atomic_write_json`."""
+    atomic_write_json(path, payload, AsrBenchmarkError, kind="benchmark")
 
 
 def _read_json(path: Path) -> Optional[dict]:
-    if not path.is_file():
-        return None
-    try:
-        with open(path, "r", encoding="utf-8-sig") as fh:
-            payload = json.load(fh)
-    except (OSError, json.JSONDecodeError):
-        return None
-    if not isinstance(payload, dict):
-        return None
-    return payload
+    """Backward-compat wrapper around :func:`storage_utils.read_json_optional`."""
+    return read_json_optional(path)
 
 
 class AsrBenchmarkService:
@@ -204,6 +190,18 @@ class AsrBenchmarkService:
         if payload is None:
             raise AsrBenchmarkNotFoundError(f"benchmark not found: {benchmark_id}")
         return payload
+
+    def get_run(self, benchmark_id: str, preset_id: str) -> Optional[dict[str, Any]]:
+        """Return a single run payload, or ``None`` if the run does not exist.
+
+        Validates *benchmark_id* (raises ``AsrBenchmarkNotFoundError`` if
+        the benchmark itself does not exist) and *preset_id* (must be a
+        safe filename — no path separators).
+        """
+        # Ensure the benchmark exists.
+        self.get_benchmark(benchmark_id)
+        run_path = self._run_path(benchmark_id, preset_id)
+        return _read_json(run_path)
 
     # ------------------------------------------------------------------ create
     def create_benchmark(

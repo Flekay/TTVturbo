@@ -28,14 +28,18 @@ Safety guarantees mirror :mod:`voice_profiles.storage`:
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import shutil
-import time
-import uuid
 from pathlib import Path
 from typing import Iterator, Optional
+
+from storage_utils import (
+    atomic_write_json,
+    read_json,
+    safe_record_dir,
+    validate_uuid,
+)
 
 from .schemas import (
     SCHEMA_VERSION,
@@ -55,19 +59,9 @@ WORKER_LOG_NAME = "worker.log"
 
 
 def _validate_uuid(value: str, kind: str) -> str:
-    """Reject anything that is not a canonical UUID string."""
-    if not isinstance(value, str) or not value:
-        raise VodStorageError(f"{kind} id must be a non-empty string")
-    try:
-        parsed = uuid.UUID(value)
-    except (ValueError, AttributeError, TypeError) as exc:
-        raise TwitchProfileStorageError(f"invalid {kind} id: {value!r}") from exc
-    canonical = str(parsed)
-    if canonical != value:
-        raise TwitchProfileStorageError(
-            f"{kind} id must be canonical uuid form: {value!r}"
-        )
-    return value
+    """Reject anything that is not a canonical UUID string (delegates to storage_utils)."""
+    error_type = TwitchProfileStorageError if kind == "profile" else VodStorageError
+    return validate_uuid(value, kind, error_type)
 
 
 class VodPipelineStorage:
@@ -82,29 +76,13 @@ class VodPipelineStorage:
 
     # ------------------------------------------------------------------ paths
     def _profile_dir(self, profile_id: str) -> Path:
-        _validate_uuid(profile_id, "profile")
-        base = self.profiles_dir.resolve()
-        candidate = (self.profiles_dir / profile_id).resolve()
-        try:
-            candidate.relative_to(base)
-        except ValueError as exc:
-            raise TwitchProfileStorageError(
-                f"profile id escapes storage root: {profile_id!r}"
-            ) from exc
-        return candidate
+        return safe_record_dir(self.profiles_dir, profile_id, "profile", TwitchProfileStorageError)
 
     def _profile_path(self, profile_id: str) -> Path:
         return self._profile_dir(profile_id) / PROFILE_FILENAME
 
     def _vod_dir(self, vod_id: str) -> Path:
-        _validate_uuid(vod_id, "vod")
-        base = self.vods_dir.resolve()
-        candidate = (self.vods_dir / vod_id).resolve()
-        try:
-            candidate.relative_to(base)
-        except ValueError as exc:
-            raise VodStorageError(f"vod id escapes storage root: {vod_id!r}") from exc
-        return candidate
+        return safe_record_dir(self.vods_dir, vod_id, "vod", VodStorageError)
 
     def _vod_path(self, vod_id: str) -> Path:
         return self._vod_dir(vod_id) / VOD_FILENAME
@@ -113,49 +91,10 @@ class VodPipelineStorage:
         return self._vod_dir(vod_id) / WORKER_LOG_NAME
 
     # ------------------------------------------------------------------ write
-    @staticmethod
-    def _atomic_write_json(path: Path, payload: dict) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        # Unique tmp name per call: the service process and the worker
-        # subprocess both write to the same metadata.json. A shared fixed
-        # ".tmp" name causes a race where one os.replace() deletes the
-        # other's tmp file -> FileNotFoundError on Windows.
-        tmp = path.with_name(
-            f".{path.name}.{os.getpid()}.{time.monotonic_ns()}.tmp"
-        )
-        # On Windows, os.replace can fail with PermissionError if another
-        # process (the worker) briefly holds the target file open. Retry a
-        # few times before giving up - the lock is short-lived.
-        last_exc: Optional[Exception] = None
-        for attempt in range(5):
-            try:
-                with open(tmp, "w", encoding="utf-8") as fh:
-                    json.dump(payload, fh, indent=2, ensure_ascii=False)
-                    fh.flush()
-                    try:
-                        os.fsync(fh.fileno())
-                    except OSError:
-                        pass
-                os.replace(tmp, path)
-                return
-            except PermissionError as exc:
-                last_exc = exc
-                time.sleep(0.05 * (attempt + 1))
-            except OSError as exc:
-                try:
-                    if tmp.exists():
-                        tmp.unlink()
-                except OSError:
-                    pass
-                kind = "profile" if path.name == PROFILE_FILENAME else "vod"
-                raise VodStorageError(f"could not write {kind} {path}: {exc}") from exc
-        try:
-            if tmp.exists():
-                tmp.unlink()
-        except OSError:
-            pass
+    def _atomic_write_json(self, path: Path, payload: dict) -> None:
         kind = "profile" if path.name == PROFILE_FILENAME else "vod"
-        raise VodStorageError(f"could not write {kind} {path}: {last_exc}") from last_exc
+        error_type = TwitchProfileStorageError if kind == "profile" else VodStorageError
+        atomic_write_json(path, payload, error_type, kind=kind)
 
     def save_profile(self, payload: dict) -> None:
         if not isinstance(payload, dict):
@@ -180,29 +119,9 @@ class VodPipelineStorage:
         self._atomic_write_json(self._vod_path(str(payload["id"])), payload)
 
     # ------------------------------------------------------------------ read
-    @staticmethod
-    def _read_json(path: Path, error_type: type[Exception]) -> dict:
-        # On Windows, os.replace() briefly holds an exclusive lock on the
-        # target file. A concurrent read during that window gets
-        # PermissionError. Retry a few times — the lock is short-lived.
-        # Use utf-8-sig to transparently strip a UTF-8 BOM if present
-        # (some external tools write metadata.json with a BOM).
-        last_exc: Optional[Exception] = None
-        for attempt in range(5):
-            try:
-                with open(path, "r", encoding="utf-8-sig") as fh:
-                    payload = json.load(fh)
-                break
-            except PermissionError as exc:
-                last_exc = exc
-                time.sleep(0.05 * (attempt + 1))
-            except (OSError, json.JSONDecodeError) as exc:
-                raise error_type(f"corrupt file {path}: {exc}") from exc
-        else:
-            raise error_type(f"corrupt file {path}: {last_exc}") from last_exc
-        if not isinstance(payload, dict):
-            raise error_type(f"{path} is not a JSON object")
-        return payload
+    def _read_json(self, path: Path, error_type: type[Exception]) -> dict:
+        kind = "profile" if path.name == PROFILE_FILENAME else "vod"
+        return read_json(path, error_type, kind=kind)
 
     def load_profile(self, profile_id: str) -> dict:
         path = self._profile_path(profile_id)

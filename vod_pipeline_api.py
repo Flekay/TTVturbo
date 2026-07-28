@@ -28,6 +28,8 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
+from api_utils import error_response as _error_response
+
 from vod_pipeline import (
     TwitchClientError,
     TwitchNotFoundError,
@@ -67,10 +69,7 @@ class ImportVodRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _error_response(status: int, code: str, message: str, **extra: Any) -> JSONResponse:
-    detail: dict[str, Any] = {"code": code, "message": message}
-    detail.update(extra)
-    return JSONResponse(status_code=status, content={"detail": detail})
+# _error_response is imported from api_utils.
 
 
 def _map_profile_error(exc: Exception) -> JSONResponse:

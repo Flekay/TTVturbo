@@ -10,15 +10,19 @@ Mirrors the safety guarantees of :mod:`vod_pipeline.storage`:
 
 from __future__ import annotations
 
-import datetime as _dt
-import json
 import logging
 import os
 import shutil
-import time
-import uuid
 from pathlib import Path
 from typing import Iterator, Optional
+
+from storage_utils import (
+    atomic_write_json,
+    now_iso,
+    read_json,
+    safe_record_dir,
+    validate_uuid,
+)
 
 from .schemas import (
     SCHEMA_VERSION,
@@ -47,22 +51,13 @@ def sanitize_container(container: str) -> str:
 
 
 def _now_iso() -> str:
-    return _dt.datetime.now(tz=_dt.timezone.utc).astimezone().replace(microsecond=0).isoformat()
+    """Backward-compat wrapper around :func:`storage_utils.now_iso`."""
+    return now_iso()
 
 
 def _validate_uuid(value: str) -> str:
-    if not isinstance(value, str) or not value:
-        raise LibraryStorageError("item id must be a non-empty string")
-    try:
-        parsed = uuid.UUID(value)
-    except (ValueError, AttributeError, TypeError) as exc:
-        raise LibraryStorageError(f"invalid item id: {value!r}") from exc
-    canonical = str(parsed)
-    if canonical != value:
-        raise LibraryStorageError(
-            f"item id must be canonical uuid form: {value!r}"
-        )
-    return value
+    """Backward-compat wrapper around :func:`storage_utils.validate_uuid`."""
+    return validate_uuid(value, "item", LibraryStorageError)
 
 
 class LibraryStorage:
@@ -74,16 +69,7 @@ class LibraryStorage:
 
     # ------------------------------------------------------------------ paths
     def _item_dir(self, item_id: str) -> Path:
-        _validate_uuid(item_id)
-        base = self.library_dir.resolve()
-        candidate = (self.library_dir / item_id).resolve()
-        try:
-            candidate.relative_to(base)
-        except ValueError as exc:
-            raise LibraryStorageError(
-                f"item id escapes storage root: {item_id!r}"
-            ) from exc
-        return candidate
+        return safe_record_dir(self.library_dir, item_id, "item", LibraryStorageError)
 
     def _metadata_path(self, item_id: str) -> Path:
         return self._item_dir(item_id) / ITEM_FILENAME
@@ -96,38 +82,7 @@ class LibraryStorage:
     # ------------------------------------------------------------------ write
     @staticmethod
     def _atomic_write_json(path: Path, payload: dict) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(
-            f".{path.name}.{os.getpid()}.{time.monotonic_ns()}.tmp"
-        )
-        last_exc: Optional[Exception] = None
-        for attempt in range(5):
-            try:
-                with open(tmp, "w", encoding="utf-8") as fh:
-                    json.dump(payload, fh, indent=2, ensure_ascii=False)
-                    fh.flush()
-                    try:
-                        os.fsync(fh.fileno())
-                    except OSError:
-                        pass
-                os.replace(tmp, path)
-                return
-            except PermissionError as exc:
-                last_exc = exc
-                time.sleep(0.05 * (attempt + 1))
-            except OSError as exc:
-                try:
-                    if tmp.exists():
-                        tmp.unlink()
-                except OSError:
-                    pass
-                raise LibraryStorageError(f"could not write {path}: {exc}") from exc
-        try:
-            if tmp.exists():
-                tmp.unlink()
-        except OSError:
-            pass
-        raise LibraryStorageError(f"could not write {path}: {last_exc}") from last_exc
+        atomic_write_json(path, payload, LibraryStorageError, kind="item")
 
     def save_item(self, payload: dict) -> None:
         if not isinstance(payload, dict):
@@ -149,22 +104,7 @@ class LibraryStorage:
     # ------------------------------------------------------------------ read
     @staticmethod
     def _read_json(path: Path) -> dict:
-        last_exc: Optional[Exception] = None
-        for attempt in range(5):
-            try:
-                with open(path, "r", encoding="utf-8-sig") as fh:
-                    payload = json.load(fh)
-                break
-            except PermissionError as exc:
-                last_exc = exc
-                time.sleep(0.05 * (attempt + 1))
-            except (OSError, json.JSONDecodeError) as exc:
-                raise LibraryStorageError(f"corrupt file {path}: {exc}") from exc
-        else:
-            raise LibraryStorageError(f"corrupt file {path}: {last_exc}") from last_exc
-        if not isinstance(payload, dict):
-            raise LibraryStorageError(f"{path} is not a JSON object")
-        return payload
+        return read_json(path, LibraryStorageError, kind="item")
 
     def load_item(self, item_id: str) -> dict:
         path = self._metadata_path(item_id)

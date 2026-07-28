@@ -33,6 +33,8 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
+from api_utils import error_response as _err
+
 from media_processing import (
     AUDIO_VARIANTS,
     AsrBenchmarkError,
@@ -79,10 +81,7 @@ class SelectDefaultRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _err(status: int, code: str, message: str, **extra: Any) -> JSONResponse:
-    detail: dict[str, Any] = {"code": code, "message": message}
-    detail.update(extra)
-    return JSONResponse(status_code=status, content={"detail": detail})
+# _err is imported from api_utils (as error_response).
 
 
 def _map(exc: Exception) -> JSONResponse:
@@ -278,13 +277,9 @@ def build_asr_router(
     @router.get("/benchmarks/{benchmark_id}/runs/{preset_id}")
     def get_run(benchmark_id: str, preset_id: str) -> JSONResponse:
         try:
-            benchmark_service.get_benchmark(benchmark_id)
+            payload = benchmark_service.get_run(benchmark_id, preset_id)
         except Exception as exc:
             return _map(exc)
-        from media_processing.asr_benchmark import _read_json  # noqa: PLC0415
-        from pathlib import Path  # noqa: PLC0415
-        run_path = Path(benchmark_service._runs_dir(benchmark_id)) / f"{preset_id}.json"  # noqa: SLF001
-        payload = _read_json(run_path)
         if payload is None:
             return _err(404, "run_not_found", f"run not found: {preset_id}")
         return JSONResponse(content=payload)

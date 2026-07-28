@@ -68,7 +68,7 @@ def migrate_vods(data_dir: Path, library_service) -> int:
             existing = library_service.find_by_twitch_video_id(twitch_video_id)
         if existing:
             meta["library_item_id"] = existing["id"]
-            meta["updated_at"] = library_service.storage._read_json.__doc__ or meta.get("updated_at")  # keep old
+            # Preserve the existing updated_at — no semantic change needed.
             # Just update the vod_id link.
             library_service.link_vod(existing["id"], meta["id"])
             # Save updated VOD metadata.

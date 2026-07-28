@@ -22,13 +22,17 @@ file. UUID validation and path-traversal protection mirror
 
 from __future__ import annotations
 
-import json
 import logging
 import os
-import time
-import uuid
 from pathlib import Path
 from typing import Iterator, Optional
+
+from storage_utils import (
+    atomic_write_json,
+    read_json,
+    safe_record_dir,
+    validate_uuid,
+)
 
 from .schemas import (
     SCHEMA_VERSION,
@@ -46,72 +50,21 @@ TMP_SUFFIX = ".tmp"
 
 
 def _validate_uuid(value: str, kind: str) -> str:
-    if not isinstance(value, str) or not value:
-        raise _MediaJobStorageError(f"{kind} id must be a non-empty string")
-    try:
-        parsed = uuid.UUID(value)
-    except (ValueError, AttributeError, TypeError) as exc:
-        raise _MediaJobStorageError(f"invalid {kind} id: {value!r}") from exc
-    canonical = str(parsed)
-    if canonical != value:
-        raise _MediaJobStorageError(
-            f"{kind} id must be canonical uuid form: {value!r}"
-        )
-    return value
+    """Backward-compat wrapper around :func:`storage_utils.validate_uuid`."""
+    error_type = _MediaJobStorageError if kind == "job" else PipelineRunStorageError
+    return validate_uuid(value, kind, error_type)
 
 
 def _atomic_write_json(path: Path, payload: dict, error_type: type[Exception]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(
-        f".{path.name}.{os.getpid()}.{time.monotonic_ns()}.tmp"
-    )
-    last_exc: Optional[Exception] = None
-    for attempt in range(5):
-        try:
-            with open(tmp, "w", encoding="utf-8") as fh:
-                json.dump(payload, fh, indent=2, ensure_ascii=False)
-                fh.flush()
-                try:
-                    os.fsync(fh.fileno())
-                except OSError:
-                    pass
-            os.replace(tmp, path)
-            return
-        except PermissionError as exc:
-            last_exc = exc
-            time.sleep(0.05 * (attempt + 1))
-        except OSError as exc:
-            try:
-                if tmp.exists():
-                    tmp.unlink()
-            except OSError:
-                pass
-            raise error_type(f"could not write {path}: {exc}") from exc
-    try:
-        if tmp.exists():
-            tmp.unlink()
-    except OSError:
-        pass
-    raise error_type(f"could not write {path}: {last_exc}") from last_exc
+    """Backward-compat wrapper around :func:`storage_utils.atomic_write_json`."""
+    kind = "job" if path.name == JOB_FILENAME else "run"
+    atomic_write_json(path, payload, error_type, kind=kind)
 
 
 def _read_json(path: Path, error_type: type[Exception]) -> dict:
-    last_exc: Optional[Exception] = None
-    for attempt in range(5):
-        try:
-            with open(path, "r", encoding="utf-8-sig") as fh:
-                payload = json.load(fh)
-            break
-        except PermissionError as exc:
-            last_exc = exc
-            time.sleep(0.05 * (attempt + 1))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise error_type(f"corrupt file {path}: {exc}") from exc
-    else:
-        raise error_type(f"corrupt file {path}: {last_exc}") from last_exc
-    if not isinstance(payload, dict):
-        raise error_type(f"{path} is not a JSON object")
-    return payload
+    """Backward-compat wrapper around :func:`storage_utils.read_json`."""
+    kind = "job" if path.name == JOB_FILENAME else "run"
+    return read_json(path, error_type, kind=kind)
 
 
 class MediaJobStorage:
@@ -126,14 +79,7 @@ class MediaJobStorage:
 
     # ------------------------------------------------------------------ paths
     def _job_dir(self, job_id: str) -> Path:
-        _validate_uuid(job_id, "job")
-        base = self.jobs_dir.resolve()
-        candidate = (self.jobs_dir / job_id).resolve()
-        try:
-            candidate.relative_to(base)
-        except ValueError as exc:
-            raise _MediaJobStorageError(f"job id escapes storage root: {job_id!r}") from exc
-        return candidate
+        return safe_record_dir(self.jobs_dir, job_id, "job", _MediaJobStorageError)
 
     def job_path(self, job_id: str) -> Path:
         return self._job_dir(job_id) / JOB_FILENAME
@@ -142,14 +88,7 @@ class MediaJobStorage:
         return self._job_dir(job_id) / WORKER_LOG_NAME
 
     def _run_dir(self, run_id: str) -> Path:
-        _validate_uuid(run_id, "run")
-        base = self.runs_dir.resolve()
-        candidate = (self.runs_dir / run_id).resolve()
-        try:
-            candidate.relative_to(base)
-        except ValueError as exc:
-            raise PipelineRunStorageError(f"run id escapes storage root: {run_id!r}") from exc
-        return candidate
+        return safe_record_dir(self.runs_dir, run_id, "run", PipelineRunStorageError)
 
     def run_path(self, run_id: str) -> Path:
         return self._run_dir(run_id) / RUN_FILENAME

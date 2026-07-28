@@ -43,6 +43,8 @@ from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
+from api_utils import error_response as _error_response
+
 from media_processing import (
     AudioExtractionError,
     AudioExtractionService,
@@ -99,10 +101,7 @@ class StartAudioExtractionRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _error_response(status: int, code: str, message: str, **extra: Any) -> JSONResponse:
-    detail: dict[str, Any] = {"code": code, "message": message}
-    detail.update(extra)
-    return JSONResponse(status_code=status, content={"detail": detail})
+# _error_response is imported from api_utils.
 
 
 def _map_media_error(exc: Exception) -> JSONResponse:

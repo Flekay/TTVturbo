@@ -85,8 +85,9 @@ class _StubBenchmarkService:
         self.records.pop(benchmark_id, None)
         return True
 
-    def _runs_dir(self, benchmark_id: str) -> str:
-        return f"/tmp/{benchmark_id}/runs"
+    def get_run(self, benchmark_id: str, preset_id: str):
+        # Stub returns None (run not found) for all calls.
+        return None
 
 
 @pytest.fixture()
