@@ -38,7 +38,7 @@ describe("App routing", () => {
     });
     const main = (container.querySelector("#main-content") as HTMLElement | null) ?? container;
     await waitFor(() => {
-      expect(within(main).getByRole("heading", { name: "Systemstatus" })).toBeInTheDocument();
+      expect(within(main).getByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
     });
   });
 
@@ -93,7 +93,7 @@ describe("App routing", () => {
     const { container } = renderWithProviders(<AppRouter />, { initialEntries: ["/"] });
     const main = (container.querySelector("#main-content") as HTMLElement | null) ?? container;
     await waitFor(() => {
-      expect(within(main).getByRole("heading", { name: "Systemstatus" })).toBeInTheDocument();
+      expect(within(main).getByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
     });
   });
 });

@@ -5,6 +5,7 @@ import "./styles/variables.css";
 import "./styles/global.css";
 import "./styles/layout.css";
 import "./styles/components.css";
+import "./styles/dashboard.css";
 
 const container = document.getElementById("root");
 if (!container) {

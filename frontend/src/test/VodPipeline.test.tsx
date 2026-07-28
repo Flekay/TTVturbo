@@ -155,10 +155,9 @@ describe("VOD Pipeline frontend", () => {
       initialEntries: ["/dashboard"],
     });
     const main = mainOf(container);
-    // The dashboard renders the VOD Downloader section heading.
+    // The dashboard renders the VOD Downloader module card.
     await waitFor(() => {
-      const headings = within(main).getAllByRole("heading", { name: "VOD Downloader" });
-      expect(headings.length).toBeGreaterThanOrEqual(1);
+      expect(within(main).getAllByText("VOD Downloader").length).toBeGreaterThanOrEqual(1);
     });
     // VOD Downloader aggregate section.
     expect(within(main).getAllByText("Twitch-Profile").length).toBeGreaterThanOrEqual(1);
