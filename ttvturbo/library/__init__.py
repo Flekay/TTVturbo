@@ -15,6 +15,7 @@ from .schemas import (
     LibraryError,
     LibraryNotFoundError,
     LibraryStorageError,
+    LibraryUploadTooLargeError,
     LibraryValidationError,
 )
 from .storage import LibraryStorage
@@ -29,5 +30,6 @@ __all__ = [
     "LibraryService",
     "LibraryStorage",
     "LibraryStorageError",
+    "LibraryUploadTooLargeError",
     "LibraryValidationError",
 ]

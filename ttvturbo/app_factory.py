@@ -171,6 +171,14 @@ def _init_services(
 
     ov = overrides
 
+    # Resolve external tool paths once from the central Settings so every
+    # service and worker subprocess uses the same FFmpeg / FFprobe / yt-dlp
+    # / Python interpreter. Explicit Settings values always win; otherwise
+    # ExecutableResolver falls back to PATH + Windows install-location lookup.
+    from ttvturbo.system.executables import resolve_tools
+
+    tools = resolve_tools(settings)
+
     # --- GPU lock ---------------------------------------------------------
     if ov and ov.gpu_lock is not None:
         container.gpu_lock = ov.gpu_lock
@@ -192,6 +200,8 @@ def _init_services(
             recordings_dir=paths.recordings,
             voice_clones_dir=paths.voice_clones,
             gpu_lock=container.gpu_lock,
+            settings=settings,
+            worker_python=tools.python,
         )
 
     # --- Voice profiles ---------------------------------------------------
@@ -211,6 +221,7 @@ def _init_services(
             data_dir=paths.data_root,
             download_dir=paths.vods,
             library_service=container.library_service,
+            settings=settings,
         )
 
     # --- Media processing -------------------------------------------------
@@ -239,6 +250,10 @@ def _init_services(
         container.audio_extraction_service = AudioExtractionService(
             storage=container.media_job_storage,
             source_resolver=container.media_source_resolver,
+            settings=settings,
+            worker_python=tools.python,
+            ffmpeg_path=tools.ffmpeg,
+            ffprobe_path=tools.ffprobe,
         )
 
     if ov and ov.asr_default_preset_store is not None:
@@ -255,6 +270,8 @@ def _init_services(
             audio_service=container.audio_extraction_service,
             gpu_lock=container.gpu_lock,
             default_preset_store=container.asr_default_preset_store,
+            settings=settings,
+            worker_python=tools.python,
         )
 
     # Wire the audio-ready callback after both services exist.
@@ -414,8 +431,9 @@ def create_app(
         pipeline_service=pipeline_proxy,
         upload_storage=upload_proxy,
         library_service=library_proxy,
+        max_upload_bytes=settings.max_upload_bytes,
     )
-    library_router = build_library_router(library_proxy)
+    library_router = build_library_router(library_proxy, max_upload_bytes=settings.max_upload_bytes)
     asr_router = build_asr_router(
         benchmark_service=benchmark_proxy,
         default_store=preset_store_proxy,

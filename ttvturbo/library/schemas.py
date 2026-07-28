@@ -57,6 +57,10 @@ class LibraryStorageError(LibraryError):
     """Raised on storage-level failures (corrupt JSON, IO errors)."""
 
 
+class LibraryUploadTooLargeError(LibraryStorageError):
+    """Raised when a streamed upload exceeds the configured byte limit."""
+
+
 class LibraryValidationError(LibraryError):
     """Raised on invalid input to library operations."""
 

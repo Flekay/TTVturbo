@@ -54,7 +54,12 @@ from .sources import MediaSourceResolver, ResolvedMediaSource
 from .audio_extraction import AudioExtractionService, AudioExtractionError
 from .transcription import TranscriptionService, TranscriptionError
 from .pipeline import PipelineService, PipelineError
-from .uploads import UploadStorage, UploadNotFoundError, UploadStorageError
+from .uploads import (
+    UploadNotFoundError,
+    UploadStorage,
+    UploadStorageError,
+    UploadTooLargeError,
+)
 from .asr_presets import (
     AsrDefaultPresetStore,
     AsrPreset,
@@ -154,6 +159,7 @@ __all__ = [
     "UploadNotFoundError",
     "UploadStorage",
     "UploadStorageError",
+    "UploadTooLargeError",
     "AsrDefaultPresetStore",
     "AsrPreset",
     "AsrPresetError",

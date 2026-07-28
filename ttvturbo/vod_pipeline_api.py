@@ -526,6 +526,7 @@ def build_service(
     from pathlib import Path
 
     from ttvturbo.settings import Settings
+    from ttvturbo.system.executables import resolve_tools
     from ttvturbo.vod_pipeline import VodPipelineStorage
     from ttvturbo.vod_pipeline.schemas import DEFAULT_SYNC_LIMIT
     from ttvturbo.vod_pipeline.service import (
@@ -539,8 +540,9 @@ def build_service(
     to = timeout_seconds if timeout_seconds is not None else s.vod_download_timeout_seconds
     sl = sync_limit if sync_limit is not None else s.vod_sync_limit
 
+    tools = resolve_tools(s)
     storage = VodPipelineStorage(Path(data_dir))
-    lister = ChannelLister(timeout_seconds=LISTER_TIMEOUT)
+    lister = ChannelLister(timeout_seconds=LISTER_TIMEOUT, yt_dlp_bin=tools.yt_dlp)
     service = VodPipelineService(
         storage=storage,
         channel_lister=lister,
@@ -549,5 +551,8 @@ def build_service(
         timeout_seconds=float(to),
         sync_limit=int(sl),
         library_service=library_service,
+        settings=s,
+        worker_python=tools.python,
+        ffprobe_path=tools.ffprobe,
     )
     return service

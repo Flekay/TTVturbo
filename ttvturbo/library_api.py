@@ -25,6 +25,7 @@ from ttvturbo.library import (
     LibraryNotFoundError,
     LibraryService,
     LibraryStorageError,
+    LibraryUploadTooLargeError,
     LibraryValidationError,
 )
 
@@ -41,13 +42,23 @@ def _map_error(exc: Exception) -> JSONResponse:
         return _error_response(409, "library_conflict", str(exc))
     if isinstance(exc, LibraryValidationError):
         return _error_response(400, "library_validation", str(exc))
+    if isinstance(exc, LibraryUploadTooLargeError):
+        return _error_response(413, "upload_too_large", str(exc))
     if isinstance(exc, LibraryStorageError):
         return _error_response(500, "library_storage", str(exc))
     return _error_response(500, "library_error", str(exc))
 
 
-def build_library_router(service: LibraryService) -> APIRouter:
-    """Build the library API router."""
+def build_library_router(
+    service: LibraryService,
+    max_upload_bytes: Optional[int] = None,
+) -> APIRouter:
+    """Build the library API router.
+
+    ``max_upload_bytes`` enforces the central upload size limit while
+    streaming; oversize uploads are aborted and returned as HTTP 413 and
+    empty uploads are rejected with HTTP 400.
+    """
     router = APIRouter(prefix="/api/library", tags=["library"])
 
     @router.get("/items")
@@ -82,6 +93,8 @@ def build_library_router(service: LibraryService) -> APIRouter:
 
         The file is streamed to a temp path and atomically renamed, so a
         partial upload never leaves a half-written file at the final path.
+        Oversize uploads are aborted with HTTP 413 and the temp file is
+        cleaned up; empty uploads are rejected with HTTP 400.
         """
         if not file.filename:
             return _error_response(400, "upload_validation", "File name is required.")
@@ -90,9 +103,27 @@ def build_library_router(service: LibraryService) -> APIRouter:
             meta = service.create_upload_item(file_name=file.filename, title=file.filename)
             item_id = meta["id"]
             # Stream the file into the item directory atomically.
-            dest = await service.storage.stream_item_file(item_id, file.filename, file)
+            dest = await service.storage.stream_item_file(
+                item_id, file.filename, file, max_bytes=max_upload_bytes,
+            )
+            if dest.stat().st_size == 0:
+                raise LibraryStorageError("Uploaded file is empty.")
             meta["file_size_bytes"] = dest.stat().st_size
             service.storage.save_item(meta)
+        except LibraryUploadTooLargeError as exc:
+            if item_id is not None:
+                try:
+                    service.delete_item(item_id)
+                except Exception:
+                    pass
+            return _error_response(413, "upload_too_large", str(exc))
+        except LibraryStorageError as exc:
+            if item_id is not None:
+                try:
+                    service.delete_item(item_id)
+                except Exception:
+                    pass
+            return _error_response(400, "upload_validation", str(exc))
         except Exception as exc:
             if item_id is not None:
                 try:

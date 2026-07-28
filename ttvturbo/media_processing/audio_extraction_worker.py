@@ -78,7 +78,9 @@ def _update_job(job_path: Path, **updates: Any) -> None:
     _atomic_write_json(job_path, job)
 
 
-def _find_ffmpeg() -> str:
+def _find_ffmpeg(override: Optional[str] = None) -> str:
+    if override:
+        return override
     from ttvturbo.system.executables import find_executable
 
     found = find_executable("ffmpeg")
@@ -87,7 +89,9 @@ def _find_ffmpeg() -> str:
     return found
 
 
-def _find_ffprobe() -> str:
+def _find_ffprobe(override: Optional[str] = None) -> str:
+    if override:
+        return override
     from ttvturbo.system.executables import find_executable
 
     found = find_executable("ffprobe")
@@ -96,8 +100,8 @@ def _find_ffprobe() -> str:
     return found
 
 
-def _ffprobe_audio_info(path: Path) -> dict:
-    ffprobe = _find_ffprobe()
+def _ffprobe_audio_info(path: Path, ffprobe_path: Optional[str] = None) -> dict:
+    ffprobe = _find_ffprobe(ffprobe_path)
     cmd = [
         ffprobe, "-v", "error", "-print_format", "json",
         "-show_format", "-show_streams", str(path),
@@ -163,9 +167,9 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def _ffprobe_source_duration(path: Path) -> Optional[float]:
+def _ffprobe_source_duration(path: Path, ffprobe_path: Optional[str] = None) -> Optional[float]:
     try:
-        ffprobe = _find_ffprobe()
+        ffprobe = _find_ffprobe(ffprobe_path)
         cmd = [
             ffprobe, "-v", "error", "-print_format", "json",
             "-show_format", str(path),
@@ -197,6 +201,11 @@ def run_worker(worker_job_path: str) -> int:
     metadata_filename = wjob.get("audio_metadata_filename", METADATA_FILENAME)
     source_type = wjob.get("source_type", "twitch_vod")
     source_id = wjob["source_id"]
+    # Resolved tool paths injected by the parent service (from
+    # Settings/ExecutableResolver). When absent the worker falls back to
+    # PATH lookup so direct invocation still works.
+    ffmpeg_path = wjob.get("ffmpeg_path")
+    ffprobe_path = wjob.get("ffprobe_path")
 
     if not source_file.is_file():
         _update_job(job_path, status="FAILED", error=f"source file missing: {source_file.name}")
@@ -212,7 +221,7 @@ def run_worker(worker_job_path: str) -> int:
     except OSError:
         pass
 
-    total_seconds = _ffprobe_source_duration(source_file)
+    total_seconds = _ffprobe_source_duration(source_file, ffprobe_path)
 
     # Mark RUNNING.
     _update_job(
@@ -222,7 +231,7 @@ def run_worker(worker_job_path: str) -> int:
         progress={"percent": 0.0 if total_seconds else None, "processed_seconds": 0.0, "total_seconds": total_seconds, "phase": None},
     )
 
-    ffmpeg = _find_ffmpeg()
+    ffmpeg = _find_ffmpeg(ffmpeg_path)
     # Fixed FFmpeg argument list. No client-supplied args. Mono, 16 kHz,
     # FLAC, lossless, no normalization, no denoising, no speed change.
     # The output format is set explicitly with -f flac because the .part
@@ -299,7 +308,7 @@ def run_worker(worker_job_path: str) -> int:
     # Verify with ffprobe.
     _update_job(job_path, status="EXPORTING", progress={"percent": 100.0, "processed_seconds": total_seconds, "total_seconds": total_seconds, "phase": "EXPORTING"})
     try:
-        info = _ffprobe_audio_info(part_path)
+        info = _ffprobe_audio_info(part_path, ffprobe_path)
     except Exception as exc:
         try:
             part_path.unlink()

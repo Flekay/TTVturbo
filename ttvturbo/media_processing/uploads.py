@@ -34,6 +34,10 @@ class UploadNotFoundError(MediaSourceNotFoundError):
     """Raised when an upload id does not exist."""
 
 
+class UploadTooLargeError(UploadStorageError):
+    """Raised when a streamed upload exceeds the configured byte limit."""
+
+
 def _now_iso() -> str:
     return _dt.datetime.now(tz=_dt.timezone.utc).astimezone().replace(microsecond=0).isoformat()
 
@@ -137,6 +141,7 @@ class UploadStorage:
         file,
         *,
         chunk_size: int = 1024 * 1024,
+        max_bytes: Optional[int] = None,
     ) -> Path:
         """Stream an uploaded file into the upload directory atomically.
 
@@ -144,6 +149,11 @@ class UploadStorage:
         renamed to ``{upload_dir}/{file_name}`` via ``os.replace``.  A
         partial upload (client disconnect, network error) never leaves a
         half-written file at the final path — the temp file is cleaned up.
+
+        When *max_bytes* is set, bytes are counted per chunk and the
+        upload is aborted the moment the limit is exceeded: the temp file
+        is deleted and :class:`UploadTooLargeError` is raised (callers
+        map this to HTTP 413).
 
         *file* must be a Starlette/FastAPI ``UploadFile`` (or any object
         with an async ``read(n)`` method).  The caller is responsible for
@@ -159,12 +169,18 @@ class UploadStorage:
         if dest.name != file_name:
             raise UploadStorageError(f"invalid file_name: {file_name!r}")
         tmp_path = upload_dir / atomic_tmp_name(dest)
+        received = 0
         try:
             with open(tmp_path, "wb") as fh:
                 while True:
                     chunk = await file.read(chunk_size)
                     if not chunk:
                         break
+                    received += len(chunk)
+                    if max_bytes is not None and received > max_bytes:
+                        raise UploadTooLargeError(
+                            f"upload exceeds max_upload_bytes ({max_bytes})"
+                        )
                     fh.write(chunk)
                     fh.flush()
                     os.fsync(fh.fileno())

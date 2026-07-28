@@ -29,6 +29,7 @@ from .schemas import (
     SUPPORTED_SCHEMA_VERSIONS,
     LibraryNotFoundError,
     LibraryStorageError,
+    LibraryUploadTooLargeError,
 )
 
 logger = logging.getLogger("ttvturbo.library.storage")
@@ -104,6 +105,7 @@ class LibraryStorage:
         async_iterator,
         *,
         chunk_size: int = 1024 * 1024,
+        max_bytes: Optional[int] = None,
     ) -> Path:
         """Stream an async iterator of bytes into ``{item_dir}/{file_name}``.
 
@@ -114,6 +116,11 @@ class LibraryStorage:
           a half-written file at the final path — the temp file is cleaned
           up.
         * Concurrent reads of the final path never see a partial file.
+
+        When *max_bytes* is set, bytes are counted per chunk and the
+        upload is aborted the moment the limit is exceeded: the temp file
+        is deleted and :class:`LibraryUploadTooLargeError` is raised
+        (callers map this to HTTP 413).
 
         *async_iterator* must yield ``bytes`` chunks; it is exhausted
         fully before the rename.  The caller is responsible for closing
@@ -134,12 +141,18 @@ class LibraryStorage:
             raise LibraryStorageError(f"invalid file_name: {file_name!r}")
         dest.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = dest.parent / atomic_tmp_name(dest)
+        received = 0
         try:
             with open(tmp_path, "wb") as fh:
                 while True:
                     chunk = await async_iterator.read(chunk_size) if hasattr(async_iterator, "read") else await async_iterator.__anext__()
                     if not chunk:
                         break
+                    received += len(chunk)
+                    if max_bytes is not None and received > max_bytes:
+                        raise LibraryUploadTooLargeError(
+                            f"upload exceeds max_upload_bytes ({max_bytes})"
+                        )
                     fh.write(chunk)
                     fh.flush()
                     os.fsync(fh.fileno())

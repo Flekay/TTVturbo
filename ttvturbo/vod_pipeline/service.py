@@ -273,6 +273,9 @@ class VodPipelineService:
         timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
         sync_limit: int = DEFAULT_SYNC_LIMIT,
         library_service: Optional[Any] = None,
+        settings: Optional["Settings"] = None,
+        worker_python: Optional[str] = None,
+        ffprobe_path: Optional[str] = None,
     ) -> None:
         self.storage = storage
         self.lister = channel_lister
@@ -282,6 +285,18 @@ class VodPipelineService:
         self.timeout_seconds = float(timeout_seconds)
         self.sync_limit = max(1, int(sync_limit))
         self.library_service = library_service
+        # Resolved tool paths. When *settings* is provided the resolved
+        # values come from the central Settings/ExecutableResolver; the
+        # explicit kwargs are kept for tests that construct the service
+        # directly without a Settings instance. Falls back to sys.executable
+        # so the service remains usable with no configuration.
+        self.settings = settings
+        self._worker_python = worker_python or (
+            settings.worker_python if settings is not None else sys.executable
+        )
+        self._ffprobe_path = ffprobe_path or (
+            settings.ffprobe_path if settings is not None else None
+        )
         self._lock = threading.Lock()
         self._active: dict[str, subprocess.Popen] = {}
         self._active_log_fh: dict[str, Any] = {}
@@ -787,7 +802,7 @@ class VodPipelineService:
         except OSError as exc:
             self._mark_failed(vod_id, f"Could not open worker log file: {exc}")
             raise VodConflictError(f"Could not open worker log file: {exc}") from exc
-        cmd = [sys.executable, "-m", "ttvturbo.vod_pipeline.downloader_worker", str(job_path)]
+        cmd = [self._worker_python, "-m", "ttvturbo.vod_pipeline.downloader_worker", str(job_path)]
         try:
             proc = subprocess.Popen(
                 cmd,
@@ -920,7 +935,7 @@ class VodPipelineService:
             self._mark_failed(vod_id, "Downloaded file is missing before verification.")
             return
         try:
-            info = ffprobe_inspect(src)
+            info = ffprobe_inspect(src, ffprobe_path=self._ffprobe_path)
         except FFprobeError as exc:
             self._mark_failed(vod_id, f"FFprobe verification failed: {exc}")
             return
@@ -1170,18 +1185,22 @@ class FFprobeError(Exception):
     """Raised when ffprobe cannot verify the file as a valid video."""
 
 
-def ffprobe_inspect(path: Path) -> dict:
+def ffprobe_inspect(path: Path, ffprobe_path: Optional[str] = None) -> dict:
     """Run ffprobe and verify the file is a real, playable video.
 
     Returns a dict with container, duration, width, height, video_codec,
     audio_codec. Raises :class:`FFprobeError` if the file is missing,
     empty, unreadable, or lacks a video or audio stream.
+
+    *ffprobe_path* is the resolved ffprobe executable (e.g. from
+    :class:`ExecutableResolver`). When ``None`` the binary is located via
+    ``shutil.which`` for backward compatibility.
     """
     if not path.is_file():
         raise FFprobeError("file does not exist")
     if path.stat().st_size <= 0:
         raise FFprobeError("file is empty")
-    ffprobe = shutil.which("ffprobe")
+    ffprobe = ffprobe_path or shutil.which("ffprobe")
     if ffprobe is None:
         raise FileNotFoundError("ffprobe not found on PATH")
     cmd = [

@@ -123,23 +123,32 @@ class TranscriptionService:
         language: Optional[str] = None,
         max_concurrent: Optional[int] = None,
         default_preset_store: Optional[AsrDefaultPresetStore] = None,
+        settings: Optional["Settings"] = None,
+        worker_python: Optional[str] = None,
     ) -> None:
         self.storage = storage
         self.source_resolver = source_resolver
         self.audio_service = audio_service
         self.gpu_lock = gpu_lock
         self.default_preset_store = default_preset_store
-        # Resolve configuration from explicit params, then central Settings,
-        # then module defaults.  Services never interpret env vars directly.
+        # Resolve configuration from explicit params, then the injected
+        # Settings instance, then a fresh Settings.from_env() fallback for
+        # callers that construct the service directly without an app
+        # instance.  Services never interpret env vars directly when the
+        # app passes a Settings instance.
         from ttvturbo.settings import Settings
 
-        _s = Settings.from_env()
+        _s = settings if settings is not None else Settings.from_env()
+        self.settings = settings
         self.model = model or _s.transcription_model
         self.device = device or _s.transcription_device
         self.compute_type = compute_type or _s.transcription_compute_type
         self.language = language or _s.transcription_language
         mc = max_concurrent if max_concurrent is not None else _s.transcription_max_concurrent
         self.max_concurrent = max(1, int(mc))
+        self._worker_python = worker_python or (
+            settings.worker_python if settings is not None else sys.executable
+        )
 
         self._lock = threading.Lock()
         self._active: dict[str, subprocess.Popen] = {}
@@ -689,7 +698,7 @@ class TranscriptionService:
         except OSError as exc:
             self._mark_failed(job_id, f"Could not open worker log file: {exc}")
             return
-        cmd = [sys.executable, "-m", "ttvturbo.media_processing.transcription_worker", str(worker_job_path)]
+        cmd = [self._worker_python, "-m", "ttvturbo.media_processing.transcription_worker", str(worker_job_path)]
         try:
             proc = subprocess.Popen(
                 cmd, stdout=log_fh, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,

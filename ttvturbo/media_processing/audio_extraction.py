@@ -168,10 +168,28 @@ class AudioExtractionService:
         storage: MediaJobStorage,
         source_resolver: MediaSourceResolver,
         on_job_ready: Any = None,
+        settings: Optional["Settings"] = None,
+        worker_python: Optional[str] = None,
+        ffmpeg_path: Optional[str] = None,
+        ffprobe_path: Optional[str] = None,
     ) -> None:
         self.storage = storage
         self.source_resolver = source_resolver
         self._on_job_ready = on_job_ready
+        self.settings = settings
+        # Resolved tool paths. When *settings* is provided the values come
+        # from the central Settings/ExecutableResolver; explicit kwargs win
+        # for tests that construct the service directly. Falls back to
+        # sys.executable so the service stays usable without configuration.
+        self._worker_python = worker_python or (
+            settings.worker_python if settings is not None else sys.executable
+        )
+        self._ffmpeg_path = ffmpeg_path or (
+            settings.ffmpeg_path if settings is not None else None
+        )
+        self._ffprobe_path = ffprobe_path or (
+            settings.ffprobe_path if settings is not None else None
+        )
         self._lock = threading.Lock()
         self._active: dict[str, subprocess.Popen] = {}
         self._active_log_fh: dict[str, Any] = {}
@@ -370,6 +388,8 @@ class AudioExtractionService:
             "artifact_dir": str(artifact_dir),
             "audio_filename": AUDIO_FILENAME,
             "audio_metadata_filename": AUDIO_METADATA_FILENAME,
+            "ffmpeg_path": self._ffmpeg_path,
+            "ffprobe_path": self._ffprobe_path,
         }
         worker_job_path = job_dir / "worker_job.json"
         with open(worker_job_path, "w", encoding="utf-8") as fh:
@@ -380,7 +400,7 @@ class AudioExtractionService:
         except OSError as exc:
             self._mark_failed(job_id, f"Could not open worker log file: {exc}")
             raise MediaJobConflictError(f"Could not open worker log file: {exc}") from exc
-        cmd = [sys.executable, "-m", "ttvturbo.media_processing.audio_extraction_worker", str(worker_job_path)]
+        cmd = [self._worker_python, "-m", "ttvturbo.media_processing.audio_extraction_worker", str(worker_job_path)]
         try:
             proc = subprocess.Popen(
                 cmd, stdout=log_fh, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,

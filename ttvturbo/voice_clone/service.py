@@ -94,6 +94,8 @@ class VoiceCloneService:
         dtype: str = DTYPE_DEFAULT,
         timeout_seconds: Optional[float] = None,
         gpu_lock: Any = None,
+        settings: Optional["Settings"] = None,
+        worker_python: Optional[str] = None,
     ) -> None:
         self.recordings_dir = recordings_dir
         self.voice_clones_dir = voice_clones_dir
@@ -101,6 +103,10 @@ class VoiceCloneService:
         self.model_id = model_id
         self.device = device
         self.dtype = dtype
+        self.settings = settings
+        self._worker_python = worker_python or (
+            settings.worker_python if settings is not None else sys.executable
+        )
         # Optional project-wide GPU lock shared with faster-whisper
         # transcription. When set, the service acquires the lock before
         # spawning the worker and releases it when the worker exits, so
@@ -122,10 +128,13 @@ class VoiceCloneService:
         self._profile_reference_resolver = None
 
         if timeout_seconds is None:
-            from ttvturbo.settings import Settings
+            if settings is not None:
+                timeout_seconds = settings.voice_clone_timeout_seconds or DEFAULT_TIMEOUT_SECONDS
+            else:
+                from ttvturbo.settings import Settings
 
-            s = Settings.from_env()
-            timeout_seconds = s.voice_clone_timeout_seconds or DEFAULT_TIMEOUT_SECONDS
+                s = Settings.from_env()
+                timeout_seconds = s.voice_clone_timeout_seconds or DEFAULT_TIMEOUT_SECONDS
         self.timeout_seconds = float(timeout_seconds)
 
         self._lock = threading.Lock()
@@ -720,7 +729,7 @@ class VoiceCloneService:
                 self._write_metadata(generation_id, meta)
                 self._release_slot(generation_id)
                 raise ValidationError(str(exc)) from exc
-        cmd = [sys.executable, "-m", "ttvturbo.voice_clone.runtime", str(job_path)]
+        cmd = [self._worker_python, "-m", "ttvturbo.voice_clone.runtime", str(job_path)]
         log_path = self._worker_log_path(generation_id)
         try:
             log_fh = open(log_path, "wb", buffering=0)

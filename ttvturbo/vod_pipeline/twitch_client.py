@@ -31,8 +31,8 @@ TWITCH_WEB_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko"
 TWITCH_GQL_URL = "https://gql.twitch.tv/gql"
 
 
-def _ytdlp_available() -> bool:
-    return shutil.which(YTDLP_BIN) is not None
+def _ytdlp_available(yt_dlp_bin: str = YTDLP_BIN) -> bool:
+    return shutil.which(yt_dlp_bin) is not None
 
 
 class ChannelLister:
@@ -43,8 +43,16 @@ class ChannelLister:
     via subprocess timeout.
     """
 
-    def __init__(self, timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS) -> None:
+    def __init__(
+        self,
+        timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+        yt_dlp_bin: Optional[str] = None,
+    ) -> None:
         self.timeout_seconds = float(timeout_seconds)
+        # Resolved yt-dlp executable. When *yt_dlp_bin* is provided (e.g.
+        # from ExecutableResolver / Settings) it always wins; otherwise we
+        # fall back to the plain binary name and let PATH lookup resolve it.
+        self._yt_dlp_bin = yt_dlp_bin or YTDLP_BIN
 
     # ------------------------------------------------------------------ helpers
     def _run_ytdlp(self, args: list[str]) -> list[dict]:
@@ -53,9 +61,9 @@ class ChannelLister:
         Returns a list of parsed JSON entry dicts. Raises
         :class:`TwitchClientError` on failure.
         """
-        if not _ytdlp_available():
+        if not _ytdlp_available(self._yt_dlp_bin):
             raise TwitchClientError("yt-dlp is not installed or not on PATH")
-        cmd = [YTDLP_BIN, "--flat-playlist", "--dump-json", *args]
+        cmd = [self._yt_dlp_bin, "--flat-playlist", "--dump-json", *args]
         try:
             proc = subprocess.run(
                 cmd,
@@ -96,9 +104,9 @@ class ChannelLister:
         if the video does not exist, :class:`TwitchClientError` on other
         failures.
         """
-        if not _ytdlp_available():
+        if not _ytdlp_available(self._yt_dlp_bin):
             raise TwitchClientError("yt-dlp is not installed or not on PATH")
-        cmd = [YTDLP_BIN, "--dump-json", "--skip-download", url]
+        cmd = [self._yt_dlp_bin, "--dump-json", "--skip-download", url]
         try:
             proc = subprocess.run(
                 cmd,

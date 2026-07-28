@@ -64,11 +64,13 @@ from ttvturbo.media_processing import (
     TranscriptionService,
     UploadStorage,
     UploadStorageError,
+    UploadTooLargeError,
 )
 from ttvturbo.media_processing.schemas import (
     MediaJobStatus,
     TranscriptionStatus,
 )
+from ttvturbo.library import LibraryUploadTooLargeError
 
 logger = logging.getLogger("ttvturbo.media_processing_api")
 
@@ -156,6 +158,7 @@ def build_media_processing_router(
     pipeline_service: PipelineService,
     upload_storage: Optional[UploadStorage] = None,
     library_service=None,
+    max_upload_bytes: Optional[int] = None,
 ) -> APIRouter:
     """Build the media-processing API router bound to service instances.
 
@@ -163,6 +166,10 @@ def build_media_processing_router(
     upload endpoints create library items instead of using the legacy
     ``UploadStorage``. The ``upload_storage`` parameter is kept for
     backward compatibility (transcription of legacy uploads).
+
+    ``max_upload_bytes`` enforces the central upload size limit while
+    streaming; oversize uploads are aborted and returned as HTTP 413 and
+    empty uploads are rejected with HTTP 400.
     """
     router = APIRouter(prefix="/api", tags=["media-processing"])
 
@@ -229,9 +236,27 @@ def build_media_processing_router(
             try:
                 meta = library_service.create_upload_item(file_name=file.filename, title=file.filename)
                 upload_id = meta["id"]
-                dest = await library_service.storage.stream_item_file(upload_id, file.filename, file)
+                dest = await library_service.storage.stream_item_file(
+                    upload_id, file.filename, file, max_bytes=max_upload_bytes,
+                )
+                if dest.stat().st_size == 0:
+                    raise UploadStorageError("Uploaded file is empty.")
                 meta["file_size_bytes"] = dest.stat().st_size
                 library_service.storage.save_item(meta)
+            except (UploadTooLargeError, LibraryUploadTooLargeError) as exc:
+                if upload_id is not None:
+                    try:
+                        library_service.delete_item(upload_id)
+                    except Exception:
+                        pass
+                return _error_response(413, "upload_too_large", str(exc))
+            except UploadStorageError as exc:
+                if upload_id is not None:
+                    try:
+                        library_service.delete_item(upload_id)
+                    except Exception:
+                        pass
+                return _error_response(400, "upload_validation", str(exc))
             except Exception as exc:
                 if upload_id is not None:
                     try:
@@ -245,7 +270,11 @@ def build_media_processing_router(
             meta = upload_storage.create_upload(file_name=file.filename, title=file.filename)
             upload_id = meta["id"]
             try:
-                dest = await upload_storage.stream_upload_file(upload_id, file.filename, file)
+                dest = await upload_storage.stream_upload_file(
+                    upload_id, file.filename, file, max_bytes=max_upload_bytes,
+                )
+                if dest.stat().st_size == 0:
+                    raise UploadStorageError("Uploaded file is empty.")
                 meta["file_size_bytes"] = dest.stat().st_size
                 # Persist the enriched metadata.
                 from ttvturbo.storage_utils import atomic_write_json
@@ -255,6 +284,12 @@ def build_media_processing_router(
                     meta,
                     UploadStorageError,
                 )
+            except UploadTooLargeError as exc:
+                upload_storage.delete_upload(upload_id)
+                return _error_response(413, "upload_too_large", str(exc))
+            except UploadStorageError as exc:
+                upload_storage.delete_upload(upload_id)
+                return _error_response(400, "upload_validation", str(exc))
             except Exception as exc:
                 upload_storage.delete_upload(upload_id)
                 return _error_response(500, "upload_save_failed", str(exc))
