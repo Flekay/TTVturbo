@@ -62,6 +62,8 @@ from media_processing import (
     UploadStorage,
 )
 from media_processing_api import build_media_processing_router
+from media_processing import AsrBenchmarkService, AsrDefaultPresetStore
+from asr_api import build_asr_router
 
 from library import LibraryService, LibraryStorage
 from library_api import build_library_router
@@ -199,6 +201,20 @@ media_processing_router = build_media_processing_router(
 )
 library_router = build_library_router(library_service)
 
+# ASR preset + benchmark system. Shares the same GPU lock and data root
+# as the transcription service. The default-preset store persists the
+# production default selection under the data directory.
+asr_default_preset_store = AsrDefaultPresetStore(DATA_DIR)
+asr_benchmark_service = AsrBenchmarkService(
+    data_dir=DATA_DIR,
+    source_resolver=media_source_resolver,
+    gpu_lock=gpu_lock,
+)
+asr_router = build_asr_router(
+    benchmark_service=asr_benchmark_service,
+    default_store=asr_default_preset_store,
+)
+
 # Connect the voice-clone profile mode to the voice-profile service. The
 # resolver runs server-side: it loads the profile, finds the accepted
 # reference for the given script id, and returns the real WAV filename and
@@ -271,6 +287,10 @@ app.include_router(media_processing_router)
 
 # Library API routes (persistent video store: items, uploads, file serving).
 app.include_router(library_router)
+
+# ASR preset + benchmark API routes (multilingual presets, benchmark
+# creation/execution/cancel/delete, default-preset selection).
+app.include_router(asr_router)
 
 
 # --------------------------------------------------------------------------- #

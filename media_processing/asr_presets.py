@@ -380,9 +380,14 @@ class AsrDefaultPresetStore:
     def select(self, preset_id: str) -> dict[str, Any]:
         """Persist a new production default.
 
-        Raises :class:`AsrPresetError` if the preset is unknown or not
+        Raises :class:`AsrPresetNotFoundError` if the preset is unknown and
+        :class:`AsrPresetError` if the preset is known but not
         production-eligible (e.g. the diagnostic no-VAD preset).
         """
+        # Distinguish "unknown" from "known but ineligible" so the API
+        # can return 404 vs 400 respectively.
+        if preset_id not in BUILTIN_PRESETS:
+            raise AsrPresetNotFoundError(f"unknown preset: {preset_id!r}")
         if not is_production_eligible(preset_id):
             raise AsrPresetError(
                 f"preset {preset_id!r} is not eligible as production default"

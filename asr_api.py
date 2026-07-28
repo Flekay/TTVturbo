@@ -1,0 +1,214 @@
+"""FastAPI integration for the ASR preset + benchmark system.
+
+Endpoints:
+
+  GET    /api/asr/presets
+  GET    /api/asr/status
+  GET    /api/asr/default
+  POST   /api/asr/default
+  POST   /api/asr/benchmarks
+  GET    /api/asr/benchmarks
+  GET    /api/asr/benchmarks/{id}
+  POST   /api/asr/benchmarks/{id}/start
+  POST   /api/asr/benchmarks/{id}/cancel
+  DELETE /api/asr/benchmarks/{id}
+  POST   /api/asr/benchmarks/{id}/select-default
+  GET    /api/asr/benchmarks/{id}/runs/{preset_id}
+
+The router is bound to service instances built in ``app.py``. No free
+model ids or shell arguments are accepted from the client — only known
+preset ids.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any, Optional
+
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
+
+from media_processing import (
+    AsrBenchmarkError,
+    AsrBenchmarkNotFoundError,
+    AsrBenchmarkService,
+    AsrDefaultPresetStore,
+    AsrPresetError,
+    AsrPresetNotFoundError,
+    is_production_eligible,
+    list_presets,
+)
+
+logger = logging.getLogger("ttvturbo.asr_api")
+
+
+# ---------------------------------------------------------------------------
+# Request models
+# ---------------------------------------------------------------------------
+
+
+class CreateBenchmarkRequest(BaseModel):
+    source_type: str = "twitch_clip"
+    source_id: str
+    preset_ids: list[str] = Field(default_factory=list)
+    reference_text: Optional[str] = None
+    hotwords: Optional[str] = None
+
+
+class SelectDefaultRequest(BaseModel):
+    preset_id: str
+
+
+# ---------------------------------------------------------------------------
+# Error mapping
+# ---------------------------------------------------------------------------
+
+
+def _err(status: int, code: str, message: str, **extra: Any) -> JSONResponse:
+    detail: dict[str, Any] = {"code": code, "message": message}
+    detail.update(extra)
+    return JSONResponse(status_code=status, content={"detail": detail})
+
+
+def _map(exc: Exception) -> JSONResponse:
+    if isinstance(exc, AsrPresetNotFoundError):
+        return _err(404, "preset_not_found", str(exc))
+    if isinstance(exc, AsrBenchmarkNotFoundError):
+        return _err(404, "benchmark_not_found", str(exc))
+    if isinstance(exc, AsrPresetError):
+        return _err(400, "preset_invalid", str(exc))
+    if isinstance(exc, AsrBenchmarkError):
+        return _err(409, "benchmark_conflict", str(exc))
+    logger.exception("unexpected asr error")
+    return _err(500, "asr_internal", "Internal ASR error.")
+
+
+# ---------------------------------------------------------------------------
+# Router factory
+# ---------------------------------------------------------------------------
+
+
+def build_asr_router(
+    benchmark_service: AsrBenchmarkService,
+    default_store: AsrDefaultPresetStore,
+) -> APIRouter:
+    router = APIRouter(prefix="/api/asr", tags=["asr"])
+
+    # ----------------------------------------------------------------- presets
+    @router.get("/presets")
+    def get_presets() -> JSONResponse:
+        return JSONResponse(content={"presets": list_presets()})
+
+    # ----------------------------------------------------------------- status
+    @router.get("/status")
+    def asr_status() -> JSONResponse:
+        default = default_store.get()
+        return JSONResponse(content={
+            "running": benchmark_service.is_running(),
+            "default_preset_id": default["preset_id"],
+            "default_preset": default["preset"],
+            "default_selected_at": default.get("selected_at"),
+        })
+
+    # ----------------------------------------------------------------- default
+    @router.get("/default")
+    def get_default() -> JSONResponse:
+        return JSONResponse(content=default_store.get())
+
+    @router.post("/default")
+    def set_default(request: SelectDefaultRequest) -> JSONResponse:
+        try:
+            payload = default_store.select(request.preset_id)
+        except Exception as exc:
+            return _map(exc)
+        return JSONResponse(content=payload)
+
+    # ----------------------------------------------------------------- benchmarks
+    @router.post("/benchmarks")
+    def create_benchmark(request: CreateBenchmarkRequest) -> JSONResponse:
+        try:
+            rec = benchmark_service.create_benchmark(
+                source_type=request.source_type,
+                source_id=request.source_id,
+                preset_ids=request.preset_ids,
+                reference_text=request.reference_text,
+                hotwords=request.hotwords,
+            )
+        except Exception as exc:
+            return _map(exc)
+        return JSONResponse(status_code=201, content=rec)
+
+    @router.get("/benchmarks")
+    def list_benchmarks() -> JSONResponse:
+        return JSONResponse(content={"benchmarks": benchmark_service.list_benchmarks()})
+
+    @router.get("/benchmarks/{benchmark_id}")
+    def get_benchmark(benchmark_id: str) -> JSONResponse:
+        try:
+            return JSONResponse(content=benchmark_service.get_benchmark(benchmark_id))
+        except Exception as exc:
+            return _map(exc)
+
+    @router.post("/benchmarks/{benchmark_id}/start")
+    def start_benchmark(benchmark_id: str) -> JSONResponse:
+        try:
+            return JSONResponse(content=benchmark_service.start(benchmark_id))
+        except Exception as exc:
+            return _map(exc)
+
+    @router.post("/benchmarks/{benchmark_id}/cancel")
+    def cancel_benchmark(benchmark_id: str) -> JSONResponse:
+        try:
+            return JSONResponse(content=benchmark_service.cancel(benchmark_id))
+        except Exception as exc:
+            return _map(exc)
+
+    @router.delete("/benchmarks/{benchmark_id}")
+    def delete_benchmark(benchmark_id: str) -> JSONResponse:
+        try:
+            benchmark_service.delete(benchmark_id)
+            return JSONResponse(content={"id": benchmark_id, "deleted": True})
+        except Exception as exc:
+            return _map(exc)
+
+    @router.post("/benchmarks/{benchmark_id}/select-default")
+    def select_default_from_benchmark(benchmark_id: str, request: SelectDefaultRequest) -> JSONResponse:
+        """Select a production default preset.
+
+        Refuses the diagnostic no-VAD preset and any unknown preset. The
+        benchmark id is accepted for provenance logging but the selection
+        only depends on the preset id.
+        """
+        # Verify the benchmark exists (provenance).
+        try:
+            benchmark_service.get_benchmark(benchmark_id)
+        except Exception as exc:
+            return _map(exc)
+        if not is_production_eligible(request.preset_id):
+            return _err(
+                400, "preset_not_eligible",
+                f"preset {request.preset_id!r} is not eligible as production default.",
+            )
+        try:
+            payload = default_store.select(request.preset_id)
+        except Exception as exc:
+            return _map(exc)
+        return JSONResponse(content=payload)
+
+    # ----------------------------------------------------------------- run detail
+    @router.get("/benchmarks/{benchmark_id}/runs/{preset_id}")
+    def get_run(benchmark_id: str, preset_id: str) -> JSONResponse:
+        try:
+            benchmark_service.get_benchmark(benchmark_id)
+        except Exception as exc:
+            return _map(exc)
+        from media_processing.asr_benchmark import _read_json  # noqa: PLC0415
+        from pathlib import Path  # noqa: PLC0415
+        run_path = Path(benchmark_service._runs_dir(benchmark_id)) / f"{preset_id}.json"  # noqa: SLF001
+        payload = _read_json(run_path)
+        if payload is None:
+            return _err(404, "run_not_found", f"run not found: {preset_id}")
+        return JSONResponse(content=payload)
+
+    return router
