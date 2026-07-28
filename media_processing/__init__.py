@@ -71,6 +71,20 @@ from .asr_presets import (
     is_production_eligible,
     list_presets,
 )
+from .asr_metrics import (
+    AsrMetricsUnavailable,
+    MetricsResult,
+    compute_metrics,
+    hypothesis_text,
+    normalise_text,
+    rank_runs,
+)
+from .asr_benchmark import (
+    AsrBenchmarkError,
+    AsrBenchmarkNotFoundError,
+    AsrBenchmarkService,
+    recommend_winner,
+)
 
 __all__ = [
     "SCHEMA_VERSION",
@@ -132,4 +146,14 @@ __all__ = [
     "get_preset",
     "is_production_eligible",
     "list_presets",
+    "AsrMetricsUnavailable",
+    "MetricsResult",
+    "compute_metrics",
+    "hypothesis_text",
+    "normalise_text",
+    "rank_runs",
+    "AsrBenchmarkError",
+    "AsrBenchmarkNotFoundError",
+    "AsrBenchmarkService",
+    "recommend_winner",
 ]
