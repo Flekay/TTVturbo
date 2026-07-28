@@ -101,6 +101,13 @@ def _ensure_dependencies(device: str, job_path: Path) -> Optional[str]:
     For CUDA devices, torch is pulled from the cu128 index so CUDA is not
     silently disabled. If torch is already installed (e.g. from voice-clone),
     only faster-whisper is installed.
+
+    This on-demand install is a convenience fallback for first-time setups
+    where ``requirements-gpu.txt`` has not been installed yet. For production
+    deployments, install the dependencies declaratively::
+
+        python -m pip install -r requirements-gpu.txt \\
+            --extra-index-url https://download.pytorch.org/whl/cu128
     """
     try:
         import torch  # type: ignore[import-not-found]  # noqa: F401

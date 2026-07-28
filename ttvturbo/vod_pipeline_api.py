@@ -20,6 +20,7 @@ import logging
 import os
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -409,7 +410,7 @@ def build_router(service: VodPipelineService) -> APIRouter:
         try:
             proc = subprocess.Popen(
                 [
-                    "python", "-m", "yt_dlp",
+                    sys.executable, "-m", "yt_dlp",
                     "-o", "-",
                     "--no-playlist",
                     "--quiet",
