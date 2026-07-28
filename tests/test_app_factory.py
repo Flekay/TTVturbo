@@ -17,7 +17,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from ttvturbo.app_factory import ServiceContainer, ServiceOverrides, create_app, find_executable
+from ttvturbo.app_factory import ServiceContainer, ServiceOverrides, create_app
+from ttvturbo.system.executables import find_executable
 from ttvturbo.settings import APP_NAME, APP_VERSION, Settings
 
 

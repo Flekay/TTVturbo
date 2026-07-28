@@ -84,8 +84,11 @@ def _resolve_audio_path(source_type: str, source_id: str) -> Path:
     from ttvturbo.media_processing.storage import MediaJobStorage  # noqa: PLC0415
     from ttvturbo.vod_pipeline import VodPipelineStorage  # noqa: PLC0415
 
-    data_dir = Path(os.environ.get("TTVTURBO_DATA_DIR") or
-                    (Path(__file__).resolve().parents[2] / "data"))
+    # Worker subprocesses reconstruct settings from the environment using
+    # the same central Settings class as the app process.
+    from ttvturbo.settings import Settings
+
+    data_dir = Settings.from_env().data_root
     vod_storage = VodPipelineStorage(data_dir)
     from ttvturbo.library import LibraryService, LibraryStorage  # noqa: PLC0415
     library_service = LibraryService(LibraryStorage(data_dir / "library"))
@@ -118,8 +121,11 @@ def _resolve_forensic_audio(
     from ttvturbo.media_processing.sources import MediaSourceResolver  # noqa: PLC0415
     from ttvturbo.vod_pipeline import VodPipelineStorage  # noqa: PLC0415
 
-    data_dir = Path(os.environ.get("TTVTURBO_DATA_DIR") or
-                    (Path(__file__).resolve().parents[2] / "data"))
+    # Worker subprocesses reconstruct settings from the environment using
+    # the same central Settings class as the app process.
+    from ttvturbo.settings import Settings
+
+    data_dir = Settings.from_env().data_root
     vod_storage = VodPipelineStorage(data_dir)
     from ttvturbo.library import LibraryService, LibraryStorage  # noqa: PLC0415
     library_service = LibraryService(LibraryStorage(data_dir / "library"))

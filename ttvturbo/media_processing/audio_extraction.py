@@ -91,25 +91,18 @@ def _sha256(path: Path) -> str:
 
 def _find_ffmpeg() -> str:
     """Return the ffmpeg executable path or raise."""
-    # Reuse the app-level helper if available, else fall back to PATH.
-    try:
-        from ttvturbo.app import _find_executable  # type: ignore[import-not-found]
+    from ttvturbo.system.executables import find_executable
 
-        found = _find_executable("ffmpeg")
-    except Exception:
-        found = shutil.which("ffmpeg")
+    found = find_executable("ffmpeg")
     if not found:
         raise AudioExtractionError("ffmpeg is not installed or not on PATH")
     return found
 
 
 def _find_ffprobe() -> str:
-    try:
-        from ttvturbo.app import _find_executable  # type: ignore[import-not-found]
+    from ttvturbo.system.executables import find_executable
 
-        found = _find_executable("ffprobe")
-    except Exception:
-        found = shutil.which("ffprobe")
+    found = find_executable("ffprobe")
     if not found:
         raise AudioExtractionError("ffprobe is not installed or not on PATH")
     return found

@@ -129,16 +129,16 @@ class TranscriptionService:
         self.audio_service = audio_service
         self.gpu_lock = gpu_lock
         self.default_preset_store = default_preset_store
-        self.model = model or os.environ.get(ENV_MODEL, DEFAULT_MODEL)
-        self.device = device or os.environ.get(ENV_DEVICE, DEFAULT_DEVICE)
-        self.compute_type = compute_type or os.environ.get(ENV_COMPUTE_TYPE, DEFAULT_COMPUTE_TYPE)
-        self.language = language or os.environ.get(ENV_LANGUAGE, DEFAULT_LANGUAGE)
-        mc = max_concurrent
-        if mc is None:
-            try:
-                mc = int(os.environ.get(ENV_MAX_CONCURRENT, str(DEFAULT_MAX_CONCURRENT)))
-            except ValueError:
-                mc = DEFAULT_MAX_CONCURRENT
+        # Resolve configuration from explicit params, then central Settings,
+        # then module defaults.  Services never interpret env vars directly.
+        from ttvturbo.settings import Settings
+
+        _s = Settings.from_env()
+        self.model = model or _s.transcription_model
+        self.device = device or _s.transcription_device
+        self.compute_type = compute_type or _s.transcription_compute_type
+        self.language = language or _s.transcription_language
+        mc = max_concurrent if max_concurrent is not None else _s.transcription_max_concurrent
         self.max_concurrent = max(1, int(mc))
 
         self._lock = threading.Lock()

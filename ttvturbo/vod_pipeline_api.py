@@ -142,7 +142,9 @@ def _yt_dlp_version() -> Optional[str]:
 
 
 def _ffprobe_available() -> bool:
-    return shutil.which("ffprobe") is not None
+    from ttvturbo.system.executables import find_executable
+
+    return find_executable("ffprobe") is not None
 
 
 def _dir_writable(path) -> bool:
@@ -512,15 +514,18 @@ def build_service(
     timeout_seconds: Optional[float] = None,
     sync_limit: Optional[int] = None,
     library_service=None,
+    settings: Optional["Settings"] = None,
 ) -> VodPipelineService:
     """Build a :class:`VodPipelineService` instance.
 
     No Twitch API credentials needed — yt-dlp handles channel listing,
-    metadata fetch and downloads. Reads concurrency / timeout / sync-limit
-    from environment variables with sensible defaults.
+    metadata fetch and downloads. Concurrency / timeout / sync-limit are
+    taken from *settings* (central :class:`Settings`) when provided, or
+    from the explicit parameters, falling back to module defaults.
     """
     from pathlib import Path
 
+    from ttvturbo.settings import Settings
     from ttvturbo.vod_pipeline import VodPipelineStorage
     from ttvturbo.vod_pipeline.schemas import DEFAULT_SYNC_LIMIT
     from ttvturbo.vod_pipeline.service import (
@@ -529,24 +534,10 @@ def build_service(
     )
     from ttvturbo.vod_pipeline.twitch_client import DEFAULT_TIMEOUT_SECONDS as LISTER_TIMEOUT
 
-    mc = max_concurrent
-    if mc is None:
-        env_mc = os.environ.get("TTVTURBO_MAX_CONCURRENT_VOD_DOWNLOADS")
-        mc = int(env_mc) if env_mc and env_mc.isdigit() else DEFAULT_MAX_CONCURRENT
-    to = timeout_seconds
-    if to is None:
-        env_to = os.environ.get("TTVTURBO_VOD_DOWNLOAD_TIMEOUT_SECONDS")
-        if env_to:
-            try:
-                to = float(env_to)
-            except ValueError:
-                to = DEFAULT_TIMEOUT_SECONDS
-        else:
-            to = DEFAULT_TIMEOUT_SECONDS
-    sl = sync_limit
-    if sl is None:
-        env_sl = os.environ.get("TTVTURBO_VOD_SYNC_LIMIT")
-        sl = int(env_sl) if env_sl and env_sl.isdigit() else DEFAULT_SYNC_LIMIT
+    s = settings or Settings.from_env()
+    mc = max_concurrent if max_concurrent is not None else s.vod_max_concurrent
+    to = timeout_seconds if timeout_seconds is not None else s.vod_download_timeout_seconds
+    sl = sync_limit if sync_limit is not None else s.vod_sync_limit
 
     storage = VodPipelineStorage(Path(data_dir))
     lister = ChannelLister(timeout_seconds=LISTER_TIMEOUT)

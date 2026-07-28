@@ -122,14 +122,10 @@ class VoiceCloneService:
         self._profile_reference_resolver = None
 
         if timeout_seconds is None:
-            env_val = os.environ.get(TIMEOUT_ENV)
-            if env_val:
-                try:
-                    timeout_seconds = float(env_val)
-                except ValueError:
-                    timeout_seconds = DEFAULT_TIMEOUT_SECONDS
-            else:
-                timeout_seconds = DEFAULT_TIMEOUT_SECONDS
+            from ttvturbo.settings import Settings
+
+            s = Settings.from_env()
+            timeout_seconds = s.voice_clone_timeout_seconds or DEFAULT_TIMEOUT_SECONDS
         self.timeout_seconds = float(timeout_seconds)
 
         self._lock = threading.Lock()

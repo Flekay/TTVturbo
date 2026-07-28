@@ -79,28 +79,18 @@ def _update_job(job_path: Path, **updates: Any) -> None:
 
 
 def _find_ffmpeg() -> str:
-    found = shutil.which("ffmpeg")
-    if not found:
-        try:
-            from ttvturbo.app import _find_executable  # type: ignore[import-not-found]
+    from ttvturbo.system.executables import find_executable
 
-            found = _find_executable("ffmpeg")
-        except Exception:
-            pass
+    found = find_executable("ffmpeg")
     if not found:
         raise RuntimeError("ffmpeg not found on PATH")
     return found
 
 
 def _find_ffprobe() -> str:
-    found = shutil.which("ffprobe")
-    if not found:
-        try:
-            from ttvturbo.app import _find_executable  # type: ignore[import-not-found]
+    from ttvturbo.system.executables import find_executable
 
-            found = _find_executable("ffprobe")
-        except Exception:
-            pass
+    found = find_executable("ffprobe")
     if not found:
         raise RuntimeError("ffprobe not found on PATH")
     return found
