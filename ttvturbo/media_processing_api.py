@@ -105,6 +105,17 @@ class StartPipelineRunFromUrlRequest(BaseModel):
     url: str
 
 
+class BatchPipelineSourceRequest(BaseModel):
+    provider: str = "twitch"
+    source_type: str
+    external_id: str
+    url: Optional[str] = None
+
+
+class StartPipelineRunBatchRequest(BaseModel):
+    sources: list[BatchPipelineSourceRequest] = Field(default_factory=list)
+
+
 class StartAudioExtractionRequest(BaseModel):
     force: bool = False
 
@@ -680,6 +691,25 @@ def build_media_processing_router(
         try:
             run = pipeline_service.start_run_from_url(request.url)
             return JSONResponse(status_code=201, content=run)
+        except Exception as exc:
+            return _map_pipeline_error(exc)
+
+    @router.post("/vod-pipeline/runs/batch")
+    def start_vod_pipeline_run_batch(
+        request: StartPipelineRunBatchRequest,
+    ) -> JSONResponse:
+        """Start runs for a batch of Twitch sources.
+
+        Each source is validated and started independently using the same
+        source contract / orchestration as the single URL entry point.
+        Partial success is allowed: per-source failures and active-run
+        conflicts are reported in the response body.
+        """
+        try:
+            result = pipeline_service.start_runs_batch(
+                [s.model_dump() for s in request.sources]
+            )
+            return JSONResponse(status_code=201, content=result)
         except Exception as exc:
             return _map_pipeline_error(exc)
 

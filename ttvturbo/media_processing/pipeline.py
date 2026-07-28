@@ -392,6 +392,102 @@ class PipelineService:
         self._ensure_orchestrator()
         return self.storage.load_run(run_id)
 
+    def start_run_from_source(self, source: dict) -> dict:
+        """Start a run from a unified source contract block.
+
+        The contract mirrors what the URL entry point produces internally::
+
+            {
+              "provider": "twitch",
+              "source_type": "vod" | "clip",
+              "external_id": "<twitch video id>",
+              "url": "<optional twitch.tv url>",
+            }
+
+        If a VOD with the given ``external_id`` is already imported, it is
+        reused (no yt-dlp metadata fetch). Otherwise the URL is used to
+        import + start via :meth:`start_run_from_url`. This is the shared
+        entry point for both the direct-URL import and the VOD-selection
+        start flows so they produce identical runs.
+        """
+        if not isinstance(source, dict):
+            raise PipelineRunValidationError("source must be an object")
+        provider = str(source.get("provider") or "").strip().lower()
+        if provider != "twitch":
+            raise PipelineRunValidationError(f"unsupported provider {provider!r}")
+        source_type = str(
+            source.get("source_type") or source.get("type") or ""
+        ).strip().lower()
+        if source_type not in ("vod", "clip"):
+            raise PipelineRunValidationError(
+                f"unsupported source_type {source_type!r}"
+            )
+        external_id = str(source.get("external_id") or "").strip()
+        if not external_id:
+            raise PipelineRunValidationError("external_id is required")
+
+        existing = self.vod_service.storage.find_vod_by_twitch_video_id(external_id)
+        if existing is not None:
+            return self.start_run("twitch_vod", existing["id"])
+        url = str(source.get("url") or "").strip()
+        if not url:
+            raise PipelineRunValidationError(
+                "url is required when the VOD is not yet imported"
+            )
+        return self.start_run_from_url(url)
+
+    def start_runs_batch(self, sources: list[dict]) -> dict:
+        """Start runs for a batch of source contracts.
+
+        Each source is validated and started independently. Partial success
+        is allowed: per-source failures are reported in ``failed``, active
+        runs (and duplicates within the same request) in ``conflicts``.
+
+        Returns ``{"created": [...], "conflicts": [...], "failed": [...]}``.
+        """
+        max_batch = 25
+        if not isinstance(sources, list):
+            raise PipelineRunValidationError("sources must be a list")
+        if len(sources) > max_batch:
+            raise PipelineRunValidationError(
+                f"batch size exceeds maximum of {max_batch}"
+            )
+        created: list[dict] = []
+        conflicts: list[dict] = []
+        failed: list[dict] = []
+        seen_external_ids: set[str] = set()
+        for source in sources:
+            external_id = str(source.get("external_id") or "").strip()
+            if external_id and external_id in seen_external_ids:
+                conflicts.append({
+                    "source_external_id": external_id,
+                    "code": "duplicate_in_batch",
+                    "message": "Duplicate source in batch request.",
+                })
+                continue
+            if external_id:
+                seen_external_ids.add(external_id)
+            try:
+                run = self.start_run_from_source(source)
+                created.append({
+                    "source_external_id": external_id
+                    or (run.get("source") or {}).get("external_id"),
+                    "run_id": run["id"],
+                })
+            except PipelineRunConflictError as exc:
+                conflicts.append({
+                    "source_external_id": external_id,
+                    "code": "active_run",
+                    "message": str(exc),
+                })
+            except Exception as exc:  # noqa: BLE001 - reported per-source
+                failed.append({
+                    "source_external_id": external_id,
+                    "code": "start_failed",
+                    "message": str(exc),
+                })
+        return {"created": created, "conflicts": conflicts, "failed": failed}
+
     def start_run(self, source_type: str, source_id: str) -> dict:
         """Legacy entry point: start a run for an already-imported VOD id.
 

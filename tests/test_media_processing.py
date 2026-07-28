@@ -893,3 +893,320 @@ class TestPipeline:
         assert run["status"] == PipelineStatus.CANCELED.value
         retried = pipeline_service.retry_run(run["id"])
         assert retried["status"] == PipelineStatus.RUNNING.value
+
+
+# ---------------------------------------------------------------------------
+# Source-contract / batch start (VOD Pipeline source selection)
+# ---------------------------------------------------------------------------
+
+
+class TestPipelineSourceSelection:
+    """Tests for the unified source-contract entry point and batch starts.
+
+    These cover the VOD Pipeline source-selection flow: selecting VODs from
+    known Twitch profiles and starting pipeline runs from them, sharing the
+    same orchestration as the direct-URL import.
+    """
+
+    def _synced_vod(self, vod_service, channel_lister, login, vid, title="Sel VOD"):
+        channel_lister.add_vod(login, vid, title=title, duration=60.0)
+        profile = vod_service.create_profile(login)
+        vod_service.sync_vods(profile["id"])
+        vods = vod_service.list_vods(profile_id=profile["id"])
+        assert vods, "sync_vods produced no VODs"
+        return profile, vods[0]
+
+    def test_list_vods_for_profile(self, vod_service, channel_lister):
+        """VODs of a single profile are retrievable via list_vods."""
+        profile, vod = self._synced_vod(vod_service, channel_lister, "selfprofa", "1001")
+        vods = vod_service.list_vods(profile_id=profile["id"])
+        assert any(v["id"] == vod["id"] for v in vods)
+        assert all(v["profile_id"] == profile["id"] for v in vods)
+
+    def test_list_vods_all_profiles(self, vod_service, channel_lister):
+        """list_vods without a profile_id returns VODs across all profiles."""
+        self._synced_vod(vod_service, channel_lister, "allprofa", "1002")
+        self._synced_vod(vod_service, channel_lister, "allprofb", "1003")
+        all_vods = vod_service.list_vods()
+        ids = {v["twitch_video_id"] for v in all_vods}
+        assert {"1002", "1003"}.issubset(ids)
+
+    def test_sync_uses_existing_service(self, vod_service, channel_lister):
+        """sync_vods only updates metadata; it does not download videos."""
+        profile, _ = self._synced_vod(vod_service, channel_lister, "synconly", "1004")
+        vods = vod_service.list_vods(profile_id=profile["id"])
+        # Sync creates DISCOVERED VODs, never READY (no download happens).
+        assert all(v["status"] == VodStatus.DISCOVERED.value for v in vods)
+
+    def test_selected_vod_creates_pipeline_run(self, pipeline_service, vod_service, channel_lister):
+        """Starting from an existing VOD record creates a run reusing it."""
+        _, vod = self._synced_vod(vod_service, channel_lister, "selfstart", "1005")
+        run = pipeline_service.start_run_from_source({
+            "provider": "twitch",
+            "source_type": "vod",
+            "external_id": vod["twitch_video_id"],
+            "url": vod["source_url"],
+        })
+        assert run["status"] == PipelineStatus.RUNNING.value
+        assert run["source_id"] == vod["id"]
+        assert run["source"]["external_id"] == vod["twitch_video_id"]
+        assert run["source"]["legacy"] is False
+
+    def test_direct_url_creates_same_source_contract(
+        self, pipeline_service, vod_service, channel_lister
+    ):
+        """A direct-URL start produces the same source contract shape."""
+        url = "https://www.twitch.tv/videos/555111"
+        entry = channel_lister.add_vod("urlcontract", "555111", title="Contract VOD", duration=30.0)
+        entry["uploader"] = "urlcontract"
+        run = pipeline_service.start_run_from_url(url)
+        assert run["source"]["provider"] == "twitch"
+        assert run["source"]["external_id"] == "555111"
+        assert run["source"]["type"] in ("vod", "clip")
+        # Same fields as a selection-based start would produce.
+        assert "url" in run["source"] and run["source"]["url"]
+
+    def test_batch_multiple_vods(self, pipeline_service, vod_service, channel_lister):
+        """A batch with several VODs creates one run per source."""
+        _, vod_a = self._synced_vod(vod_service, channel_lister, "batcha", "2001", title="A")
+        _, vod_b = self._synced_vod(vod_service, channel_lister, "batchb", "2002", title="B")
+        result = pipeline_service.start_runs_batch([
+            {"provider": "twitch", "source_type": "vod", "external_id": vod_a["twitch_video_id"], "url": vod_a["source_url"]},
+            {"provider": "twitch", "source_type": "vod", "external_id": vod_b["twitch_video_id"], "url": vod_b["source_url"]},
+        ])
+        assert len(result["created"]) == 2
+        assert result["conflicts"] == []
+        assert result["failed"] == []
+        created_ids = {c["run_id"] for c in result["created"]}
+        assert len(created_ids) == 2
+
+    def test_batch_partial_success(self, pipeline_service, vod_service, channel_lister):
+        """A batch where one source is unknown reports a partial result."""
+        _, vod_ok = self._synced_vod(vod_service, channel_lister, "partialok", "2003")
+        result = pipeline_service.start_runs_batch([
+            {"provider": "twitch", "source_type": "vod", "external_id": vod_ok["twitch_video_id"], "url": vod_ok["source_url"]},
+            {"provider": "twitch", "source_type": "vod", "external_id": "9999999", "url": "https://www.twitch.tv/videos/9999999"},
+        ])
+        assert len(result["created"]) == 1
+        assert len(result["failed"]) == 1
+        assert result["failed"][0]["source_external_id"] == "9999999"
+
+    def test_batch_duplicate_external_id(self, pipeline_service, vod_service, channel_lister):
+        """A duplicate external_id within one batch is reported as a conflict."""
+        _, vod = self._synced_vod(vod_service, channel_lister, "dupbatch", "2004")
+        result = pipeline_service.start_runs_batch([
+            {"provider": "twitch", "source_type": "vod", "external_id": vod["twitch_video_id"], "url": vod["source_url"]},
+            {"provider": "twitch", "source_type": "vod", "external_id": vod["twitch_video_id"], "url": vod["source_url"]},
+        ])
+        assert len(result["created"]) == 1
+        assert len(result["conflicts"]) == 1
+        assert result["conflicts"][0]["code"] == "duplicate_in_batch"
+
+    def test_batch_active_run_is_conflict(self, pipeline_service, vod_service, channel_lister):
+        """An already-active run for a source is reported as a conflict."""
+        _, vod = self._synced_vod(vod_service, channel_lister, "activeconf", "2005")
+        pipeline_service.start_run_from_source({
+            "provider": "twitch", "source_type": "vod",
+            "external_id": vod["twitch_video_id"], "url": vod["source_url"],
+        })
+        result = pipeline_service.start_runs_batch([
+            {"provider": "twitch", "source_type": "vod", "external_id": vod["twitch_video_id"], "url": vod["source_url"]},
+        ])
+        assert result["created"] == []
+        assert len(result["conflicts"]) == 1
+        assert result["conflicts"][0]["code"] == "active_run"
+
+    def test_batch_rejects_free_provider_and_source_type(self, pipeline_service):
+        """A source with an unsupported provider is rejected per-source
+        (reported in ``failed``), not accepted as a free-form start."""
+        result = pipeline_service.start_runs_batch([
+            {"provider": "youtube", "source_type": "video", "external_id": "x", "url": "https://youtube.com/x"},
+        ])
+        assert result["created"] == []
+        assert len(result["failed"]) == 1
+        assert result["failed"][0]["source_external_id"] == "x"
+
+    def test_batch_size_limit(self, pipeline_service):
+        from ttvturbo.media_processing.schemas import PipelineRunValidationError
+
+        sources = [
+            {"provider": "twitch", "source_type": "vod", "external_id": str(i), "url": f"https://www.twitch.tv/videos/{i}"}
+            for i in range(30)
+        ]
+        with pytest.raises(PipelineRunValidationError):
+            pipeline_service.start_runs_batch(sources)
+
+    def test_library_item_reused_skips_download(
+        self, pipeline_service, vod_service, make_real_mp4, ffmpeg_available, channel_lister
+    ):
+        """A VOD already in the library (READY) reuses it and skips DOWNLOAD."""
+        if not ffmpeg_available:
+            pytest.skip("ffmpeg not available")
+        vod_id, _ = _make_ready_vod(vod_service, make_real_mp4, channel_lister, title="Lib Reuse VOD")
+        vod = vod_service.storage.load_vod(vod_id)
+        run = pipeline_service.start_run_from_source({
+            "provider": "twitch",
+            "source_type": "vod",
+            "external_id": vod["twitch_video_id"],
+            "url": vod["source_url"],
+        })
+        steps = {s["type"]: s for s in run["steps"]}
+        assert steps["DOWNLOAD"]["status"] == "SKIPPED"
+        # The run reuses the existing VOD record (no new import).
+        assert run["source_id"] == vod_id
+        # A library_item_id is recorded when the VOD has one; the key
+        # contract here is that DOWNLOAD is skipped because the file is
+        # already present.
+        if vod.get("library_item_id"):
+            assert run["library_item_id"] == vod["library_item_id"]
+
+    def test_unknown_external_id_without_url_fails(self, pipeline_service):
+        from ttvturbo.media_processing.schemas import PipelineRunValidationError
+
+        with pytest.raises(PipelineRunValidationError):
+            pipeline_service.start_run_from_source({
+                "provider": "twitch", "source_type": "vod", "external_id": "does-not-exist",
+            })
+
+    def test_no_profile_required_for_selection_start(
+        self, pipeline_service, vod_service, channel_lister
+    ):
+        """Selection start works without the caller supplying a profile_id;
+        the source is identified by the stable Twitch external id."""
+        _, vod = self._synced_vod(vod_service, channel_lister, "noprofile", "2006")
+        run = pipeline_service.start_run_from_source({
+            "provider": "twitch",
+            "source_type": "vod",
+            "external_id": vod["twitch_video_id"],
+            "url": vod["source_url"],
+        })
+        # The run is keyed by the stable external id, not by URL or profile.
+        assert run["source"]["external_id"] == vod["twitch_video_id"]
+        assert run["source_id"] == vod["id"]
+
+    def test_dedup_by_stable_twitch_id_not_url(
+        self, pipeline_service, vod_service, channel_lister
+    ):
+        """An active run is detected via the stable external id, not the URL
+        string — different URL forms for the same VOD conflict correctly."""
+        _, vod = self._synced_vod(vod_service, channel_lister, "stabededup", "2007")
+        # First start via the canonical URL.
+        pipeline_service.start_run_from_source({
+            "provider": "twitch", "source_type": "vod",
+            "external_id": vod["twitch_video_id"], "url": vod["source_url"],
+        })
+        # A second start via the existing VOD (no URL fetch) must still conflict.
+        from ttvturbo.media_processing.schemas import PipelineRunConflictError
+        with pytest.raises(PipelineRunConflictError):
+            pipeline_service.start_run_from_source({
+                "provider": "twitch", "source_type": "vod",
+                "external_id": vod["twitch_video_id"],
+            })
+
+
+# ---------------------------------------------------------------------------
+# VOD Pipeline batch API (HTTP layer)
+# ---------------------------------------------------------------------------
+
+
+class TestVodPipelineBatchApi:
+    """HTTP-level tests for POST /api/vod-pipeline/runs/batch."""
+
+    @pytest.fixture()
+    def pipeline_api_app(self, pipeline_service, vod_service):
+        from fastapi import FastAPI
+        from ttvturbo.media_processing_api import build_media_processing_router
+
+        app = FastAPI()
+        # The batch endpoint only invokes pipeline_service; the audio and
+        # transcription services are required by the router factory but not
+        # exercised by these tests. Wire them to the same data dir as the
+        # pipeline_service so the app constructs cleanly.
+        from ttvturbo.media_processing import (
+            AudioExtractionService,
+            TranscriptionService,
+            MediaJobStorage,
+            MediaSourceResolver,
+            GpuLock,
+        )
+        import os
+        os.environ["TTVTURBO_TRANSCRIPTION_DEVICE"] = "cpu"
+        os.environ["TTVTURBO_TRANSCRIPTION_COMPUTE_TYPE"] = "int8"
+        data_dir = vod_service.storage.data_dir
+        media_storage = MediaJobStorage(data_dir)
+        source_resolver = MediaSourceResolver(vod_service.storage)
+        audio_service = AudioExtractionService(storage=media_storage, source_resolver=source_resolver)
+        gpu_lock = GpuLock(data_dir)
+        transcription_service = TranscriptionService(
+            storage=media_storage, source_resolver=source_resolver,
+            audio_service=audio_service, gpu_lock=gpu_lock,
+            device="cpu", compute_type="int8",
+        )
+        app.include_router(build_media_processing_router(
+            audio_service=audio_service,
+            transcription_service=transcription_service,
+            pipeline_service=pipeline_service,
+        ))
+        return app
+
+    @pytest.fixture()
+    def pipeline_api_client(self, pipeline_api_app):
+        from fastapi.testclient import TestClient
+        return TestClient(pipeline_api_app)
+
+    def _synced(self, vod_service, channel_lister, login, vid):
+        channel_lister.add_vod(login, vid, title=f"API {vid}", duration=60.0)
+        profile = vod_service.create_profile(login)
+        vod_service.sync_vods(profile["id"])
+        return vod_service.list_vods(profile_id=profile["id"])[0]
+
+    def test_batch_endpoint_creates_runs(self, pipeline_api_client, vod_service, channel_lister):
+        vod = self._synced(vod_service, channel_lister, "apibatcha", "3001")
+        resp = pipeline_api_client.post("/api/vod-pipeline/runs/batch", json={
+            "sources": [{
+                "provider": "twitch",
+                "source_type": "vod",
+                "external_id": vod["twitch_video_id"],
+                "url": vod["source_url"],
+            }],
+        })
+        assert resp.status_code == 201
+        body = resp.json()
+        assert len(body["created"]) == 1
+        assert body["created"][0]["source_external_id"] == vod["twitch_video_id"]
+
+    def test_batch_endpoint_conflict(self, pipeline_api_client, vod_service, channel_lister):
+        vod = self._synced(vod_service, channel_lister, "apibatchc", "3002")
+        # First start succeeds.
+        pipeline_api_client.post("/api/vod-pipeline/runs/batch", json={
+            "sources": [{
+                "provider": "twitch", "source_type": "vod",
+                "external_id": vod["twitch_video_id"], "url": vod["source_url"],
+            }],
+        })
+        # Second start for the same source -> conflict.
+        resp = pipeline_api_client.post("/api/vod-pipeline/runs/batch", json={
+            "sources": [{
+                "provider": "twitch", "source_type": "vod",
+                "external_id": vod["twitch_video_id"], "url": vod["source_url"],
+            }],
+        })
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["created"] == []
+        assert len(body["conflicts"]) == 1
+        assert body["conflicts"][0]["code"] == "active_run"
+
+    def test_batch_endpoint_rejects_free_provider(self, pipeline_api_client):
+        resp = pipeline_api_client.post("/api/vod-pipeline/runs/batch", json={
+            "sources": [{
+                "provider": "youtube", "source_type": "video",
+                "external_id": "x", "url": "https://youtube.com/x",
+            }],
+        })
+        # Per-source validation failure -> 201 with a `failed` entry
+        # (partial-success contract). The source is not accepted.
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["created"] == []
+        assert len(body["failed"]) == 1
