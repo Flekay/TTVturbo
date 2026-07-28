@@ -201,14 +201,27 @@ class Settings:
     vod_sync_limit: int = field(default_factory=lambda: _env_int("TTVTURBO_VOD_SYNC_LIMIT", 100))
 
     # --- conversation mining (local text LLM) ------------------------------
-    # No model is configured by default — the service reports UNAVAILABLE
-    # until an operator sets TTVTURBO_CONVERSATION_MINING_MODEL_ID to a
-    # HuggingFace repo id. The worker subprocess loads the model via
-    # transformers; the FastAPI process never imports it.
-    conversation_mining_model_id: Optional[str] = field(default_factory=lambda: _env_optional_str("TTVTURBO_CONVERSATION_MINING_MODEL_ID"))
+    # Default model: Qwen3-4B-Instruct-2507 (text-only, non-thinking mode).
+    # The worker subprocess loads the model via transformers; the FastAPI
+    # process never imports it. An operator can override the repo id via
+    # TTVTURBO_CONVERSATION_MINING_MODEL_ID (e.g. to pin a revision), but
+    # free-form model names from the frontend are never accepted.
+    conversation_mining_model_id: str = field(default_factory=lambda: _env_str(
+        "TTVTURBO_CONVERSATION_MINING_MODEL_ID",
+        "Qwen/Qwen3-4B-Instruct-2507",
+    ))
     conversation_mining_device: str = field(default_factory=lambda: _env_str("TTVTURBO_CONVERSATION_MINING_DEVICE", "cuda"))
     conversation_mining_dtype: str = field(default_factory=lambda: _env_str("TTVTURBO_CONVERSATION_MINING_DTYPE", "auto"))
     conversation_mining_max_new_tokens: int = field(default_factory=lambda: _env_int("TTVTURBO_CONVERSATION_MINING_MAX_NEW_TOKENS", 2048))
+    # Conservative input cap for a 12 GB GPU. The model's full context
+    # length is NOT used as the runtime default — a multi-hour VOD is
+    # never fed into a single prompt (block building handles that).
+    conversation_mining_max_input_tokens: int = field(default_factory=lambda: _env_int("TTVTURBO_CONVERSATION_MINING_MAX_INPUT_TOKENS", 8192))
+    # Qwen3 supports a thinking mode; we disable it for structured mining
+    # so the model returns JSON directly without <think> reasoning blocks.
+    conversation_mining_thinking_enabled: bool = field(default_factory=lambda: _env_str(
+        "TTVTURBO_CONVERSATION_MINING_THINKING", "0"
+    ) in ("1", "true", "True", "TRUE"))
     conversation_mining_max_concurrent: int = field(default_factory=lambda: _env_int("TTVTURBO_MAX_CONCURRENT_MINING", 1))
     conversation_mining_block_target_seconds: float = field(default_factory=lambda: _env_float("TTVTURBO_CONVERSATION_MINING_BLOCK_TARGET_SECONDS", 90.0))
     conversation_mining_block_max_seconds: float = field(default_factory=lambda: _env_float("TTVTURBO_CONVERSATION_MINING_BLOCK_MAX_SECONDS", 180.0))

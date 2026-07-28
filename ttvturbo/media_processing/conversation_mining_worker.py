@@ -205,21 +205,49 @@ def _generate(
     user_prompt: str,
     max_new_tokens: int,
     device: str,
+    max_input_tokens: int,
+    thinking_enabled: bool,
 ) -> str:
-    """Generate text from the model."""
+    """Generate text from the model.
+
+    ``do_sample=False`` (greedy decoding) is used for deterministic,
+    structured JSON output. ``temperature`` is intentionally omitted —
+    it has no effect when ``do_sample=False`` and passing it would imply
+    sampling semantics that do not apply.
+
+    For Qwen3 models the chat template accepts ``enable_thinking``; we
+    pass ``False`` by default so the model returns JSON directly without
+     thinking blocks. The flag is forwarded only when the tokenizer
+    exposes a chat template.
+    """
     import torch
 
-    # Build a simple chat-style prompt.
+    # Build a chat-style prompt.
     if hasattr(tokenizer, "apply_chat_template") and tokenizer.chat_template:
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ]
-        text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        kwargs: dict = {"tokenize": False, "add_generation_prompt": True}
+        # Qwen3 non-thinking mode. Only forward when the template accepts
+        # the kwarg; older templates may not.
+        if not thinking_enabled:
+            kwargs["enable_thinking"] = False
+        try:
+            text = tokenizer.apply_chat_template(messages, **kwargs)
+        except TypeError:
+            # Template does not accept enable_thinking — fall back.
+            kwargs.pop("enable_thinking", None)
+            text = tokenizer.apply_chat_template(messages, **kwargs)
     else:
         text = system_prompt + "\n\n" + user_prompt + "\n\nJSON:\n"
 
-    inputs = tokenizer(text, return_tensors="pt")
+    inputs = tokenizer(
+        text,
+        return_tensors="pt",
+        truncation=True,
+        max_length=max_input_tokens,
+    )
     if device != "cpu":
         inputs = {k: v.to(model.device) for k, v in inputs.items()}
     with torch.no_grad():
@@ -227,7 +255,6 @@ def _generate(
             **inputs,
             max_new_tokens=max_new_tokens,
             do_sample=False,
-            temperature=1.0,
             top_p=1.0,
             pad_token_id=tokenizer.eos_token_id or tokenizer.pad_token_id,
         )
@@ -250,6 +277,8 @@ def run_worker(worker_job_path: str) -> int:
     device = wjob.get("device") or "cuda"
     dtype = wjob.get("dtype") or "auto"
     max_new_tokens = int(wjob.get("max_new_tokens") or 2048)
+    max_input_tokens = int(wjob.get("max_input_tokens") or 8192)
+    thinking_enabled = bool(wjob.get("thinking_enabled") or False)
     blocks = wjob.get("blocks") or []
     segments = wjob.get("effective_segments") or []
     media_title = wjob.get("media_title") or ""
@@ -306,16 +335,35 @@ def run_worker(worker_job_path: str) -> int:
         if not run.get("started_at"):
             run["started_at"] = _now_iso()
         _save_run(run_dir, run)
+
+        # VRAM / RAM trackers (backend-independent via NVML). Values stay
+        # None when NVML is unavailable — we never report 0 MB for a real
+        # CUDA model.
+        from ttvturbo.media_processing.asr_models import VramTracker, measure_peak_ram
+
+        vram_tracker = VramTracker(gpu_index=0)
+        vram_tracker.init()
+        vram_tracker.measure_before_load()
+
+        import time as _time
+        load_t0 = _time.monotonic()
         try:
             model, tokenizer = _load_model(model_id, device, dtype, cache_dir)
         except Exception as exc:
             run["status"] = "FAILED"
             run["error"] = f"could not load model: {exc}"
             run["completed_at"] = _now_iso()
+            run["metrics"] = _empty_metrics()
             _save_run(run_dir, run)
             print(f"FAIL: model load: {exc}", file=sys.stderr)
             traceback.print_exc()
             return 1
+        load_seconds = round(_time.monotonic() - load_t0, 3)
+        vram_tracker.measure_after_load()
+        ram_after_load = measure_peak_ram()
+
+        inference_t0 = _time.monotonic()
+        peak_ram = ram_after_load
 
         # Process blocks sequentially.
         from ttvturbo.media_processing.conversation_mining import (
@@ -344,7 +392,8 @@ def run_worker(worker_job_path: str) -> int:
             user_prompt = _build_block_prompt(block, segments, media_title, twitch_profile, game_info)
             try:
                 raw_output = _generate(
-                    model, tokenizer, SYSTEM_PROMPT, user_prompt, max_new_tokens, device
+                    model, tokenizer, SYSTEM_PROMPT, user_prompt, max_new_tokens,
+                    device, max_input_tokens, thinking_enabled,
                 )
             except Exception as exc:
                 if bstat:
@@ -361,7 +410,7 @@ def run_worker(worker_job_path: str) -> int:
             try:
                 conversations = validate_model_output(raw_output, block_seg_ids)
             except ModelOutputError:
-                # One repair attempt.
+                # Exactly one repair attempt.
                 repaired = attempt_json_repair(raw_output)
                 try:
                     conversations = validate_model_output(repaired, block_seg_ids)
@@ -383,6 +432,44 @@ def run_worker(worker_job_path: str) -> int:
                 bstat["error"] = None
             run["progress"] = _compute_progress(run)
             _save_run(run_dir, run)
+            # Track peak RAM / VRAM after each block.
+            ram_now = measure_peak_ram()
+            if ram_now is not None and (peak_ram is None or ram_now > peak_ram):
+                peak_ram = ram_now
+            # NVML read for peak VRAM.
+            vram_now = vram_tracker._read_vram()  # noqa: SLF001
+            if vram_now is not None and (vram_tracker.peak_vram_bytes is None or vram_now > vram_tracker.peak_vram_bytes):
+                vram_tracker.peak_vram_bytes = vram_now
+
+        inference_seconds = round(_time.monotonic() - inference_t0, 3)
+
+        # Release model references and clear CUDA cache before freeing the
+        # GPU lock so the next owner (e.g. transcription) sees freed VRAM.
+        del model
+        del tokenizer
+        try:
+            import torch as _torch
+            import gc
+            gc.collect()
+            if _torch.cuda.is_available():
+                _torch.cuda.empty_cache()
+        except Exception:
+            pass
+        vram_tracker.measure_after_release()
+        vram_tracker.shutdown()
+
+        run["metrics"] = {
+            "model_load_seconds": load_seconds,
+            "inference_seconds": inference_seconds,
+            "peak_vram_bytes": vram_tracker.peak_vram_bytes,
+            "peak_ram_bytes": peak_ram,
+            "thinking_enabled": thinking_enabled,
+            "max_input_tokens": max_input_tokens,
+            "max_new_tokens": max_new_tokens,
+            "device": device,
+            "dtype": dtype,
+        }
+        _save_run(run_dir, run)
 
         # All blocks done. Finalize is done by the service orchestrator.
         return 0
@@ -403,6 +490,21 @@ def _compute_progress(run: dict) -> float:
         if b.get("status") in ("COMPLETED", "FAILED", "CANCELED")
     )
     return round(done / len(blocks) * 100.0, 1)
+
+
+def _empty_metrics() -> dict:
+    """Metrics block for a failed-before-load run. Nulls, never 0."""
+    return {
+        "model_load_seconds": None,
+        "inference_seconds": None,
+        "peak_vram_bytes": None,
+        "peak_ram_bytes": None,
+        "thinking_enabled": None,
+        "max_input_tokens": None,
+        "max_new_tokens": None,
+        "device": None,
+        "dtype": None,
+    }
 
 
 def main() -> int:

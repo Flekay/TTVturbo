@@ -64,6 +64,7 @@ from ttvturbo.media_processing import (
     PipelineRunConflictError,
     PipelineRunNotFoundError,
     PipelineRunValidationError,
+    PipelineRunUnavailableError,
     PipelineService,
     TranscriptRevisionConflictError,
     TranscriptionError,
@@ -174,6 +175,8 @@ def _map_pipeline_error(exc: Exception) -> JSONResponse:
         return _error_response(400, "pipeline_run_validation", str(exc))
     if isinstance(exc, PipelineRunConflictError):
         return _error_response(409, "pipeline_run_conflict", str(exc))
+    if isinstance(exc, PipelineRunUnavailableError):
+        return _error_response(503, "pipeline_run_unavailable", str(exc))
     logger.exception("unexpected pipeline error")
     return _error_response(500, "pipeline_internal", "Internal pipeline error.")
 

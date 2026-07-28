@@ -344,6 +344,10 @@ class PipelineRunValidationError(PipelineRunError):
     """Hard validation failure."""
 
 
+class PipelineRunUnavailableError(PipelineRunError):
+    """A required runtime precondition is missing (e.g. mining model)."""
+
+
 class PipelineRunNotFoundError(PipelineRunError):
     """A pipeline run with the given id does not exist."""
 

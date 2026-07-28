@@ -909,24 +909,143 @@ class ConversationMiningService:
 
     # ------------------------------------------------------------------ public
     def runtime_status(self) -> dict:
-        """Return the mining model availability status."""
+        """Return the mining model availability status.
+
+        Distinguishes the individual preconditions that must hold before a
+        mining run can succeed:
+
+        * ``model_configured`` — a non-empty model id is set;
+        * ``dependencies_available`` — transformers + torch are importable
+          in this process (the worker re-checks in its own process);
+        * ``cuda_available`` — torch sees CUDA (only relevant when device
+          starts with ``cuda``);
+        * ``model_cached`` — the model repo is present in the local
+          HuggingFace cache (so no download is needed at run time);
+        * ``download_required`` — inverse of ``model_cached``;
+        * ``worker_available`` — the worker module is importable;
+        * ``error`` — a concrete failure reason when not available.
+
+        No secrets or absolute cache paths are exposed.
+        """
         now = time.time()
         if self._runtime_cache is not None and (now - self._runtime_cache_time) < 10.0:
             return dict(self._runtime_cache)
-        model_id = self.settings.conversation_mining_model_id
-        available = model_id is not None and bool(model_id.strip())
+        model_id = (self.settings.conversation_mining_model_id or "").strip()
+        model_configured = bool(model_id)
+        deps_ok, dep_reason = self._check_dependencies()
+        cuda_available = self._check_cuda_available()
+        device = self.settings.conversation_mining_device or "cuda"
+        cuda_relevant = device.lower().startswith("cuda")
+        model_cached = self._is_model_cached(model_id) if model_configured else False
+        worker_available = self._check_worker_module()
+        reasons: list[str] = []
+        if not model_configured:
+            reasons.append("no model configured")
+        if not deps_ok:
+            reasons.append(dep_reason or "dependencies missing")
+        if cuda_relevant and not cuda_available:
+            reasons.append("CUDA not available")
+        if not worker_available:
+            reasons.append("worker module not importable")
+        available = (
+            model_configured
+            and deps_ok
+            and worker_available
+            and (not cuda_relevant or cuda_available)
+        )
         status = {
             "available": available,
-            "model": model_id or "",
-            "device": self.settings.conversation_mining_device,
+            "model_configured": model_configured,
+            "dependencies_available": deps_ok,
+            "cuda_available": cuda_available,
+            "model_cached": model_cached,
+            "download_required": model_configured and not model_cached,
+            "worker_available": worker_available,
+            "model": model_id,
+            "device": device,
             "dtype": self.settings.conversation_mining_dtype,
+            "thinking_enabled": self.settings.conversation_mining_thinking_enabled,
+            "max_input_tokens": self.settings.conversation_mining_max_input_tokens,
+            "max_new_tokens": self.settings.conversation_mining_max_new_tokens,
             "busy": self.gpu_lock.is_busy(),
             "busy_owner_type": (self.gpu_lock.current_owner() or {}).get("owner_type"),
-            "reasons": [] if available else ["no model configured"],
+            "reasons": reasons,
+            "error": reasons[0] if reasons else None,
         }
         self._runtime_cache = status
         self._runtime_cache_time = now
         return dict(status)
+
+    def preflight(self) -> tuple[bool, list[str]]:
+        """Pre-run validation for the pipeline.
+
+        Returns ``(ok, reasons)``. When ``ok`` is False the pipeline must
+        not start the expensive upstream steps (download / audio /
+        transcription) because mining would fail anyway.
+        """
+        status = self.runtime_status()
+        # Refresh the cache so callers see a fresh result.
+        self._runtime_cache = None
+        status = self.runtime_status()
+        reasons: list[str] = []
+        if not status.get("model_configured"):
+            reasons.append("conversation mining model is not configured")
+        if not status.get("dependencies_available"):
+            reasons.append("mining worker dependencies missing (transformers/torch)")
+        if not status.get("worker_available"):
+            reasons.append("mining worker module not importable")
+        if (
+            status.get("cuda_available") is False
+            and (status.get("device") or "").lower().startswith("cuda")
+        ):
+            reasons.append("CUDA not available for mining device")
+        return (len(reasons) == 0, reasons)
+
+    # ------------------------------------------------------------------ helpers
+    def _check_dependencies(self) -> tuple[bool, Optional[str]]:
+        """Check transformers + torch importable. Returns (ok, reason)."""
+        try:
+            import transformers  # noqa: F401
+        except ImportError:
+            return False, "transformers is not installed (see requirements-gpu.txt)"
+        try:
+            import torch  # noqa: F401
+        except ImportError:
+            return False, "torch is not installed (see requirements-gpu.txt)"
+        return True, None
+
+    def _check_cuda_available(self) -> bool:
+        try:
+            import torch  # noqa: F401
+            return bool(torch.cuda.is_available())
+        except Exception:
+            return False
+
+    def _check_worker_module(self) -> bool:
+        try:
+            import importlib
+            importlib.import_module("ttvturbo.media_processing.conversation_mining_worker")
+            return True
+        except Exception:
+            return False
+
+    def _is_model_cached(self, model_id: str) -> bool:
+        """Best-effort check whether the model repo is in the HF cache.
+
+        Returns False when the check cannot be performed (no huggingface_hub,
+        no cache dir). Never raises and never exposes the cache path.
+        """
+        if not model_id:
+            return False
+        try:
+            from huggingface_hub import try_to_load_from_cache  # type: ignore
+            # config.json is always present for a real model repo.
+            path = try_to_load_from_cache(model_id, "config.json")
+            # When the file is not cached, huggingface_hub returns None or
+            # raises; a returned path means it is cached.
+            return path is not None and not str(path).endswith("None")
+        except Exception:
+            return False
 
     def start_run(self, media_item_id: str, force: bool = False) -> dict:
         """Start a new mining run for the given media item (VOD id).
@@ -1051,6 +1170,8 @@ class ConversationMiningService:
             "device": self.settings.conversation_mining_device,
             "dtype": self.settings.conversation_mining_dtype,
             "max_new_tokens": self.settings.conversation_mining_max_new_tokens,
+            "max_input_tokens": self.settings.conversation_mining_max_input_tokens,
+            "thinking_enabled": self.settings.conversation_mining_thinking_enabled,
             "gpu_lock_data_dir": str(self.gpu_lock.data_dir),
             "gpu_lock_stale_seconds": self.settings.gpu_lock_stale_seconds,
             "run_dir": str(store.run_dir),

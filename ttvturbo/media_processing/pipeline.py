@@ -70,6 +70,7 @@ from .schemas import (
     PipelineRunConflictError,
     PipelineRunNotFoundError,
     PipelineRunStorageError,
+    PipelineRunUnavailableError,
     PipelineRunValidationError,
     PipelineStatus,
     PipelineStepStatus,
@@ -133,6 +134,31 @@ def _new_step(step_type: str) -> dict:
 
 def _initial_steps() -> list[dict]:
     return [_new_step(t) for t in DEFAULT_VOD_PIPELINE]
+
+
+def _preflight_mining(mining_service: Optional[ConversationMiningService]) -> None:
+    """Pre-run check that conversation mining is runnable.
+
+    Conversation Mining is a mandatory step of the full VOD pipeline, so
+    we refuse to start the expensive upstream steps (download / audio /
+    transcription) when mining would fail anyway. Raises
+    :class:`PipelineRunUnavailableError` (mapped to HTTP 503) on failure.
+
+    When ``mining_service`` is ``None`` (mining not wired, e.g. in tests
+    that only exercise download/audio/transcription) the preflight is a
+    no-op; the pipeline step itself then marks mining as NOT_IMPLEMENTED,
+    preserving the existing behaviour for those configurations.
+
+    A run that is already past download/transcription (e.g. a retry from
+    the mining step) does not call this — it relies on the mining step's
+    own graceful failure path so an in-flight run still fails cleanly if
+    the model becomes unavailable mid-run.
+    """
+    if mining_service is None:
+        return
+    ok, reasons = mining_service.preflight()
+    if not ok:
+        raise PipelineRunUnavailableError("; ".join(reasons))
 
 
 # Legacy runs (pre-URL pipeline) used these four steps. Kept for compat.
@@ -298,6 +324,10 @@ class PipelineService:
         if not isinstance(url, str) or not url.strip():
             raise PipelineRunValidationError("url must be a non-empty string")
         url = url.strip()
+        # Preflight: refuse to start the full pipeline when the mandatory
+        # Conversation Mining step would fail anyway (no model, missing
+        # deps, no CUDA). Avoids wasting download/transcription work.
+        _preflight_mining(self.mining_service)
         # Validate URL shape (raises VodValidationError for non-Twitch URLs).
         try:
             external_id, vod_type = parse_twitch_video_url(url)
@@ -496,6 +526,8 @@ class PipelineService:
         """
         if source_type != "twitch_vod":
             raise PipelineRunValidationError(f"unsupported source_type {source_type!r}")
+        # Preflight the mandatory mining step before doing any work.
+        _preflight_mining(self.mining_service)
         try:
             vod = self.vod_service.storage.load_vod(source_id)
         except VodNotFoundError as exc:
