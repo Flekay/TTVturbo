@@ -5,20 +5,20 @@ as ``python -m media_processing.asr_benchmark_worker <worker_job.json>``.
 
 The worker:
 
-1. reads the worker job (benchmark id, preset ids, source, hotwords, ...);
-2. for each preset, **sequentially**:
-   a. checks faster-whisper compatibility for the preset;
-   b. acquires the project-wide GPU lock;
-   c. loads the model (only when the model id changes from the previous
-      run — Large v3 and Large v3 Turbo are never loaded at the same
-      time, but two consecutive Large v3 runs reuse the loaded model);
-   d. transcribes the audio with the preset's exact parameters;
+1. reads the worker job (benchmark id, candidate ids, source, ...);
+2. for each candidate, **sequentially**:
+   a. acquires the project-wide GPU lock;
+   b. loads the model via the appropriate adapter (only when the model
+      id changes from the previous run — same-model runs reuse the
+      loaded model and are marked ``model_reused=true``);
+   c. transcribes the audio with the candidate's exact parameters;
+   d. measures VRAM via NVML (backend-independent, not torch-only);
    e. computes VAD diagnosis, WER/CER metrics, hallucination and
       missing-speech flags;
    f. writes the run JSON atomically;
    g. updates the benchmark record with the run summary;
    h. releases the GPU lock;
-3. clears CUDA cache between different models;
+3. clears CUDA cache between different model families;
 4. exits.
 
 Cancel: the parent sets a cancel flag and terminates the process. The
@@ -28,6 +28,7 @@ benchmark service marks the benchmark CANCELED in its reaper.
 from __future__ import annotations
 
 import datetime as _dt
+import gc
 import json
 import logging
 import os
@@ -45,10 +46,14 @@ from .asr_benchmark import (
     _read_json,
     finalise_run,
 )
-from .asr_presets import (
-    AsrPreset,
-    check_preset_compatibility,
-    get_preset,
+from .asr_models import (
+    AsrAdapterError,
+    NormalizedTranscriptionResult,
+    VramTracker,
+    check_candidate_available,
+    get_adapter,
+    get_candidate,
+    measure_peak_ram,
 )
 
 logger = logging.getLogger("ttvturbo.media_processing.asr_benchmark_worker")
@@ -63,27 +68,21 @@ def _update_benchmark(benchmark_path: Path, run_summary: dict[str, Any]) -> None
     if payload is None:
         return
     runs = payload.get("runs") or []
-    # Replace any existing run for the same preset id.
-    runs = [r for r in runs if r.get("preset_id") != run_summary.get("preset_id")]
+    # Replace any existing run for the same candidate id.
+    runs = [r for r in runs if r.get("candidate_id") != run_summary.get("candidate_id")
+            and r.get("preset_id") != run_summary.get("candidate_id")]
     runs.append(run_summary)
     payload["runs"] = runs
     _atomic_write_json(benchmark_path, payload)
 
 
 def _resolve_audio_path(source_type: str, source_id: str) -> Path:
-    """Resolve the ready audio artifact path for the source.
-
-    The benchmark requires a ready audio artifact (FLAC) produced by the
-    audio extraction service. If none exists the worker fails the
-    benchmark up-front rather than per-preset.
-    """
+    """Resolve the ready audio artifact path for the source."""
     from media_processing.audio_extraction import AudioExtractionService  # noqa: PLC0415
     from media_processing.sources import MediaSourceResolver  # noqa: PLC0415
     from media_processing.storage import MediaJobStorage  # noqa: PLC0415
     from vod_pipeline import VodPipelineStorage  # noqa: PLC0415
 
-    # We cannot reach the app.py singletons from the subprocess; rebuild
-    # the minimal resolver/storage needed to locate the audio artifact.
     data_dir = Path(os.environ.get("TTVTURBO_DATA_DIR") or
                     (Path(__file__).resolve().parents[1] / "data"))
     vod_storage = VodPipelineStorage(data_dir)
@@ -110,75 +109,40 @@ def _resolve_audio_path(source_type: str, source_id: str) -> Path:
     return path
 
 
-def _transcribe_one(
-    model,
-    audio_path: Path,
-    preset: AsrPreset,
-    hotwords: Optional[str],
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Run one transcription. Returns (segments, info_dict)."""
-    kw = preset.transcribe_kwargs()
-    # Apply per-job hotwords (override preset hotwords).
-    if hotwords:
-        kw["hotwords"] = hotwords
-    elif "hotwords" in kw:
-        # Don't forward the preset's empty hotwords string.
-        kw.pop("hotwords", None)
+def _resolve_forensic_audio(
+    source_type: str, source_id: str, audio_variant: str
+) -> Path:
+    """Resolve a forensic audio variant artifact as the ASR input."""
+    from media_processing.audio_forensics import AudioForensicsService  # noqa: PLC0415
+    from media_processing.sources import MediaSourceResolver  # noqa: PLC0415
+    from vod_pipeline import VodPipelineStorage  # noqa: PLC0415
 
-    segments_iter, info = model.transcribe(str(audio_path), **kw)
-    segments: list[dict[str, Any]] = []
-    for seg in segments_iter:
-        words: list[dict[str, Any]] = []
-        for w in (getattr(seg, "words", None) or []):
-            words.append({
-                "start": float(getattr(w, "start", 0.0)),
-                "end": float(getattr(w, "end", 0.0)),
-                "text": str(getattr(w, "word", "")),
-                "probability": float(getattr(w, "probability", 0.0)) or None,
-            })
-        segments.append({
-            "id": int(getattr(seg, "id", len(segments))),
-            "start": float(getattr(seg, "start", 0.0)),
-            "end": float(getattr(seg, "end", 0.0)),
-            "text": str(getattr(seg, "text", "")).strip(),
-            "avg_logprob": float(getattr(seg, "avg_logprob", 0.0)) or None,
-            "compression_ratio": float(getattr(seg, "compression_ratio", 0.0)) or None,
-            "no_speech_probability": float(getattr(seg, "no_speech_prob", 0.0)) or None,
-            "words": words,
-        })
-    info_dict = {
-        "language": getattr(info, "language", None),
-        "language_probability": getattr(info, "language_probability", None),
-        "duration": float(getattr(info, "duration", 0.0) or 0.0),
-        "duration_after_vad": getattr(info, "duration_after_vad", None),
-        "all_language_probs": getattr(info, "all_language_probs", None),
-    }
-    return segments, info_dict
-
-
-def _load_model(model_name: str, device: str, compute_type: str):
-    from faster_whisper import WhisperModel  # type: ignore[import-not-found]
-    fw_device = "cuda" if device.startswith("cuda") else "cpu"
-    return WhisperModel(model_name, device=fw_device, compute_type=compute_type)
-
-
-def _peak_vram_mb() -> Optional[float]:
-    try:
-        import torch  # type: ignore[import-not-found]
-        if torch.cuda.is_available():
-            return float(torch.cuda.max_memory_allocated() / (1024 * 1024))
-    except Exception:
-        return None
-    return None
-
-
-def _reset_vram_peak() -> None:
-    try:
-        import torch  # type: ignore[import-not-found]
-        if torch.cuda.is_available():
-            torch.cuda.reset_peak_memory_stats()
-    except Exception:
-        pass
+    data_dir = Path(os.environ.get("TTVTURBO_DATA_DIR") or
+                    (Path(__file__).resolve().parents[1] / "data"))
+    vod_storage = VodPipelineStorage(data_dir)
+    from library import LibraryService, LibraryStorage  # noqa: PLC0415
+    library_service = LibraryService(LibraryStorage(data_dir / "library"))
+    from media_processing.uploads import UploadStorage  # noqa: PLC0415
+    upload_storage = UploadStorage(data_dir / "uploads")
+    resolver = MediaSourceResolver(
+        vod_storage,
+        upload_storage=upload_storage,
+        library_service=library_service,
+    )
+    svc = AudioForensicsService(data_dir, resolver)
+    # Find the most recent diagnostic for this source.
+    diags = svc.list_diagnostics()
+    matching = [d for d in diags if d.get("source_type") == source_type and d.get("source_id") == source_id]
+    if not matching:
+        raise RuntimeError(
+            f"no audio diagnostic found for source_type={source_type} source_id={source_id}; "
+            "create a diagnostic first"
+        )
+    diag_id = matching[0]["id"]
+    path = svc.artifact_path(diag_id, audio_variant)
+    if not path.is_file():
+        raise RuntimeError(f"forensic audio variant {audio_variant!r} not found: {path}")
+    return path
 
 
 def _clear_cuda_cache() -> None:
@@ -190,12 +154,20 @@ def _clear_cuda_cache() -> None:
         pass
 
 
-def _faster_whisper_version() -> Optional[str]:
-    try:
-        import faster_whisper  # type: ignore[import-not-found]
-        return getattr(faster_whisper, "__version__", None)
-    except Exception:
-        return None
+def _framework_version(model_family: str) -> Optional[str]:
+    if model_family == "whisper":
+        try:
+            import faster_whisper  # type: ignore[import-not-found]
+            return getattr(faster_whisper, "__version__", None)
+        except Exception:
+            return None
+    if model_family in ("parakeet", "canary"):
+        try:
+            import nemo  # type: ignore[import-not-found]
+            return getattr(nemo, "__version__", None)
+        except Exception:
+            return None
+    return None
 
 
 def run_worker(worker_job_path: str) -> int:
@@ -211,140 +183,208 @@ def run_worker(worker_job_path: str) -> int:
     runs_dir.mkdir(parents=True, exist_ok=True)
     source_type = wjob["source_type"]
     source_id = wjob["source_id"]
-    preset_ids = wjob["preset_ids"]
+    candidate_ids = wjob.get("candidate_ids") or wjob.get("preset_ids") or []
     reference_text = wjob.get("reference_text")
     hotwords = wjob.get("hotwords")
     gpu_lock_dir = Path(wjob["gpu_lock_dir"])
+    audio_variant = wjob.get("audio_variant")  # optional forensic variant
 
     payload = _read_json(benchmark_path)
     if payload is None:
         logger.error("benchmark file missing: %s", benchmark_path)
         return 2
 
+    # Resolve audio path — either a forensic variant or the standard artifact.
     try:
-        audio_path = _resolve_audio_path(source_type, source_id)
+        if audio_variant and audio_variant != "current-asr-input":
+            audio_path = _resolve_forensic_audio(source_type, source_id, audio_variant)
+        else:
+            audio_path = _resolve_audio_path(source_type, source_id)
     except Exception as exc:
-        # Mark every selected preset failed.
-        for pid in preset_ids:
-            _write_failed_run(runs_dir, benchmark_path, pid, str(exc), preset=None)
+        for cid in candidate_ids:
+            _write_failed_run(runs_dir, benchmark_path, cid, str(exc), candidate=None)
         return 1
 
     from media_processing.gpu_lock import GpuLock, GpuLockOwner  # noqa: PLC0415
 
     gpu_lock = GpuLock(gpu_lock_dir)
 
-    fw_version = _faster_whisper_version()
-
     try:
         with GpuLockOwner(gpu_lock, owner_type="transcription",
                           job_id=f"asr-benchmark-{payload['id']}",
                           timeout_seconds=0.0):
-            loaded_model_name: Optional[str] = None
-            loaded_model = None
+            # Track which model is loaded so we can reuse it.
+            loaded_family: Optional[str] = None
+            loaded_model_id: Optional[str] = None
+            current_adapter = None
+            vram_tracker = VramTracker(gpu_index=0)
+            vram_tracker.init()
             try:
-                for pid in preset_ids:
-                    preset = get_preset(pid)
-                    # Compatibility check: refuse unknown params.
-                    reasons = check_preset_compatibility(preset)
-                    if reasons:
+                for cid in candidate_ids:
+                    candidate = get_candidate(cid)
+                    if candidate is None:
                         _write_failed_run(
-                            runs_dir, benchmark_path, pid,
-                            "preset incompatible with installed faster-whisper: "
-                            + "; ".join(reasons),
-                            preset=preset, fw_version=fw_version,
+                            runs_dir, benchmark_path, cid,
+                            f"unknown candidate id: {cid}", candidate=None,
                         )
                         continue
 
-                    # Load model if needed.
-                    if loaded_model is None or loaded_model_name != preset.model:
-                        if loaded_model is not None:
-                            del loaded_model
-                            loaded_model = None
+                    # Check availability.
+                    if not check_candidate_available(cid):
+                        _write_failed_run(
+                            runs_dir, benchmark_path, cid,
+                            f"model family {candidate.model_family!r} not installed",
+                            candidate=candidate,
+                        )
+                        continue
+
+                    # Load model if needed (different family or model id).
+                    model_reused = (
+                        current_adapter is not None
+                        and loaded_family == candidate.model_family
+                        and loaded_model_id == candidate.model_id
+                    )
+                    if not model_reused:
+                        # Release previous model.
+                        if current_adapter is not None:
+                            current_adapter.release()
+                            current_adapter = None
+                            loaded_family = None
+                            loaded_model_id = None
+                            gc.collect()
                             _clear_cuda_cache()
-                        _reset_vram_peak()
-                        load_start = time.monotonic()
+
+                    # Get adapter (reuse if same model).
+                    if current_adapter is None or not model_reused:
                         try:
-                            loaded_model = _load_model(
-                                preset.model, preset.device, preset.compute_type
-                            )
-                            loaded_model_name = preset.model
-                        except Exception as exc:
+                            current_adapter = get_adapter(candidate.model_family)
+                        except AsrAdapterError as exc:
                             _write_failed_run(
-                                runs_dir, benchmark_path, pid,
-                                f"could not load model {preset.model}: "
-                                f"{type(exc).__name__}: {exc}",
-                                preset=preset, fw_version=fw_version,
+                                runs_dir, benchmark_path, cid,
+                                str(exc), candidate=candidate,
                             )
                             continue
-                        model_load_seconds = time.monotonic() - load_start
-                    else:
-                        model_load_seconds = 0.0
-                        _reset_vram_peak()
 
                     # Transcribe.
-                    t_start = time.monotonic()
                     try:
-                        segments, info_dict = _transcribe_one(
-                            loaded_model, audio_path, preset, hotwords
+                        # Merge candidate options with model_id.
+                        opts = dict(candidate.options)
+                        opts["model_id"] = candidate.model_id
+                        if hotwords:
+                            opts["hotwords"] = hotwords
+                        result: NormalizedTranscriptionResult = current_adapter.transcribe(
+                            str(audio_path), opts, vram_tracker=vram_tracker,
                         )
-                    except Exception as exc:
+                    except AsrAdapterError as exc:
                         _write_failed_run(
-                            runs_dir, benchmark_path, pid,
-                            f"transcription failed: {type(exc).__name__}: {exc}",
-                            preset=preset, fw_version=fw_version,
-                            model_load_seconds=model_load_seconds,
+                            runs_dir, benchmark_path, cid,
+                            str(exc), candidate=candidate,
                         )
                         _clear_cuda_cache()
                         continue
-                    runtime_seconds = time.monotonic() - t_start
-                    peak_vram_mb = _peak_vram_mb()
+                    except Exception as exc:
+                        _write_failed_run(
+                            runs_dir, benchmark_path, cid,
+                            f"unexpected error: {type(exc).__name__}: {exc}",
+                            candidate=candidate,
+                        )
+                        _clear_cuda_cache()
+                        continue
+
+                    # Measure VRAM after release.
+                    vram_tracker.measure_after_release()
 
                     run_payload = {
                         "schema_version": SCHEMA_VERSION,
-                        "preset_id": pid,
-                        "preset": preset.to_dict(),
+                        "candidate_id": cid,
+                        "preset_id": cid,  # backward compat
+                        "candidate": candidate.to_dict(),
+                        "preset": candidate.to_dict(),  # backward compat
                         "status": STATUS_READY,
-                        "faster_whisper_version": fw_version,
-                        "model_load_seconds": round(model_load_seconds, 3),
-                        "runtime_seconds": round(runtime_seconds, 3),
-                        "peak_vram_mb": round(peak_vram_mb, 3) if peak_vram_mb is not None else None,
-                        "audio_duration_seconds": float(info_dict.get("duration") or 0.0) or None,
-                        "detected_language": info_dict.get("language"),
-                        "language_probability": info_dict.get("language_probability"),
-                        "all_language_probs": info_dict.get("all_language_probs"),
-                        "duration_after_vad_from_info": info_dict.get("duration_after_vad"),
-                        "transcript_text": " ".join(s.get("text", "") for s in segments).strip(),
-                        "segments": segments,
-                        "effective_parameters": preset.transcribe_kwargs(),
+                        "framework": candidate.model_family,
+                        "framework_version": _framework_version(candidate.model_family),
+                        "model_family": result.model_family,
+                        "model_id": result.model_id,
+                        "model_revision": result.model_revision,
+                        "model_reused": result.model_reused,
+                        "load_seconds": result.load_seconds,
+                        "inference_seconds": result.inference_seconds,
+                        "total_seconds": result.total_seconds,
+                        "runtime_seconds": result.inference_seconds,  # backward compat
+                        "model_load_seconds": result.load_seconds,  # backward compat
+                        "peak_vram_bytes": result.peak_vram_bytes,
+                        "peak_vram_mb": (
+                            round(result.peak_vram_bytes / (1024 * 1024), 3)
+                            if result.peak_vram_bytes is not None else None
+                        ),
+                        "vram": vram_tracker.to_dict(),
+                        "peak_ram_bytes": result.peak_ram_bytes,
+                        "audio_variant": audio_variant or "current-asr-input",
+                        "audio_duration_seconds": None,
+                        "detected_language": result.language,
+                        "language_probability": result.language_probability,
+                        "all_language_probs": None,
+                        "duration_after_vad_from_info": None,
+                        "transcript_text": result.text,
+                        "segments": result.segments,
+                        "words": result.words,
+                        "effective_parameters": candidate.options,
                         "hotwords_used": hotwords or None,
+                        "warnings": result.warnings,
                         "created_at": _now_iso(),
                     }
+
                     # Attach VAD diagnosis, metrics, flags.
+                    # For VAD diagnosis we need a preset-like object.
+                    from .asr_presets import AsrPreset  # noqa: PLC0415
+                    vad_preset = AsrPreset(
+                        id=cid,
+                        name=candidate.name,
+                        description=candidate.description,
+                        model=candidate.model_id,
+                        device="cuda",
+                        compute_type=candidate.options.get("compute_type", "int8_float16"),
+                        task="transcribe",
+                        language=candidate.options.get("language"),
+                        multilingual=candidate.options.get("multilingual", False),
+                        beam_size=candidate.options.get("beam_size", 5),
+                        word_timestamps=candidate.options.get("word_timestamps", True),
+                        vad_filter=candidate.options.get("vad_filter", True),
+                        condition_on_previous_text=candidate.options.get(
+                            "condition_on_previous_text", True
+                        ),
+                    )
                     run_payload = finalise_run(
                         run_payload,
                         str(audio_path),
-                        preset,
+                        vad_preset,
                         reference_text,
-                        compute_vad=preset.vad_filter,
+                        compute_vad=candidate.options.get("vad_filter", True),
                     )
-                    _atomic_write_json(runs_dir / f"{pid}.json", run_payload)
+                    _atomic_write_json(runs_dir / f"{cid}.json", run_payload)
                     _update_benchmark(benchmark_path, _summarise_run(run_payload))
+
+                    # Update loaded model tracking.
+                    loaded_family = candidate.model_family
+                    loaded_model_id = candidate.model_id
             finally:
-                if loaded_model is not None:
+                if current_adapter is not None:
                     try:
-                        del loaded_model
+                        current_adapter.release()
                     except Exception:
                         pass
+                gc.collect()
                 _clear_cuda_cache()
+                vram_tracker.measure_after_release()
+                vram_tracker.shutdown()
     except Exception as exc:
-        # GPU lock busy or other outer failure: mark remaining presets failed.
-        for pid in preset_ids:
-            existing = _read_json(runs_dir / f"{pid}.json")
+        for cid in candidate_ids:
+            existing = _read_json(runs_dir / f"{cid}.json")
             if existing is None or existing.get("status") != STATUS_READY:
                 _write_failed_run(
-                    runs_dir, benchmark_path, pid,
+                    runs_dir, benchmark_path, cid,
                     f"benchmark worker error: {type(exc).__name__}: {exc}",
-                    preset=None, fw_version=fw_version,
+                    candidate=None,
                 )
         return 1
     return 0
@@ -354,13 +394,22 @@ def _summarise_run(run_payload: dict[str, Any]) -> dict[str, Any]:
     """Return a compact run summary for the benchmark record's ``runs`` list."""
     metrics = run_payload.get("metrics") or {}
     return {
-        "preset_id": run_payload.get("preset_id"),
-        "preset_name": (run_payload.get("preset") or {}).get("name"),
-        "model": (run_payload.get("preset") or {}).get("model"),
+        "candidate_id": run_payload.get("candidate_id"),
+        "preset_id": run_payload.get("candidate_id"),  # backward compat
+        "preset_name": (run_payload.get("candidate") or {}).get("name"),
+        "model": (run_payload.get("candidate") or {}).get("model_id"),
+        "model_family": run_payload.get("model_family"),
         "status": run_payload.get("status"),
         "runtime_seconds": run_payload.get("runtime_seconds"),
+        "inference_seconds": run_payload.get("inference_seconds"),
         "model_load_seconds": run_payload.get("model_load_seconds"),
+        "model_reused": run_payload.get("model_reused"),
+        "load_seconds": run_payload.get("load_seconds"),
+        "total_seconds": run_payload.get("total_seconds"),
+        "peak_vram_bytes": run_payload.get("peak_vram_bytes"),
         "peak_vram_mb": run_payload.get("peak_vram_mb"),
+        "peak_ram_bytes": run_payload.get("peak_ram_bytes"),
+        "audio_variant": run_payload.get("audio_variant"),
         "detected_language": run_payload.get("detected_language"),
         "language_probability": run_payload.get("language_probability"),
         "audio_duration_seconds": run_payload.get("audio_duration_seconds"),
@@ -374,28 +423,42 @@ def _summarise_run(run_payload: dict[str, Any]) -> dict[str, Any]:
         "missing_speech_flag_count": len(run_payload.get("missing_speech_flags") or []),
         "transcript_text": run_payload.get("transcript_text"),
         "error": run_payload.get("error"),
+        "warnings": run_payload.get("warnings"),
     }
 
 
 def _write_failed_run(
     runs_dir: Path,
     benchmark_path: Path,
-    preset_id: str,
+    candidate_id: str,
     error: str,
-    preset: Optional[AsrPreset],
-    fw_version: Optional[str] = None,
-    model_load_seconds: Optional[float] = None,
+    candidate: Optional[Any] = None,
 ) -> None:
+    from .asr_models import ModelCandidate  # noqa: PLC0415
+    cand_dict = candidate.to_dict() if candidate is not None else None
     run_payload = {
         "schema_version": SCHEMA_VERSION,
-        "preset_id": preset_id,
-        "preset": preset.to_dict() if preset is not None else None,
+        "candidate_id": candidate_id,
+        "preset_id": candidate_id,  # backward compat
+        "candidate": cand_dict,
+        "preset": cand_dict,  # backward compat
         "status": STATUS_FAILED,
         "error": error,
-        "faster_whisper_version": fw_version,
-        "model_load_seconds": round(model_load_seconds, 3) if model_load_seconds is not None else None,
+        "framework": candidate.model_family if candidate else None,
+        "framework_version": None,
+        "model_family": candidate.model_family if candidate else None,
+        "model_id": candidate.model_id if candidate else None,
+        "model_reused": False,
+        "load_seconds": None,
+        "inference_seconds": None,
+        "total_seconds": None,
         "runtime_seconds": None,
+        "model_load_seconds": None,
+        "peak_vram_bytes": None,
         "peak_vram_mb": None,
+        "vram": None,
+        "peak_ram_bytes": None,
+        "audio_variant": None,
         "audio_duration_seconds": None,
         "detected_language": None,
         "language_probability": None,
@@ -403,31 +466,19 @@ def _write_failed_run(
         "duration_after_vad_from_info": None,
         "transcript_text": "",
         "segments": [],
-        "effective_parameters": preset.transcribe_kwargs() if preset is not None else {},
+        "words": [],
+        "effective_parameters": candidate.options if candidate else {},
         "hotwords_used": None,
-        "metrics": {"available": False, "error": "run failed before metrics"},
-        "vad_diagnosis": {"computed": False, "audio_duration_seconds": None,
-                          "duration_after_vad_seconds": None,
-                          "removed_by_vad_seconds": None, "speech_regions": []},
+        "warnings": [],
+        "metrics": {"available": False},
         "hallucination_flags": [],
         "missing_speech_flags": [],
+        "vad_diagnosis": None,
         "created_at": _now_iso(),
     }
-    _atomic_write_json(runs_dir / f"{preset_id}.json", run_payload)
+    _atomic_write_json(runs_dir / f"{candidate_id}.json", run_payload)
     _update_benchmark(benchmark_path, _summarise_run(run_payload))
 
 
-def main() -> int:
-    if len(sys.argv) != 2:
-        print("usage: python -m media_processing.asr_benchmark_worker <worker_job.json>", file=sys.stderr)
-        return 2
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    try:
-        return run_worker(sys.argv[1])
-    except Exception as exc:  # pragma: no cover - defensive
-        logger.exception("asr benchmark worker crashed: %s", exc)
-        return 1
-
-
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(run_worker(sys.argv[1]))

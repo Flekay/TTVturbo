@@ -208,9 +208,11 @@ class AsrBenchmarkService:
         self,
         source_type: str,
         source_id: str,
-        preset_ids: list[str],
+        preset_ids: Optional[list[str]] = None,
         reference_text: Optional[str] = None,
         hotwords: Optional[str] = None,
+        candidate_ids: Optional[list[str]] = None,
+        audio_variant: Optional[str] = None,
     ) -> dict[str, Any]:
         # Validate source exists and is ready.
         try:
@@ -220,14 +222,31 @@ class AsrBenchmarkService:
         except MediaSourceError as exc:
             raise AsrBenchmarkError(str(exc)) from exc
 
-        if not preset_ids:
-            raise AsrBenchmarkError("at least one preset is required")
-        # Validate every preset id is known.
-        for pid in preset_ids:
+        # Accept either candidate_ids (new) or preset_ids (backward compat).
+        # Candidate ids take priority.
+        ids = candidate_ids if candidate_ids is not None else preset_ids
+        if not ids:
+            raise AsrBenchmarkError("at least one candidate is required")
+
+        # Validate every id is a known candidate or preset.
+        from .asr_models import get_candidate, CANDIDATE_MAP  # noqa: PLC0415
+        for cid in ids:
+            if cid in CANDIDATE_MAP:
+                continue
+            # Also accept legacy preset ids for backward compat.
             try:
-                get_preset(pid)
+                get_preset(cid)
             except AsrPresetNotFoundError as exc:
-                raise AsrBenchmarkError(str(exc)) from exc
+                raise AsrBenchmarkError(f"unknown candidate/preset id: {cid}") from exc
+
+        # Validate audio_variant if provided.
+        if audio_variant is not None:
+            from .audio_forensics import AUDIO_VARIANTS  # noqa: PLC0415
+            if audio_variant not in AUDIO_VARIANTS:
+                raise AsrBenchmarkError(
+                    f"invalid audio_variant: {audio_variant!r}; "
+                    f"valid: {list(AUDIO_VARIANTS)}"
+                )
 
         # Guardrails on user input.
         ref = (reference_text or "").strip()
@@ -246,10 +265,10 @@ class AsrBenchmarkService:
         # De-duplicate while preserving order.
         seen: set[str] = set()
         ordered: list[str] = []
-        for pid in preset_ids:
-            if pid not in seen:
-                seen.add(pid)
-                ordered.append(pid)
+        for cid in ids:
+            if cid not in seen:
+                seen.add(cid)
+                ordered.append(cid)
 
         payload = {
             "schema_version": SCHEMA_VERSION,
@@ -259,7 +278,9 @@ class AsrBenchmarkService:
             "source_duration_seconds": None,
             "reference_text": ref or None,
             "hotwords": hw or None,
-            "selected_presets": ordered,
+            "selected_presets": ordered,  # backward compat
+            "candidate_ids": ordered,
+            "audio_variant": audio_variant,
             "status": STATUS_QUEUED,
             "created_at": now,
             "completed_at": None,
@@ -306,9 +327,11 @@ class AsrBenchmarkService:
             "runs_dir": str(self._runs_dir(benchmark_id)),
             "source_type": payload["source_type"],
             "source_id": payload["source_id"],
-            "preset_ids": payload["selected_presets"],
+            "candidate_ids": payload.get("candidate_ids") or payload["selected_presets"],
+            "preset_ids": payload["selected_presets"],  # backward compat
             "reference_text": payload.get("reference_text"),
             "hotwords": payload.get("hotwords"),
+            "audio_variant": payload.get("audio_variant"),
             "gpu_lock_dir": str(self.gpu_lock.data_dir),
         }
         bdir = self._benchmark_dir(benchmark_id)

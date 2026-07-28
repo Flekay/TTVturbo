@@ -85,6 +85,28 @@ from .asr_benchmark import (
     AsrBenchmarkService,
     recommend_winner,
 )
+from .audio_forensics import (
+    AUDIO_VARIANTS,
+    AudioForensicsService,
+    DIAGNOSTICS_SUBDIR,
+)
+from .asr_models import (
+    CANDIDATES,
+    CANDIDATE_MAP,
+    CanaryAdapter,
+    FasterWhisperAdapter,
+    ModelCandidate,
+    NormalizedTranscriptionResult,
+    ParakeetAdapter,
+    VramTracker,
+    check_candidate_available,
+    check_canary_available,
+    check_faster_whisper_available,
+    check_parakeet_available,
+    get_adapter,
+    get_candidate,
+    list_model_candidates,
+)
 
 __all__ = [
     "SCHEMA_VERSION",
@@ -156,4 +178,22 @@ __all__ = [
     "AsrBenchmarkNotFoundError",
     "AsrBenchmarkService",
     "recommend_winner",
+    "AUDIO_VARIANTS",
+    "AudioForensicsService",
+    "DIAGNOSTICS_SUBDIR",
+    "CANDIDATES",
+    "CANDIDATE_MAP",
+    "CanaryAdapter",
+    "FasterWhisperAdapter",
+    "ModelCandidate",
+    "NormalizedTranscriptionResult",
+    "ParakeetAdapter",
+    "VramTracker",
+    "check_candidate_available",
+    "check_canary_available",
+    "check_faster_whisper_available",
+    "check_parakeet_available",
+    "get_adapter",
+    "get_candidate",
+    "list_model_candidates",
 ]

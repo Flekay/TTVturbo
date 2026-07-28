@@ -6,6 +6,9 @@ Endpoints:
   GET    /api/asr/status
   GET    /api/asr/default
   POST   /api/asr/default
+  GET    /api/asr/models
+  GET    /api/asr/audio-diagnostics/{source_type}/{source_id}
+  POST   /api/asr/audio-diagnostics
   POST   /api/asr/benchmarks
   GET    /api/asr/benchmarks
   GET    /api/asr/benchmarks/{id}
@@ -23,19 +26,22 @@ preset ids.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from media_processing import (
+    AUDIO_VARIANTS,
     AsrBenchmarkError,
     AsrBenchmarkNotFoundError,
     AsrBenchmarkService,
     AsrDefaultPresetStore,
     AsrPresetError,
     AsrPresetNotFoundError,
+    AudioForensicsService,
     is_production_eligible,
     list_presets,
 )
@@ -52,8 +58,16 @@ class CreateBenchmarkRequest(BaseModel):
     source_type: str = "twitch_clip"
     source_id: str
     preset_ids: list[str] = Field(default_factory=list)
+    candidate_ids: Optional[list[str]] = None
+    audio_variant: Optional[str] = None
     reference_text: Optional[str] = None
     hotwords: Optional[str] = None
+
+
+class CreateAudioDiagnosticRequest(BaseModel):
+    source_type: str = "twitch_clip"
+    source_id: str
+    audio_stream_id: Optional[int] = None
 
 
 class SelectDefaultRequest(BaseModel):
@@ -92,6 +106,7 @@ def _map(exc: Exception) -> JSONResponse:
 def build_asr_router(
     benchmark_service: AsrBenchmarkService,
     default_store: AsrDefaultPresetStore,
+    forensics_service: Optional[AudioForensicsService] = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/asr", tags=["asr"])
 
@@ -99,6 +114,25 @@ def build_asr_router(
     @router.get("/presets")
     def get_presets() -> JSONResponse:
         return JSONResponse(content={"presets": list_presets()})
+
+    # ----------------------------------------------------------------- models
+    @router.get("/models")
+    def get_models() -> JSONResponse:
+        """Report which ASR model families are installed."""
+        from media_processing.asr_models import (
+            check_canary_available,
+            check_parakeet_available,
+            list_model_candidates,
+        )
+        candidates = list_model_candidates()
+        return JSONResponse(content={
+            "candidates": candidates,
+            "faster_whisper_available": _check_faster_whisper(),
+            "parakeet_available": check_parakeet_available(),
+            "canary_available": check_canary_available(),
+            "nemo_installed": _check_nemo(),
+            "cuda_available": _check_cuda(),
+        })
 
     # ----------------------------------------------------------------- status
     @router.get("/status")
@@ -124,6 +158,48 @@ def build_asr_router(
             return _map(exc)
         return JSONResponse(content=payload)
 
+    # ----------------------------------------------------------------- audio diagnostics
+    @router.get("/audio-diagnostics/{source_type}/{source_id}")
+    def list_audio_diagnostics(source_type: str, source_id: str) -> JSONResponse:
+        if forensics_service is None:
+            return _err(503, "forensics_unavailable", "Audio forensics service not configured.")
+        diags = forensics_service.list_diagnostics()
+        filtered = [d for d in diags if d.get("source_type") == source_type and d.get("source_id") == source_id]
+        return JSONResponse(content={"diagnostics": filtered})
+
+    @router.post("/audio-diagnostics")
+    def create_audio_diagnostic(request: CreateAudioDiagnosticRequest) -> JSONResponse:
+        if forensics_service is None:
+            return _err(503, "forensics_unavailable", "Audio forensics service not configured.")
+        try:
+            rec = forensics_service.create_diagnostic(
+                source_type=request.source_type,
+                source_id=request.source_id,
+                audio_stream_id=request.audio_stream_id,
+            )
+        except FileNotFoundError as exc:
+            return _err(404, "source_not_found", str(exc))
+        except ValueError as exc:
+            return _err(400, "invalid_stream", str(exc))
+        except Exception as exc:
+            logger.exception("audio diagnostic failed")
+            return _err(500, "forensics_error", str(exc))
+        return JSONResponse(status_code=201, content=rec)
+
+    @router.get("/audio-diagnostics/{diagnostic_id}/artifacts/{variant}")
+    def get_audio_artifact(diagnostic_id: str, variant: str) -> Any:
+        if forensics_service is None:
+            return _err(503, "forensics_unavailable", "Audio forensics service not configured.")
+        if variant not in AUDIO_VARIANTS:
+            return _err(400, "invalid_variant", f"invalid audio variant: {variant!r}")
+        try:
+            path = forensics_service.artifact_path(diagnostic_id, variant)
+        except ValueError as exc:
+            return _err(400, "invalid_id", str(exc))
+        if not path.is_file():
+            return _err(404, "artifact_not_found", f"artifact not found: {variant}")
+        return FileResponse(str(path), media_type="audio/flac", filename=f"{variant}.flac")
+
     # ----------------------------------------------------------------- benchmarks
     @router.post("/benchmarks")
     def create_benchmark(request: CreateBenchmarkRequest) -> JSONResponse:
@@ -132,6 +208,8 @@ def build_asr_router(
                 source_type=request.source_type,
                 source_id=request.source_id,
                 preset_ids=request.preset_ids,
+                candidate_ids=request.candidate_ids,
+                audio_variant=request.audio_variant,
                 reference_text=request.reference_text,
                 hotwords=request.hotwords,
             )
@@ -212,3 +290,32 @@ def build_asr_router(
         return JSONResponse(content=payload)
 
     return router
+
+
+# ---------------------------------------------------------------------------
+# Runtime availability checks (lazy, no model loading at startup)
+# ---------------------------------------------------------------------------
+
+
+def _check_faster_whisper() -> bool:
+    try:
+        import faster_whisper  # type: ignore[import-not-found]  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+def _check_nemo() -> bool:
+    try:
+        import nemo  # type: ignore[import-not-found]  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+def _check_cuda() -> bool:
+    try:
+        import torch  # type: ignore[import-not-found]
+        return bool(torch.cuda.is_available())
+    except Exception:
+        return False

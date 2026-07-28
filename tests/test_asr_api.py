@@ -39,23 +39,30 @@ class _StubBenchmarkService:
             raise AsrBenchmarkNotFoundError(f"benchmark not found: {benchmark_id}")
         return self.records[benchmark_id]
 
-    def create_benchmark(self, source_type, source_id, preset_ids,
-                         reference_text=None, hotwords=None) -> dict[str, Any]:
-        # Mimic the real service's preset validation.
+    def create_benchmark(self, source_type, source_id, preset_ids=None,
+                         reference_text=None, hotwords=None,
+                         candidate_ids=None, audio_variant=None) -> dict[str, Any]:
+        # Mimic the real service's validation.
         from media_processing.asr_benchmark import AsrBenchmarkError
         from media_processing.asr_presets import get_preset, AsrPresetNotFoundError
-        if not preset_ids:
-            raise AsrBenchmarkError("at least one preset is required")
-        for pid in preset_ids:
+        from media_processing.asr_models import CANDIDATE_MAP
+        ids = candidate_ids if candidate_ids is not None else preset_ids
+        if not ids:
+            raise AsrBenchmarkError("at least one candidate is required")
+        for cid in ids:
+            if cid in CANDIDATE_MAP:
+                continue
             try:
-                get_preset(pid)
+                get_preset(cid)
             except AsrPresetNotFoundError as exc:
                 raise AsrBenchmarkError(str(exc)) from exc
         import uuid as _u
         bid = str(_u.uuid4())
         rec = {
             "id": bid, "source_type": source_type, "source_id": source_id,
-            "selected_presets": preset_ids, "reference_text": reference_text,
+            "selected_presets": ids, "candidate_ids": ids,
+            "audio_variant": audio_variant,
+            "reference_text": reference_text,
             "hotwords": hotwords, "status": "QUEUED", "runs": [],
         }
         self.records[bid] = rec

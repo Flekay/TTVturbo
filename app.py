@@ -62,7 +62,7 @@ from media_processing import (
     UploadStorage,
 )
 from media_processing_api import build_media_processing_router
-from media_processing import AsrBenchmarkService, AsrDefaultPresetStore
+from media_processing import AsrBenchmarkService, AsrDefaultPresetStore, AudioForensicsService
 from asr_api import build_asr_router
 
 from library import LibraryService, LibraryStorage
@@ -213,9 +213,14 @@ asr_benchmark_service = AsrBenchmarkService(
     source_resolver=media_source_resolver,
     gpu_lock=gpu_lock,
 )
+audio_forensics_service = AudioForensicsService(
+    data_dir=DATA_DIR,
+    source_resolver=media_source_resolver,
+)
 asr_router = build_asr_router(
     benchmark_service=asr_benchmark_service,
     default_store=asr_default_preset_store,
+    forensics_service=audio_forensics_service,
 )
 
 # Connect the voice-clone profile mode to the voice-profile service. The
