@@ -73,3 +73,14 @@ nvidia-ml-py>=11.5.0
 # without NeMo. Models are downloaded from HuggingFace on first use.
 nemo_toolkit[asr]>=2.7.0
 
+# diffusers for the video-generation worker subprocess (CogVideoX).
+# Imported lazily by ttvturbo.video_generation.worker only — the FastAPI
+# app starts without diffusers and reports `available=false` for video
+# generation. Reuses the same torch+cu128 wheel pinned above; diffusers
+# itself is CPU-agnostic and pulls no extra CUDA runtime.
+diffusers>=0.30.0
+# Pillow is required by diffusers for image loading (I2V source frames).
+# Usually pulled in transitively by transformers; pinned here so the
+# video-generation worker always has it.
+Pillow>=10.0.0
+

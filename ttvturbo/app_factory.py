@@ -58,6 +58,7 @@ from ttvturbo.media_processing_api import build_media_processing_router
 from ttvturbo.conversation_mining_api import build_conversation_mining_router
 from ttvturbo.asr_api import build_asr_router
 from ttvturbo.visual_analysis_api import build_visual_analysis_router
+from ttvturbo.video_generation_api import build_video_generation_router
 from ttvturbo.ideas_research_api import build_ideas_research_router
 
 from ttvturbo.library import LibraryService, LibraryStorage
@@ -99,6 +100,7 @@ class ServiceContainer:
         self.asr_benchmark_service: Any = None
         self.audio_forensics_service: Any = None
         self.visual_analysis_service: Any = None
+        self.video_generation_service: Any = None
         self.ideas_research_service: Any = None
         # Router references (for tests that need to swap router.state).
         self.voice_profiles_router: Any = None
@@ -109,6 +111,7 @@ class ServiceContainer:
         self.library_router: Any = None
         self.asr_router: Any = None
         self.visual_analysis_router: Any = None
+        self.video_generation_router: Any = None
         self.ideas_research_router: Any = None
         self.app_router: Any = None
         self.start_time_monotonic: float = 0.0
@@ -161,6 +164,7 @@ class ServiceOverrides:
     asr_benchmark_service: Any = None
     audio_forensics_service: Any = None
     visual_analysis_service: Any = None
+    video_generation_service: Any = None
     ideas_research_service: Any = None
 
 
@@ -370,6 +374,28 @@ def _init_services(
             llm_adapter=UnavailableLLMAdapter(),
         )
 
+    # --- Video generation -------------------------------------------------
+    if ov and ov.video_generation_service is not None:
+        container.video_generation_service = ov.video_generation_service
+    else:
+        from ttvturbo.video_generation import (
+            UnavailableVideoGenerationAdapter,
+            VideoGenerationService,
+            VideoGenerationStorage,
+        )
+        vg_storage = VideoGenerationStorage(paths.video_generation)
+        container.video_generation_service = VideoGenerationService(
+            storage=vg_storage,
+            source_resolver=container.media_source_resolver,
+            settings=settings,
+            gpu_lock=container.gpu_lock,
+            library_service=container.library_service,
+            worker_python=tools.python,
+            ffmpeg_path=tools.ffmpeg,
+            ffprobe_path=tools.ffprobe,
+            adapter=UnavailableVideoGenerationAdapter(),
+        )
+
     # --- Profile reference resolver --------------------------------------
     def _resolve_profile_reference(profile_id: str, script_id: str) -> dict:
         from ttvturbo.voice_clone.service import ValidationError as _VCValidationError
@@ -481,6 +507,7 @@ def create_app(
     preset_store_proxy = _ServiceProxy(container, "asr_default_preset_store")
     forensics_proxy = _ServiceProxy(container, "audio_forensics_service")
     visual_analysis_proxy = _ServiceProxy(container, "visual_analysis_service")
+    video_generation_proxy = _ServiceProxy(container, "video_generation_service")
     ideas_research_proxy = _ServiceProxy(container, "ideas_research_service")
 
     quality_analyzer = make_voice_profile_quality_analyzer(voice_clone_proxy)
@@ -506,6 +533,7 @@ def create_app(
     )
     conversation_mining_router = build_conversation_mining_router(mining_proxy)
     visual_analysis_router = build_visual_analysis_router(visual_analysis_proxy)
+    video_generation_router = build_video_generation_router(video_generation_proxy)
     ideas_research_router = build_ideas_research_router(ideas_research_proxy)
     app_router = build_app_router(container)
 
@@ -524,6 +552,7 @@ def create_app(
             shutdown_service(container.audio_forensics_service)
             shutdown_service(container.asr_benchmark_service)
             shutdown_service(container.visual_analysis_service)
+            shutdown_service(container.video_generation_service)
             shutdown_service(container.ideas_research_service)
             shutdown_service(container.pipeline_service)
             shutdown_service(container.mining_service)
@@ -547,6 +576,7 @@ def create_app(
     container.library_router = library_router
     container.asr_router = asr_router
     container.visual_analysis_router = visual_analysis_router
+    container.video_generation_router = video_generation_router
     container.ideas_research_router = ideas_research_router
     container.app_router = app_router
 
@@ -564,6 +594,7 @@ def create_app(
     app.include_router(library_router)
     app.include_router(asr_router)
     app.include_router(visual_analysis_router)
+    app.include_router(video_generation_router)
     app.include_router(ideas_research_router)
     # App-level routes (status, recordings, voice-clone, SPA fallback).
     # Registered last so the SPA catch-all does not shadow /api/* routes

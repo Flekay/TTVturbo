@@ -78,6 +78,7 @@ class DataPaths:
     asr_default_preset: Path
     visual_analysis: Path
     ideas_research: Path
+    video_generation: Path
 
     @classmethod
     def from_root(cls, data_root: Path) -> "DataPaths":
@@ -99,6 +100,7 @@ class DataPaths:
             asr_default_preset=root,
             visual_analysis=root / "visual_analysis",
             ideas_research=root / "ideas_research",
+            video_generation=root / "video_generation",
         )
 
     def ensure_dirs(self) -> None:
@@ -122,6 +124,7 @@ class DataPaths:
             self.asr_diagnostics,
             self.visual_analysis,
             self.ideas_research,
+            self.video_generation,
         ):
             p.mkdir(parents=True, exist_ok=True)
 
@@ -258,6 +261,28 @@ class Settings:
     # Reliability band thresholds (0..1) for source_confidence mapping.
     ideas_research_source_confidence_high: float = field(default_factory=lambda: _env_float("TTVTURBO_IDEAS_RESEARCH_SOURCE_CONFIDENCE_HIGH", 0.8))
     ideas_research_source_confidence_low: float = field(default_factory=lambda: _env_float("TTVTURBO_IDEAS_RESEARCH_SOURCE_CONFIDENCE_LOW", 0.4))
+
+    # --- video generation (diffusers CogVideoX worker) ---------------------
+    # The video-generation worker runs in a separate subprocess and imports
+    # diffusers / torch lazily. The FastAPI process never imports them.
+    # Install requirements-gpu.txt (plus diffusers) to enable generation.
+    # Without it the service reports `available=false` and rejects jobs.
+    #
+    # Concrete local adapter: diffusers CogVideoX family.
+    #   * TEXT_TO_VIDEO  -> CogVideoXPipeline
+    #   * IMAGE_TO_VIDEO -> CogVideoXImageToVideoPipeline
+    # Defaults are empty so the base application starts without generation
+    # dependencies and reports `available=false`.
+    video_generation_t2v_model_id: str = field(default_factory=lambda: _env_optional_str("TTVTURBO_VIDEO_GENERATION_T2V_MODEL_ID") or "")
+    video_generation_i2v_model_id: str = field(default_factory=lambda: _env_optional_str("TTVTURBO_VIDEO_GENERATION_I2V_MODEL_ID") or "")
+    video_generation_device: str = field(default_factory=lambda: _env_str("TTVTURBO_VIDEO_GENERATION_DEVICE", "cuda"))
+    video_generation_dtype: str = field(default_factory=lambda: _env_str("TTVTURBO_VIDEO_GENERATION_DTYPE", "bfloat16"))
+    # Native CogVideoX frame rate.
+    video_generation_fps: int = field(default_factory=lambda: _env_int("TTVTURBO_VIDEO_GENERATION_FPS", 8))
+    # Conservative caps so a single job never runs unbounded.
+    video_generation_max_duration_seconds: float = field(default_factory=lambda: _env_float("TTVTURBO_VIDEO_GENERATION_MAX_DURATION_SECONDS", 10.0))
+    video_generation_max_prompt_length: int = field(default_factory=lambda: _env_int("TTVTURBO_VIDEO_GENERATION_MAX_PROMPT_LENGTH", 1000))
+    video_generation_max_concurrent: int = field(default_factory=lambda: _env_int("TTVTURBO_MAX_CONCURRENT_VIDEO_GENERATION", 1))
 
     # --- server ------------------------------------------------------------
     host: str = "127.0.0.1"

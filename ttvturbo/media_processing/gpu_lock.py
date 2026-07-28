@@ -41,7 +41,8 @@ LOCK_FILENAME = "gpu.lock"
 # what is currently holding the GPU.
 OWNER_VOICE_CLONE = "voice_clone"
 OWNER_TRANSCRIPTION = "transcription"
-VALID_OWNER_TYPES = frozenset({OWNER_VOICE_CLONE, OWNER_TRANSCRIPTION})
+OWNER_VIDEO_GENERATION = "video_generation"
+VALID_OWNER_TYPES = frozenset({OWNER_VOICE_CLONE, OWNER_TRANSCRIPTION, OWNER_VIDEO_GENERATION})
 
 
 class GpuLockError(Exception):
