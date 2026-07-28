@@ -76,6 +76,7 @@ class DataPaths:
     asr_benchmarks: Path
     asr_diagnostics: Path
     asr_default_preset: Path
+    visual_analysis: Path
 
     @classmethod
     def from_root(cls, data_root: Path) -> "DataPaths":
@@ -95,6 +96,7 @@ class DataPaths:
             asr_benchmarks=root / "asr_benchmarks",
             asr_diagnostics=root / "audio_diagnostics",
             asr_default_preset=root,
+            visual_analysis=root / "visual_analysis",
         )
 
     def ensure_dirs(self) -> None:
@@ -116,6 +118,7 @@ class DataPaths:
             self.uploads,
             self.asr_benchmarks,
             self.asr_diagnostics,
+            self.visual_analysis,
         ):
             p.mkdir(parents=True, exist_ok=True)
 
@@ -227,6 +230,16 @@ class Settings:
     conversation_mining_block_max_seconds: float = field(default_factory=lambda: _env_float("TTVTURBO_CONVERSATION_MINING_BLOCK_MAX_SECONDS", 180.0))
     conversation_mining_block_overlap_seconds: float = field(default_factory=lambda: _env_float("TTVTURBO_CONVERSATION_MINING_BLOCK_OVERLAP_SECONDS", 15.0))
     conversation_mining_pause_seconds: float = field(default_factory=lambda: _env_float("TTVTURBO_CONVERSATION_MINING_PAUSE_SECONDS", 6.0))
+
+    # --- visual analysis (layout / region detection) ----------------------
+    # The vision model is applied only to sampled keyframes, never to every
+    # frame.  An operator can override the model id via the env var, but
+    # free-form model names from the frontend are never accepted.
+    visual_analysis_model_id: str = field(default_factory=lambda: _env_optional_str("TTVTURBO_VISUAL_ANALYSIS_MODEL_ID") or "")
+    visual_analysis_keyframe_interval_seconds: float = field(default_factory=lambda: _env_float("TTVTURBO_VISUAL_ANALYSIS_KEYFRAME_INTERVAL", 5.0))
+    visual_analysis_layout_change_threshold: float = field(default_factory=lambda: _env_float("TTVTURBO_VISUAL_ANALYSIS_LAYOUT_CHANGE_THRESHOLD", 0.3))
+    visual_analysis_template_validation_keyframes: int = field(default_factory=lambda: _env_int("TTVTURBO_VISUAL_ANALYSIS_TEMPLATE_VALIDATION_KEYFRAMES", 3))
+    visual_analysis_max_concurrent: int = field(default_factory=lambda: _env_int("TTVTURBO_MAX_CONCURRENT_VISUAL_ANALYSIS", 1))
 
     # --- server ------------------------------------------------------------
     host: str = "127.0.0.1"

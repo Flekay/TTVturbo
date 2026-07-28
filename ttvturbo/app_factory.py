@@ -57,6 +57,7 @@ from ttvturbo.media_processing import (
 from ttvturbo.media_processing_api import build_media_processing_router
 from ttvturbo.conversation_mining_api import build_conversation_mining_router
 from ttvturbo.asr_api import build_asr_router
+from ttvturbo.visual_analysis_api import build_visual_analysis_router
 
 from ttvturbo.library import LibraryService, LibraryStorage
 from ttvturbo.library_api import build_library_router
@@ -96,6 +97,7 @@ class ServiceContainer:
         self.mining_service: Any = None
         self.asr_benchmark_service: Any = None
         self.audio_forensics_service: Any = None
+        self.visual_analysis_service: Any = None
         # Router references (for tests that need to swap router.state).
         self.voice_profiles_router: Any = None
         self.vod_pipeline_router: Any = None
@@ -104,6 +106,7 @@ class ServiceContainer:
         self.conversation_mining_router: Any = None
         self.library_router: Any = None
         self.asr_router: Any = None
+        self.visual_analysis_router: Any = None
         self.app_router: Any = None
         self.start_time_monotonic: float = 0.0
 
@@ -154,6 +157,7 @@ class ServiceOverrides:
     mining_service: Any = None
     asr_benchmark_service: Any = None
     audio_forensics_service: Any = None
+    visual_analysis_service: Any = None
 
 
 # ---------------------------------------------------------------------------
@@ -325,6 +329,25 @@ def _init_services(
             source_resolver=container.media_source_resolver,
         )
 
+    # --- Visual analysis --------------------------------------------------
+    if ov and ov.visual_analysis_service is not None:
+        container.visual_analysis_service = ov.visual_analysis_service
+    else:
+        from ttvturbo.visual_analysis import (
+            UnavailableVisionAdapter,
+            VisualAnalysisService,
+            VisualAnalysisStorage,
+        )
+        va_storage = VisualAnalysisStorage(paths.visual_analysis)
+        container.visual_analysis_service = VisualAnalysisService(
+            storage=va_storage,
+            source_resolver=container.media_source_resolver,
+            settings=settings,
+            library_service=container.library_service,
+            ffmpeg_path=tools.ffmpeg,
+            ffprobe_path=tools.ffprobe,
+        )
+
     # --- Profile reference resolver --------------------------------------
     def _resolve_profile_reference(profile_id: str, script_id: str) -> dict:
         from ttvturbo.voice_clone.service import ValidationError as _VCValidationError
@@ -435,6 +458,7 @@ def create_app(
     benchmark_proxy = _ServiceProxy(container, "asr_benchmark_service")
     preset_store_proxy = _ServiceProxy(container, "asr_default_preset_store")
     forensics_proxy = _ServiceProxy(container, "audio_forensics_service")
+    visual_analysis_proxy = _ServiceProxy(container, "visual_analysis_service")
 
     quality_analyzer = make_voice_profile_quality_analyzer(voice_clone_proxy)
 
@@ -458,6 +482,7 @@ def create_app(
         forensics_service=forensics_proxy,
     )
     conversation_mining_router = build_conversation_mining_router(mining_proxy)
+    visual_analysis_router = build_visual_analysis_router(visual_analysis_proxy)
     app_router = build_app_router(container)
 
     @asynccontextmanager
@@ -474,6 +499,7 @@ def create_app(
 
             shutdown_service(container.audio_forensics_service)
             shutdown_service(container.asr_benchmark_service)
+            shutdown_service(container.visual_analysis_service)
             shutdown_service(container.pipeline_service)
             shutdown_service(container.mining_service)
             shutdown_service(container.transcription_service)
@@ -495,6 +521,7 @@ def create_app(
     container.conversation_mining_router = conversation_mining_router
     container.library_router = library_router
     container.asr_router = asr_router
+    container.visual_analysis_router = visual_analysis_router
     container.app_router = app_router
 
     # Register routers.  The app-level router (which includes the SPA
@@ -510,6 +537,7 @@ def create_app(
     app.include_router(conversation_mining_router)
     app.include_router(library_router)
     app.include_router(asr_router)
+    app.include_router(visual_analysis_router)
     # App-level routes (status, recordings, voice-clone, SPA fallback).
     # Registered last so the SPA catch-all does not shadow /api/* routes
     # from the feature routers above.
