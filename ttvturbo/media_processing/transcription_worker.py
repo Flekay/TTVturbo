@@ -94,74 +94,35 @@ def _update_job(job_path: Path, **updates: Any) -> None:
 
 
 def _ensure_dependencies(device: str, job_path: Path) -> Optional[str]:
-    """Try to import faster-whisper and torch. If the import fails, attempt
-    an on-demand ``pip install`` and retry. Returns an error string on
-    failure, or None on success.
+    """Check that faster-whisper and torch are importable.
 
-    For CUDA devices, torch is pulled from the cu128 index so CUDA is not
-    silently disabled. If torch is already installed (e.g. from voice-clone),
-    only faster-whisper is installed.
-
-    This on-demand install is a convenience fallback for first-time setups
-    where ``requirements-gpu.txt`` has not been installed yet. For production
-    deployments, install the dependencies declaratively::
+    Returns an error string describing what to install if the imports
+    fail, or ``None`` on success.  This function **never** runs
+    ``pip install`` — runtime dependency installation is unsafe (it can
+    break the running environment, race with other processes, and mask
+    deployment mistakes).  Dependencies must be installed declaratively
+    before starting the app::
 
         python -m pip install -r requirements-gpu.txt \\
             --extra-index-url https://download.pytorch.org/whl/cu128
     """
+    missing: list[str] = []
     try:
         import torch  # type: ignore[import-not-found]  # noqa: F401
-        from faster_whisper import WhisperModel  # type: ignore[import-not-found]  # noqa: F401
-        return None
     except Exception:
-        pass
-
-    # On-demand install.
-    import subprocess
-    import sys as _sys
-
-    _update_job(
-        job_path,
-        status="RUNNING",
-        progress={"percent": None, "processed_seconds": None, "total_seconds": None, "phase": "INSTALLING_DEPENDENCIES"},
+        missing.append("torch")
+    try:
+        from faster_whisper import WhisperModel  # type: ignore[import-not-found]  # noqa: F401
+    except Exception:
+        missing.append("faster-whisper")
+    if not missing:
+        return None
+    return (
+        f"Required Python packages are not installed: {', '.join(missing)}. "
+        f"Install them declaratively before starting the app:\n"
+        f"  python -m pip install -r requirements-gpu.txt "
+        f"--extra-index-url https://download.pytorch.org/whl/cu128"
     )
-
-    needs_torch = False
-    try:
-        import torch  # type: ignore[import-not-found]  # noqa: F401
-    except Exception:
-        needs_torch = True
-
-    pip_args = [_sys.executable, "-m", "pip", "install", "--disable-pip-version-check"]
-
-    if needs_torch:
-        if device.startswith("cuda"):
-            # CUDA build of torch from the cu128 index.
-            pip_args += [
-                "torch", "faster-whisper",
-                "--extra-index-url", "https://download.pytorch.org/whl/cu128",
-            ]
-        else:
-            pip_args += ["torch", "faster-whisper"]
-    else:
-        pip_args += ["faster-whisper"]
-
-    logger.info("on-demand installing transcription dependencies: %s", " ".join(pip_args))
-    try:
-        proc = subprocess.run(pip_args, capture_output=True, text=True, timeout=1800)
-    except Exception as exc:
-        return f"on-demand pip install failed: {type(exc).__name__}: {exc}"
-    if proc.returncode != 0:
-        tail = (proc.stderr or proc.stdout or "")[-2000:]
-        return f"pip install exited with code {proc.returncode}:\n{tail}"
-
-    # Retry the import.
-    try:
-        import torch  # type: ignore[import-not-found]  # noqa: F401
-        from faster_whisper import WhisperModel  # type: ignore[import-not-found]  # noqa: F401
-        return None
-    except Exception as exc:
-        return f"could not import faster-whisper/torch after install: {type(exc).__name__}: {exc}"
 
 
 def _download_model_with_progress(model_name: str, job_path: Path) -> Optional[str]:

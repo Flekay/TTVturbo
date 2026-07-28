@@ -28,6 +28,7 @@ from fastapi.testclient import TestClient
 
 from ttvturbo.app_factory import create_app
 from ttvturbo.settings import Settings
+from ttvturbo.system.executables import find_executable
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 _settings = Settings.from_env()
@@ -45,9 +46,9 @@ def ok(msg: str) -> None:
 
 def make_test_audio(out_path: Path) -> None:
     """Generate a real 2-second sine wave audio file with FFmpeg."""
-    ffmpeg = shutil.which("ffmpeg")
+    ffmpeg = find_executable("ffmpeg")
     if not ffmpeg:
-        fail("ffmpeg not on PATH; cannot generate test audio.")
+        fail("ffmpeg not found; cannot generate test audio.")
     cmd = [
         ffmpeg, "-y",
         "-f", "lavfi",
@@ -63,10 +64,10 @@ def make_test_audio(out_path: Path) -> None:
 
 def main() -> None:
     # 0. Pre-checks
-    if shutil.which("ffmpeg") is None:
-        fail("ffmpeg not found on PATH.")
-    if shutil.which("ffprobe") is None:
-        fail("ffprobe not found on PATH.")
+    if find_executable("ffmpeg") is None:
+        fail("ffmpeg not found.")
+    if find_executable("ffprobe") is None:
+        fail("ffprobe not found.")
     ok("ffmpeg and ffprobe available.")
 
     # 1. FastAPI starts (TestClient builds the app without a network).
@@ -117,7 +118,7 @@ def _run_verification_checks(client: TestClient) -> None:
     wav_path = RECORDINGS_DIR / wav_name
     if not wav_path.is_file():
         fail(f"WAV file not stored at {wav_path}.")
-    ffprobe = shutil.which("ffprobe")
+    ffprobe = find_executable("ffprobe")
     probe = subprocess.run(
         [
             ffprobe, "-v", "error",
