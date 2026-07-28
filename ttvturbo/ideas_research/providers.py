@@ -44,7 +44,9 @@ class RawSource:
     The provider returns as much as it can; the service normalises,
     deduplicates and assigns reliability bands.  ``published_at`` is an
     ISO-8601 string (may be empty).  ``growth_signal`` is an optional
-    non-negative signal (e.g. view delta) in 0..1.
+    non-negative signal (e.g. view delta) in 0..1.  ``engagement_metrics``
+    carries raw platform metrics (views, likes, comments, upvotes, …)
+    used by the viral_potential scoring component.
     """
 
     url: str
@@ -55,6 +57,8 @@ class RawSource:
     growth_signal: float = 0.0
     # Provider hint for the reliability band; the service still validates.
     reliability_hint: str = Reliability.UNKNOWN.value
+    # Raw engagement metrics from the source platform.
+    engagement_metrics: dict[str, int] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------

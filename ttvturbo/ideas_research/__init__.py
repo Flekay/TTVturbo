@@ -93,6 +93,15 @@ from .service import (
     OPERATION,
     IdeasResearchService,
 )
+from .research_adapters import (
+    AggregatingResearchProvider,
+    GoogleTrendsResearchProvider,
+    RedditResearchProvider,
+    RssResearchProvider,
+    TikTokResearchProvider,
+    TwitterXResearchProvider,
+    YouTubeResearchProvider,
+)
 
 __all__ = [
     "SCHEMA_VERSION",
@@ -151,4 +160,11 @@ __all__ = [
     "score_topic",
     "validate_score_components",
     "IdeasResearchService",
+    "AggregatingResearchProvider",
+    "GoogleTrendsResearchProvider",
+    "RedditResearchProvider",
+    "RssResearchProvider",
+    "TikTokResearchProvider",
+    "TwitterXResearchProvider",
+    "YouTubeResearchProvider",
 ]

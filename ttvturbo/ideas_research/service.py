@@ -476,31 +476,36 @@ class IdeasResearchService:
                 return
 
             # 5. Generate video ideas for the top topics.
+            #    This step requires the LLM.  When no LLM is configured,
+            #    the run still completes with sources + topics + scores
+            #    (ideas can be generated on demand later via create_idea).
             run["current_stage"] = "generate_ideas"
             run["progress"] = 80.0
             self.storage.save_run(run)
             if self._is_canceled(run_id):
                 return
-            if not self.llm_adapter.available():
-                raise IdeasResearchUnavailableError("llm adapter unavailable")
-            max_topics = max(1, min(req.max_topics, len(topic_records)))
-            idea_ids: list[str] = []
-            for topic in topic_records[:max_topics]:
-                cluster_sources_list = [
-                    sources_by_id[sid].model_dump() for sid in topic["source_ids"] if sid in sources_by_id
-                ]
-                idea = self._generate_idea(
-                    run_id=run_id,
-                    topic=topic,
-                    sources=cluster_sources_list,
-                    target_format=req.target_format,
-                    audience="",
-                    contradictions=contradictions.contradicted_topic_labels,
-                )
-                self.storage.save_idea(idea)
-                idea_ids.append(idea["id"])
-            run["idea_ids"] = idea_ids
-            self.storage.save_run(run)
+            if self.llm_adapter.available():
+                max_topics = max(1, min(req.max_topics, len(topic_records)))
+                idea_ids: list[str] = []
+                for topic in topic_records[:max_topics]:
+                    cluster_sources_list = [
+                        sources_by_id[sid].model_dump() for sid in topic["source_ids"] if sid in sources_by_id
+                    ]
+                    idea = self._generate_idea(
+                        run_id=run_id,
+                        topic=topic,
+                        sources=cluster_sources_list,
+                        target_format=req.target_format,
+                        audience="",
+                        contradictions=contradictions.contradicted_topic_labels,
+                    )
+                    self.storage.save_idea(idea)
+                    idea_ids.append(idea["id"])
+                run["idea_ids"] = idea_ids
+                self.storage.save_run(run)
+            else:
+                # No LLM — skip idea generation, still complete the run.
+                logger.info("LLM unavailable — completing run without ideas (topics+sources only)")
             if self._is_canceled(run_id):
                 return
 

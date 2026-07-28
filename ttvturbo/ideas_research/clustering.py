@@ -172,9 +172,7 @@ def normalize_source(
         topic_id=None,
         confirmed_by=[],
         growth_signal=max(0.0, float(raw.growth_signal or 0.0)),
-        # ``assigned_topic`` is stashed on the source via an extra field
-        # is not part of the schema; the service carries it in a side
-        # map.  We keep the source schema clean.
+        engagement_metrics=dict(raw.engagement_metrics or {}),
     )
 
 
@@ -253,6 +251,10 @@ def _merge_one(existing: Source, dup: Source) -> Source:
     growth = max(existing.growth_signal, dup.growth_signal)
     # Higher reliability band wins.
     reliability = _higher_reliability(existing.reliability, dup.reliability)
+    # Merge engagement metrics (sum numeric values across duplicates).
+    merged_metrics: dict[str, int] = dict(existing.engagement_metrics)
+    for k, v in (dup.engagement_metrics or {}).items():
+        merged_metrics[k] = merged_metrics.get(k, 0) + int(v)
     return existing.model_copy(update={
         "confirmed_by": confirmed,
         "published_at": pub,
@@ -260,6 +262,7 @@ def _merge_one(existing: Source, dup: Source) -> Source:
         "summary": summary,
         "growth_signal": growth,
         "reliability": reliability,
+        "engagement_metrics": merged_metrics,
     })
 
 

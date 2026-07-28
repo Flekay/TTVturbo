@@ -242,6 +242,95 @@ def _source_confidence(inp: ScoringInput) -> ScoreComponent:
 
 
 # ---------------------------------------------------------------------------
+# Viral potential (engagement-based)
+# ---------------------------------------------------------------------------
+
+import math as _math
+
+
+def _normalize_engagement(value: float, cap: float) -> float:
+    """Log-saturating normalization: 0 -> 0, cap -> ~0.9, 10*cap -> ~1.0."""
+    if value <= 0 or cap <= 0:
+        return 0.0
+    return min(1.0, _math.log10(1 + value) / _math.log10(1 + cap))
+
+
+def _viral_potential(inp: ScoringInput) -> ScoreComponent:
+    """Compute a transparent viral-potential score from engagement metrics.
+
+    Combines three sub-signals, each in 0..1:
+
+    1. **Engagement volume** — log-normalized sum of views/likes/comments
+       across the cluster's sources (saturates at a configurable cap).
+    2. **Engagement velocity** — engagement per hour since publication
+       (rewards fresh content that is already getting traction).
+    3. **Cross-platform breadth** — fraction of distinct publishers
+       (a topic trending on multiple platforms is more viral).
+
+    The final value is a weighted combination:
+    ``0.4 * volume + 0.3 * velocity + 0.3 * breadth``.
+    """
+    if not inp.sources:
+        return ScoreComponent(value=0.0, rationale="keine Quellen")
+
+    # If no source has any engagement metrics, viral potential is 0.
+    has_engagement = any(
+        any(v > 0 for v in s.engagement_metrics.values())
+        for s in inp.sources
+    )
+    if not has_engagement:
+        return ScoreComponent(
+            value=0.0,
+            rationale="keine Engagement-Metriken aus den Quellen",
+        )
+
+    # 1. Engagement volume.
+    total_views = sum(s.engagement_metrics.get("views", 0) for s in inp.sources)
+    total_likes = sum(s.engagement_metrics.get("likes", 0) +
+                      s.engagement_metrics.get("upvotes", 0) for s in inp.sources)
+    total_comments = sum(s.engagement_metrics.get("comments", 0) for s in inp.sources)
+    total_engagement = total_views + total_likes * 5 + total_comments * 3
+    volume_cap = 500_000.0  # 500k engagement -> ~0.9
+    volume = _normalize_engagement(total_engagement, volume_cap)
+
+    # 2. Engagement velocity (engagement per hour since publication).
+    now = inp.now
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=_dt.timezone.utc)
+    velocities: list[float] = []
+    for src in inp.sources:
+        pub = _parse_iso(src.published_at)
+        if pub is None:
+            continue
+        if pub.tzinfo is None:
+            pub = pub.replace(tzinfo=_dt.timezone.utc)
+        age_hours = max(0.1, (now - pub).total_seconds() / 3600.0)
+        src_eng = (src.engagement_metrics.get("views", 0) +
+                   src.engagement_metrics.get("likes", 0) * 5 +
+                   src.engagement_metrics.get("comments", 0) * 3)
+        if src_eng > 0:
+            velocities.append(src_eng / age_hours)
+    if velocities:
+        avg_velocity = sum(velocities) / len(velocities)
+        velocity = _normalize_engagement(avg_velocity, 50_000.0)  # 50k/h -> ~0.9
+    else:
+        velocity = 0.0
+
+    # 3. Cross-platform breadth.
+    publishers = {(s.publisher or "").lower() for s in inp.sources if s.publisher}
+    breadth = min(1.0, len(publishers) / 3.0)  # 3+ publishers -> 1.0
+
+    val = 0.4 * volume + 0.3 * velocity + 0.3 * breadth
+    val = max(0.0, min(1.0, val))
+    rationale = (
+        f"Volume={volume:.2f} ({total_engagement:.0f} engagement), "
+        f"Velocity={velocity:.2f}, Breadth={breadth:.2f} "
+        f"({len(publishers)} Publisher)"
+    )
+    return ScoreComponent(value=round(val, 4), rationale=rationale)
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -257,6 +346,7 @@ def score_topic(inp: ScoringInput) -> TrendScore:
         "novelty": nov,
         "saturation_penalty": _saturation_penalty(inp, nov.value),
         "source_confidence": _source_confidence(inp),
+        "viral_potential": _viral_potential(inp),
     }
     # Weighted combination of the seven 0..1 components, then add the
     # saturation penalty (which is <= 0).

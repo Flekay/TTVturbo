@@ -174,6 +174,10 @@ class Source(BaseModel):
     # Optional growth signal (e.g. view/share delta) provided by the
     # research provider; 0.0 means "no signal".
     growth_signal: float = Field(default=0.0, ge=0.0)
+    # Raw engagement metrics from the source platform (views, likes,
+    # comments, shares, upvotes, etc.).  Used by the viral_potential
+    # scoring component.  Keys are platform-specific; values are ints.
+    engagement_metrics: dict[str, int] = Field(default_factory=dict)
 
     @field_validator("reliability")
     @classmethod
@@ -189,7 +193,8 @@ class Source(BaseModel):
 # Trend score (transparent components)
 # ---------------------------------------------------------------------------
 
-# The eight transparent scoring components required by the spec.
+# The transparent scoring components required by the spec, plus the
+# viral_potential component added for high-viral-score idea generation.
 SCORE_COMPONENTS: tuple[str, ...] = (
     "freshness",
     "source_count",
@@ -199,6 +204,7 @@ SCORE_COMPONENTS: tuple[str, ...] = (
     "novelty",
     "saturation_penalty",
     "source_confidence",
+    "viral_potential",
 )
 
 

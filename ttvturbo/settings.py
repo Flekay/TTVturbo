@@ -261,6 +261,30 @@ class Settings:
     # Reliability band thresholds (0..1) for source_confidence mapping.
     ideas_research_source_confidence_high: float = field(default_factory=lambda: _env_float("TTVTURBO_IDEAS_RESEARCH_SOURCE_CONFIDENCE_HIGH", 0.8))
     ideas_research_source_confidence_low: float = field(default_factory=lambda: _env_float("TTVTURBO_IDEAS_RESEARCH_SOURCE_CONFIDENCE_LOW", 0.4))
+    # --- research provider keys / config ---
+    # YouTube Data API v3 key (optional; without it the YouTube adapter
+    # reports unavailable and the aggregator skips it).
+    youtube_api_key: str = field(default_factory=lambda: _env_optional_str("YOUTUBE_API_KEY") or "")
+    # X (Twitter) API v2 Bearer Token (optional; without it the Twitter/X
+    # adapter reports unavailable and the aggregator skips it).
+    x_bearer_token: str = field(default_factory=lambda: _env_optional_str("X_BEARER_TOKEN") or "")
+    # TikTok Research API credentials (optional; without them the TikTok
+    # adapter reports unavailable and the aggregator skips it).
+    tiktok_client_key: str = field(default_factory=lambda: _env_optional_str("TIKTOK_CLIENT_KEY") or "")
+    tiktok_client_secret: str = field(default_factory=lambda: _env_optional_str("TIKTOK_CLIENT_SECRET") or "")
+    # Reddit OAuth2 credentials (optional; Reddit now requires OAuth2 for
+    # all API access). Register at https://www.reddit.com/prefs/apps
+    # (choose "script" type). Without them the Reddit adapter is skipped.
+    reddit_client_id: str = field(default_factory=lambda: _env_optional_str("REDDIT_CLIENT_ID") or "")
+    reddit_client_secret: str = field(default_factory=lambda: _env_optional_str("REDDIT_CLIENT_SECRET") or "")
+    # Comma-separated list of subreddits for the Reddit adapter.
+    ideas_research_subreddits: str = field(default_factory=lambda: _env_str("TTVTURBO_IDEAS_RESEARCH_SUBREDDITS", "gaming,Games,LivestreamFail,Twitch"))
+    # Comma-separated list of RSS feed URLs for the RSS adapter.
+    ideas_research_rss_feeds: str = field(default_factory=lambda: _env_str("TTVTURBO_IDEAS_RESEARCH_RSS_FEEDS", ""))
+    # Which research providers to enable (comma-separated).  Default: all
+    # keyless providers (rss, google_trends).  Add "reddit", "youtube",
+    # "twitter", "tiktok" when their keys are configured.
+    ideas_research_providers: str = field(default_factory=lambda: _env_str("TTVTURBO_IDEAS_RESEARCH_PROVIDERS", "rss,google_trends"))
 
     # --- video generation (diffusers CogVideoX worker) ---------------------
     # The video-generation worker runs in a separate subprocess and imports

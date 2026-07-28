@@ -641,18 +641,26 @@ class TestUnavailable:
         with pytest.raises(IdeasResearchUnavailableError):
             _run_full(svc)
 
-    def test_llm_unavailable_fails_after_research(self, ir_settings, ir_storage):
+    def test_llm_unavailable_completes_without_ideas(self, ir_settings, ir_storage):
+        # When the LLM is unavailable, the run still completes with
+        # sources + topics + scores — ideas can be generated on demand
+        # later via create_idea once an LLM is configured.
         raws = [_raw("https://x.test/a", title="t", publisher="p", published_at=_iso(60), summary="s")]
         svc = IdeasResearchService(
             storage=ir_storage, settings=ir_settings,
             research_provider=StaticResearchProvider(results=raws),
             llm_adapter=UnavailableLLMAdapter(),
         )
-        with pytest.raises(IdeasResearchUnavailableError):
-            _run_full(svc)
-        runs = svc.list_runs()
-        assert runs[0]["status"] == IdeasResearchRunStatus.FAILED
-        assert runs[0]["error"]["code"] == "IR_UNAVAILABLE"
+        run = _run_full(svc)
+        assert run["status"] == IdeasResearchRunStatus.COMPLETED
+        # Sources and topics should be present.
+        assert len(run["topic_ids"]) >= 1
+        # No ideas generated (LLM unavailable).
+        assert len(run["idea_ids"]) == 0
+        # Topics are still scored.
+        topics = svc.list_topics(run_id=run["id"])
+        assert topics
+        assert "viral_potential" in topics[0]["score"]["components"]
 
     def test_create_idea_without_llm_raises(self, ir_settings, ir_storage):
         raws = [_raw("https://x.test/a", title="t", publisher="p", published_at=_iso(60), summary="s")]

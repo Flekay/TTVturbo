@@ -361,16 +361,63 @@ def _init_services(
         container.ideas_research_service = ov.ideas_research_service
     else:
         from ttvturbo.ideas_research import (
+            AggregatingResearchProvider,
+            GoogleTrendsResearchProvider,
             IdeasResearchService,
             IdeasResearchStorage,
+            RedditResearchProvider,
+            RssResearchProvider,
+            TikTokResearchProvider,
+            TwitterXResearchProvider,
             UnavailableLLMAdapter,
-            UnavailableResearchProvider,
+            YouTubeResearchProvider,
         )
         ir_storage = IdeasResearchStorage(paths.ideas_research)
+        # Build the research provider chain from settings.  Only the
+        # providers listed in ``ideas_research_providers`` are wired; each
+        # gracefully reports unavailable when its prerequisites are
+        # missing (e.g. no API key).
+        enabled = {
+            p.strip().lower()
+            for p in (settings.ideas_research_providers or "").split(",")
+            if p.strip()
+        } or {"reddit", "rss", "google_trends"}
+        research_providers: list[Any] = []
+        if "reddit" in enabled:
+            subs = tuple(
+                s.strip() for s in (settings.ideas_research_subreddits or "").split(",") if s.strip()
+            ) or ("gaming", "Games", "LivestreamFail", "Twitch")
+            research_providers.append(RedditResearchProvider(
+                client_id=settings.reddit_client_id,
+                client_secret=settings.reddit_client_secret,
+                subreddits=subs,
+            ))
+        if "rss" in enabled:
+            feeds = tuple(
+                f.strip() for f in (settings.ideas_research_rss_feeds or "").split(",") if f.strip()
+            )
+            research_providers.append(RssResearchProvider(feeds=feeds))
+        if "google_trends" in enabled:
+            research_providers.append(GoogleTrendsResearchProvider())
+        if "youtube" in enabled and settings.youtube_api_key:
+            research_providers.append(YouTubeResearchProvider(api_key=settings.youtube_api_key))
+        if "twitter" in enabled and settings.x_bearer_token:
+            research_providers.append(TwitterXResearchProvider(bearer_token=settings.x_bearer_token))
+        if "tiktok" in enabled and settings.tiktok_client_key and settings.tiktok_client_secret:
+            research_providers.append(TikTokResearchProvider(
+                client_key=settings.tiktok_client_key,
+                client_secret=settings.tiktok_client_secret,
+            ))
+        research_provider: Any
+        if research_providers:
+            research_provider = AggregatingResearchProvider(research_providers)
+        else:
+            from ttvturbo.ideas_research import UnavailableResearchProvider
+            research_provider = UnavailableResearchProvider()
         container.ideas_research_service = IdeasResearchService(
             storage=ir_storage,
             settings=settings,
-            research_provider=UnavailableResearchProvider(),
+            research_provider=research_provider,
             llm_adapter=UnavailableLLMAdapter(),
         )
 
