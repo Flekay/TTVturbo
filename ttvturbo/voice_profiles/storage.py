@@ -36,9 +36,14 @@ from .schemas import (
     VoiceProfileStorageError,
 )
 
+from ttvturbo.storage_utils import atomic_write_json as _central_atomic_write_json
+
 logger = logging.getLogger("ttvturbo.voice_profiles.storage")
 
 PROFILE_FILENAME = "profile.json"
+# Legacy fixed-name suffix kept for backwards-compatible recognition of
+# old temp files left by previous versions.  New writes use the central
+# reserved ``.{name}.{pid}.{ns}.tmp`` pattern via storage_utils.
 PROFILE_TMP_SUFFIX = ".tmp"
 
 
@@ -100,28 +105,10 @@ class VoiceProfileStorage:
         if profile_id is None:
             raise VoiceProfileStorageError("payload missing id")
         path = self._profile_path(str(profile_id))
-        tmp = path.with_name(path.name + PROFILE_TMP_SUFFIX)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            with open(tmp, "w", encoding="utf-8") as fh:
-                json.dump(payload, fh, indent=2, ensure_ascii=False)
-                fh.flush()
-                try:
-                    os.fsync(fh.fileno())
-                except OSError:
-                    # fsync may be unavailable on some platforms / streams;
-                    # the flush + atomic replace still gives crash-consistency
-                    # for the common case. Do not raise.
-                    pass
-            os.replace(tmp, path)
-        except OSError as exc:
-            # Best-effort cleanup of the tmp file on failure.
-            try:
-                if tmp.exists():
-                    tmp.unlink()
-            except OSError:
-                pass
-            raise VoiceProfileStorageError(f"could not write profile {profile_id}: {exc}") from exc
+        # Delegate to the central atomic writer so the temp file uses the
+        # reserved ``.{name}.{pid}.{ns}.tmp`` pattern (no fixed-name
+        # collision) and gains Windows-lock retry behaviour.
+        _central_atomic_write_json(path, payload, VoiceProfileStorageError, kind="profile")
 
     # ------------------------------------------------------------------ read
     def load_profile(self, profile_id: str) -> dict:

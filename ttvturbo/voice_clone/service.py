@@ -44,6 +44,8 @@ from .schemas import (
     GenerationStatus,
 )
 
+from ttvturbo.storage_utils import atomic_write_json as _central_atomic_write_json
+
 logger = logging.getLogger("ttvturbo.voice_clone")
 
 
@@ -211,11 +213,15 @@ class VoiceCloneService:
 
     @staticmethod
     def _atomic_write_json(path: Path, payload: dict) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(payload, fh, indent=2, ensure_ascii=False)
-        os.replace(tmp, path)
+        """Atomically write generation metadata.
+
+        Delegates to the central :func:`storage_utils.atomic_write_json`
+        so the temp file uses the reserved ``.{name}.{pid}.{ns}.tmp``
+        pattern (avoiding the fixed-name ``metadata.json.tmp`` collision
+        that two concurrent writers could hit) and gains Windows-lock
+        retry behaviour.
+        """
+        _central_atomic_write_json(path, payload, ValidationError, kind="voice_clone")
 
     def _write_metadata(self, generation_id: str, payload: dict) -> None:
         self._atomic_write_json(self._metadata_path(generation_id), payload)

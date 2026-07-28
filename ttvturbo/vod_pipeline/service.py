@@ -58,6 +58,9 @@ from .schemas import (
 from .storage import VodPipelineStorage
 from .twitch_client import ChannelLister
 
+from ttvturbo.storage_utils import atomic_write_json as _central_atomic_write_json
+from ttvturbo.storage_utils import cleanup_stale_atomic_tmp
+
 logger = logging.getLogger("ttvturbo.vod_pipeline.service")
 
 KILL_GRACE_SECONDS = 5.0
@@ -292,40 +295,16 @@ class VodPipelineService:
 
     @staticmethod
     def _atomic_write_json(path: Path, payload: dict) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        # Unique tmp name per call — avoids collision with the worker
-        # subprocess which writes to the same metadata.json.
-        tmp = path.with_name(
-            f".{path.name}.{os.getpid()}.{time.monotonic_ns()}.tmp"
-        )
-        last_exc: Optional[Exception] = None
-        for attempt in range(5):
-            try:
-                with open(tmp, "w", encoding="utf-8") as fh:
-                    json.dump(payload, fh, indent=2, ensure_ascii=False)
-                    fh.flush()
-                    try:
-                        os.fsync(fh.fileno())
-                    except OSError:
-                        pass
-                os.replace(tmp, path)
-                return
-            except PermissionError as exc:
-                last_exc = exc
-                time.sleep(0.05 * (attempt + 1))
-            except OSError as exc:
-                try:
-                    if tmp.exists():
-                        tmp.unlink()
-                except OSError:
-                    pass
-                raise VodStorageError(f"could not write vod {path}: {exc}") from exc
-        try:
-            if tmp.exists():
-                tmp.unlink()
-        except OSError:
-            pass
-        raise VodStorageError(f"could not write vod {path}: {last_exc}") from last_exc
+        """Atomically write JSON metadata.
+
+        Delegates to the central :func:`storage_utils.atomic_write_json` so
+        every atomic write in the codebase uses the same reserved temp
+        file pattern (``.{name}.{pid}.{ns}.tmp``) and the same
+        Windows-lock retry behaviour.  This avoids the race where a
+        cleanup routine deletes a fixed-name ``.tmp`` file between
+        ``open()`` and ``os.replace()``.
+        """
+        _central_atomic_write_json(path, payload, VodStorageError, kind="vod")
 
     def _write_vod(self, vod_id: str, payload: dict) -> None:
         self.storage.save_vod(payload)
@@ -402,6 +381,11 @@ class VodPipelineService:
                     vod.setdefault("download", {})["completed_at"] = None
                 vod["updated_at"] = self._now_iso()
                 self._cleanup_vod_partials(vod["id"])
+                # Reap stale atomic-transaction temp files (left by a
+                # writer that died before os.replace).  Active transactions
+                # are never touched because they are younger than the age
+                # threshold.
+                cleanup_stale_atomic_tmp(self._vod_dir(vod["id"]))
                 try:
                     self._write_vod(vod["id"], vod)
                 except OSError as exc:  # pragma: no cover - defensive
@@ -422,6 +406,17 @@ class VodPipelineService:
                         pass
 
     def _cleanup_vod_partials(self, vod_id: str) -> None:
+        """Remove leftover download/worker partials for a VOD.
+
+        Only removes files that are unambiguously download artifacts:
+        yt-dlp fragment files (``.dl_*``) and binary download parts
+        (``*.part``).  Atomic-JSON transaction temp files
+        (``.{name}.{pid}.{ns}.tmp``) are NEVER touched here — deleting one
+        between ``open()`` and ``os.replace()`` would break an active
+        metadata write (cancel/retry/recovery).  Stale atomic temp files
+        are reaped separately by :func:`cleanup_stale_atomic_tmp` based on
+        age, not by this routine.
+        """
         vod_dir = self._vod_dir(vod_id)
         if not vod_dir.is_dir():
             return
@@ -429,7 +424,7 @@ class VodPipelineService:
             if not entry.is_file():
                 continue
             name = entry.name
-            if name.startswith(".dl_") or name.endswith(".part") or name.endswith(".tmp"):
+            if name.startswith(".dl_") or name.endswith(".part"):
                 try:
                     entry.unlink()
                 except OSError:

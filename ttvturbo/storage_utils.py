@@ -115,6 +115,116 @@ _WRITE_RETRIES = 5
 _READ_RETRIES = 5
 _RETRY_BACKOFF = 0.05  # seconds, multiplied by (attempt + 1)
 
+# Reserved prefix/suffix for atomic-transaction temp files.
+#
+# Atomic JSON writes use the pattern::
+#
+#     .{target_name}.{pid}.{monotonic_ns}.tmp
+#
+# (optionally with a thread id between pid and ns for worker threads).
+# These files are **transaction files**: they exist only for the few
+# milliseconds between ``open()`` and ``os.replace()``.  Cleanup routines
+# that remove download/worker partials must NEVER touch them, otherwise an
+# active transaction can be deleted between write and replace, breaking
+# cancel/retry/recovery.
+#
+# Download/worker partials use distinct, separate suffixes (``.part`` for
+# binary download chunks, ``.dl_`` prefix for yt-dlp fragments) so cleanup
+# can target them unambiguously.
+ATOMIC_TMP_PREFIX = "."
+ATOMIC_TMP_SUFFIX = ".tmp"
+
+# Stale atomic temp files older than this are safe to remove: no real
+# transaction takes this long, so a leftover file means a writer died
+# before ``os.replace()``.  Kept generous so a slow disk under heavy load
+# never trips it.
+STALE_ATOMIC_TMP_MAX_AGE_SECONDS = 3600.0
+
+
+def atomic_tmp_name(path: Path) -> str:
+    """Return the unique temp file name for an atomic write to *path*.
+
+    The name follows the reserved pattern
+    ``.{path.name}.{pid}.{thread}.{monotonic_ns}.tmp`` so concurrent
+    writers (service process + worker subprocess, or multiple worker
+    threads within the same process) never collide on the same temp
+    file.  ``threading.get_ident()`` disambiguates threads that happen
+    to observe the same ``monotonic_ns()`` value.
+    """
+    import threading  # noqa: PLC0415
+
+    return (
+        f"{ATOMIC_TMP_PREFIX}{path.name}.{os.getpid()}"
+        f".{threading.get_ident()}.{time.monotonic_ns()}{ATOMIC_TMP_SUFFIX}"
+    )
+
+
+def is_atomic_tmp(name: str) -> bool:
+    """True if *name* matches the reserved atomic-transaction temp pattern.
+
+    Recognises both the service form
+    ``.{target}.{pid}.{ns}.tmp`` and the worker-thread form
+    ``.{target}.{pid}.{thread}.{ns}.tmp``.  Used by cleanup routines to
+    avoid deleting an active atomic transaction.
+    """
+    if not name.startswith(ATOMIC_TMP_PREFIX):
+        return False
+    if not name.endswith(ATOMIC_TMP_SUFFIX):
+        return False
+    # Must contain at least pid + ns segments between the leading dot and
+    # the .tmp suffix.  e.g. ".metadata.json.1234.56789.tmp"
+    core = name[len(ATOMIC_TMP_PREFIX):-len(ATOMIC_TMP_SUFFIX)]
+    if not core:
+        return False
+    # The core is "{target}.{pid}[.{thread}].{ns}"; require at least two
+    # dot-separated numeric tail segments (pid and ns).
+    parts = core.split(".")
+    if len(parts) < 3:
+        return False
+    # The last segment (ns) and the second-to-last (pid, or thread when a
+    # pid precedes it) must be numeric.  We check the final two segments
+    # are numeric; the target name itself may contain dots.
+    if not (parts[-1].isdigit() and parts[-2].isdigit()):
+        return False
+    return True
+
+
+def cleanup_stale_atomic_tmp(directory: Path, max_age_seconds: float = STALE_ATOMIC_TMP_MAX_AGE_SECONDS) -> int:
+    """Remove atomic-transaction temp files older than *max_age_seconds*.
+
+    Only files matching :func:`is_atomic_tmp` are considered, so download
+    partials (``.part``, ``.dl_*``) and active transactions (younger than
+    the threshold) are never touched.  Returns the number of files removed.
+
+    Age is measured against the file's wall-clock mtime (``stat().st_mtime``)
+    so the threshold is meaningful across process restarts.
+    """
+    if not directory.is_dir():
+        return 0
+    now = time.time()
+    removed = 0
+    try:
+        entries = list(directory.iterdir())
+    except OSError:
+        return 0
+    for entry in entries:
+        if not entry.is_file():
+            continue
+        if not is_atomic_tmp(entry.name):
+            continue
+        try:
+            mtime = entry.stat().st_mtime
+        except OSError:
+            continue
+        if (now - mtime) < max_age_seconds:
+            continue
+        try:
+            entry.unlink()
+            removed += 1
+        except OSError:
+            pass
+    return removed
+
 
 def atomic_write_json(
     path: Path,
@@ -131,9 +241,7 @@ def atomic_write_json(
     holds an exclusive lock.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(
-        f".{path.name}.{os.getpid()}.{time.monotonic_ns()}.tmp"
-    )
+    tmp = path.with_name(atomic_tmp_name(path))
     last_exc: Optional[Exception] = None
     for attempt in range(_WRITE_RETRIES):
         try:

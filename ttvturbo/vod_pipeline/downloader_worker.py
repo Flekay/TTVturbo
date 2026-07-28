@@ -57,7 +57,9 @@ def _atomic_write_json(path: Path, payload: dict) -> None:
 
     Thread-safe: uses a per-call unique tmp filename so concurrent calls
     never collide on the same temp file, plus a lock to serialize the
-    os.replace step.
+    os.replace step.  The temp file follows the reserved
+    ``.{name}.{pid}.{thread}.{ns}.tmp`` pattern so VOD cleanup routines
+    never mistake it for a download partial.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     # Unique tmp name per call — no collision between concurrent threads.
