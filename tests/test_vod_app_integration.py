@@ -10,8 +10,8 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from app_factory import create_app
-from settings import Settings
+from ttvturbo.app_factory import create_app
+from ttvturbo.settings import Settings
 
 
 @pytest.fixture()

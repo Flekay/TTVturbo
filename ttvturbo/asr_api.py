@@ -33,9 +33,9 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
-from api_utils import error_response as _err
+from ttvturbo.api_utils import error_response as _err
 
-from media_processing import (
+from ttvturbo.media_processing import (
     AUDIO_VARIANTS,
     AsrBenchmarkError,
     AsrBenchmarkNotFoundError,
@@ -118,7 +118,7 @@ def build_asr_router(
     @router.get("/models")
     def get_models() -> JSONResponse:
         """Report which ASR model families are installed."""
-        from media_processing.asr_models import (
+        from ttvturbo.media_processing.asr_models import (
             check_canary_available,
             check_parakeet_available,
             list_model_candidates,

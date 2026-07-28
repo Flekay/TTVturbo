@@ -8,12 +8,12 @@ from pathlib import Path
 
 import pytest
 
-from voice_profiles.schemas import (
+from ttvturbo.voice_profiles.schemas import (
     SCHEMA_VERSION,
     VoiceProfileNotFoundError,
     VoiceProfileStorageError,
 )
-from voice_profiles.storage import PROFILE_FILENAME, VoiceProfileStorage
+from ttvturbo.voice_profiles.storage import PROFILE_FILENAME, VoiceProfileStorage
 
 
 def _profile_dict(name: str = "Meine Stimme") -> dict:

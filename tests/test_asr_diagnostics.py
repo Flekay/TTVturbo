@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from media_processing.asr_diagnostics import (
+from ttvturbo.media_processing.asr_diagnostics import (
     VadDiagnosis,
     flag_hallucinations,
     flag_missing_speech,
@@ -96,7 +96,7 @@ def test_short_hypothesis_for_speech_duration_flagged():
 
 def test_no_false_best_recommendation_without_ground_truth():
     """Heuristic flags must not claim a winner without ground truth."""
-    from media_processing.asr_benchmark import recommend_winner
+    from ttvturbo.media_processing.asr_benchmark import recommend_winner
     runs = [
         {"preset_id": "a", "metrics": {"available": False}},
         {"preset_id": "b", "metrics": {"available": False}},

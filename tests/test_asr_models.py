@@ -18,7 +18,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from media_processing.asr_models import (
+from ttvturbo.media_processing.asr_models import (
     CANDIDATES,
     CANDIDATE_MAP,
     CanaryAdapter,
@@ -174,7 +174,7 @@ def test_faster_whisper_adapter_normalised_response():
 
     mock_model.transcribe.return_value = ([mock_segment], mock_info)
 
-    with patch("media_processing.asr_models.measure_peak_ram", return_value=4000000000):
+    with patch("ttvturbo.media_processing.asr_models.measure_peak_ram", return_value=4000000000):
         with patch.object(adapter, "_model", mock_model):
             with patch.object(adapter, "_loaded_model_id", "large-v3"):
                 with patch.object(adapter, "_loaded_compute_type", "float16"):
@@ -325,7 +325,7 @@ def test_model_not_reused_when_model_id_changes():
     fake_fw.WhisperModel = MagicMock(return_value=mock_new_model)
 
     with patch.dict("sys.modules", {"faster_whisper": fake_fw}):
-        with patch("media_processing.asr_models.measure_peak_ram", return_value=None):
+        with patch("ttvturbo.media_processing.asr_models.measure_peak_ram", return_value=None):
             result = adapter.transcribe(
                 "/tmp/audio.flac",
                 {"model": "large-v3-turbo", "compute_type": "int8_float16"},

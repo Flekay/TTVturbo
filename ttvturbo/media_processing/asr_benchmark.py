@@ -43,7 +43,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Optional
 
-from storage_utils import atomic_write_json, now_iso, read_json_optional
+from ttvturbo.storage_utils import atomic_write_json, now_iso, read_json_optional
 
 from .asr_diagnostics import (
     VadDiagnosis,
@@ -345,7 +345,7 @@ class AsrBenchmarkService:
         except OSError as exc:
             self._active_benchmark_id = None
             raise AsrBenchmarkError(f"could not open worker log: {exc}") from exc
-        cmd = [sys.executable, "-m", "media_processing.asr_benchmark_worker", str(worker_job_path)]
+        cmd = [sys.executable, "-m", "ttvturbo.media_processing.asr_benchmark_worker", str(worker_job_path)]
         try:
             proc = subprocess.Popen(
                 cmd, stdout=log_fh, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,

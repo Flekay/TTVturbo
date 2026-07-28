@@ -1,3 +1,23 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ttvturbo"
+version = "0.1.0"
+description = "TTVturbo — Twitch VOD transcription and voice-clone pipeline"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.11"
+
+[project.scripts]
+ttvturbo = "ttvturbo.app:main"
+ttvturbo-verify = "ttvturbo.verify:main"
+ttvturbo-migrate = "ttvturbo.migrate_to_library:main"
+
+[tool.setuptools.packages.find]
+include = ["ttvturbo*"]
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]

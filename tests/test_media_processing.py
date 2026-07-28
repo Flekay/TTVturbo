@@ -31,7 +31,7 @@ from pathlib import Path
 
 import pytest
 
-from media_processing import (
+from ttvturbo.media_processing import (
     AudioExtractionService,
     GpuLock,
     GpuLockBusyError,
@@ -45,22 +45,22 @@ from media_processing import (
     PipelineService,
     TranscriptionService,
 )
-from media_processing.gpu_lock import OWNER_TRANSCRIPTION, OWNER_VOICE_CLONE
-from media_processing.schemas import (
+from ttvturbo.media_processing.gpu_lock import OWNER_TRANSCRIPTION, OWNER_VOICE_CLONE
+from ttvturbo.media_processing.schemas import (
     JobType,
     MediaJobStatus,
     PipelineStatus,
     PipelineStepType,
 )
-from media_processing.transcription_worker import (
+from ttvturbo.media_processing.transcription_worker import (
     _export_srt,
     _export_txt,
     _export_vtt,
     _format_srt_timestamp,
     _format_vtt_timestamp,
 )
-from vod_pipeline import VodPipelineStorage, VodStatus
-from vod_pipeline.service import VodPipelineService
+from ttvturbo.vod_pipeline import VodPipelineStorage, VodStatus
+from ttvturbo.vod_pipeline.service import VodPipelineService
 
 
 # ---------------------------------------------------------------------------
@@ -203,7 +203,7 @@ class TestMediaSourceResolver:
 
     def test_unknown_source_type(self, source_resolver, vod_service, make_real_mp4, channel_lister):
         vod_id, _ = _make_ready_vod(vod_service, make_real_mp4, channel_lister)
-        from media_processing.schemas import MediaSourceError
+        from ttvturbo.media_processing.schemas import MediaSourceError
 
         with pytest.raises(MediaSourceError):
             source_resolver.resolve("youtube", vod_id)
@@ -232,8 +232,8 @@ class TestMediaSourceResolver:
         The resolver must follow the ``library_item_id`` link and find the
         file in its new location.
         """
-        from library import LibraryService, LibraryStorage
-        from media_processing.sources import MediaSourceResolver
+        from ttvturbo.library import LibraryService, LibraryStorage
+        from ttvturbo.media_processing.sources import MediaSourceResolver
 
         vod_id, mp4_path = _make_ready_vod(vod_service, make_real_mp4, channel_lister)
         library_service = LibraryService(LibraryStorage(vod_data_dir / "library"))
@@ -327,7 +327,7 @@ class TestGpuLock:
         gpu_lock.release(OWNER_VOICE_CLONE, "job-1")
 
     def test_context_manager_releases_on_exception(self, gpu_lock):
-        from media_processing.gpu_lock import GpuLockOwner
+        from ttvturbo.media_processing.gpu_lock import GpuLockOwner
 
         with pytest.raises(RuntimeError):
             with GpuLockOwner(gpu_lock, OWNER_VOICE_CLONE, "job-1"):
@@ -335,7 +335,7 @@ class TestGpuLock:
         assert gpu_lock.current_owner() is None
 
     def test_context_manager_acquires(self, gpu_lock):
-        from media_processing.gpu_lock import GpuLockOwner
+        from ttvturbo.media_processing.gpu_lock import GpuLockOwner
 
         with GpuLockOwner(gpu_lock, OWNER_VOICE_CLONE, "job-1"):
             owner = gpu_lock.current_owner()
@@ -721,7 +721,7 @@ class TestPipeline:
         assert dl_step["status"] in {"RUNNING", "READY", "FAILED"}
 
     def test_unknown_vod(self, pipeline_service):
-        from media_processing.schemas import PipelineRunNotFoundError
+        from ttvturbo.media_processing.schemas import PipelineRunNotFoundError
 
         with pytest.raises(PipelineRunNotFoundError):
             pipeline_service.start_run("twitch_vod", str(uuid.uuid4()))
@@ -741,7 +741,7 @@ class TestPipeline:
             pytest.skip("ffmpeg not available")
         vod_id, _ = _make_ready_vod(vod_service, make_real_mp4, channel_lister)
         pipeline_service.start_run("twitch_vod", vod_id)
-        from media_processing.schemas import PipelineRunConflictError
+        from ttvturbo.media_processing.schemas import PipelineRunConflictError
 
         with pytest.raises(PipelineRunConflictError):
             pipeline_service.start_run("twitch_vod", vod_id)

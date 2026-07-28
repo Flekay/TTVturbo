@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from media_processing.asr_presets import (
+from ttvturbo.media_processing.asr_presets import (
     BUILTIN_PRESETS,
     FALLBACK_DEFAULT_PRESET_ID,
     LEGACY_CURRENT,

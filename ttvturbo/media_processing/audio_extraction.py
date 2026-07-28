@@ -93,7 +93,7 @@ def _find_ffmpeg() -> str:
     """Return the ffmpeg executable path or raise."""
     # Reuse the app-level helper if available, else fall back to PATH.
     try:
-        from app import _find_executable  # type: ignore[import-not-found]
+        from ttvturbo.app import _find_executable  # type: ignore[import-not-found]
 
         found = _find_executable("ffmpeg")
     except Exception:
@@ -105,7 +105,7 @@ def _find_ffmpeg() -> str:
 
 def _find_ffprobe() -> str:
     try:
-        from app import _find_executable  # type: ignore[import-not-found]
+        from ttvturbo.app import _find_executable  # type: ignore[import-not-found]
 
         found = _find_executable("ffprobe")
     except Exception:
@@ -387,7 +387,7 @@ class AudioExtractionService:
         except OSError as exc:
             self._mark_failed(job_id, f"Could not open worker log file: {exc}")
             raise MediaJobConflictError(f"Could not open worker log file: {exc}") from exc
-        cmd = [sys.executable, "-m", "media_processing.audio_extraction_worker", str(worker_job_path)]
+        cmd = [sys.executable, "-m", "ttvturbo.media_processing.audio_extraction_worker", str(worker_job_path)]
         try:
             proc = subprocess.Popen(
                 cmd, stdout=log_fh, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,

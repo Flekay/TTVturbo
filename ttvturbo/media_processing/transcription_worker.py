@@ -278,7 +278,7 @@ def run_worker(worker_job_path: str) -> int:
         return 1
 
     # Import the GPU lock here so the worker process can acquire it.
-    from media_processing.gpu_lock import GpuLock, GpuLockBusyError, GpuLockOwner, GpuLockError
+    from ttvturbo.media_processing.gpu_lock import GpuLock, GpuLockBusyError, GpuLockOwner, GpuLockError
 
     gpu_lock = GpuLock(gpu_lock_dir)
 
@@ -329,7 +329,7 @@ def run_worker(worker_job_path: str) -> int:
             # ---------------------------------------------------------------
             if model_family in ("parakeet", "canary"):
                 # NeMo models (Parakeet, Canary) via the adapter system.
-                from media_processing.asr_models import (
+                from ttvturbo.media_processing.asr_models import (
                     ParakeetAdapter,
                     CanaryAdapter,
                     VramTracker,

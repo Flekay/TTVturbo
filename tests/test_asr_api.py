@@ -13,8 +13,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from asr_api import build_asr_router
-from media_processing import AsrDefaultPresetStore
+from ttvturbo.asr_api import build_asr_router
+from ttvturbo.media_processing import AsrDefaultPresetStore
 
 
 class _StubBenchmarkService:
@@ -35,7 +35,7 @@ class _StubBenchmarkService:
 
     def get_benchmark(self, benchmark_id: str) -> dict[str, Any]:
         if benchmark_id not in self.records:
-            from media_processing.asr_benchmark import AsrBenchmarkNotFoundError
+            from ttvturbo.media_processing.asr_benchmark import AsrBenchmarkNotFoundError
             raise AsrBenchmarkNotFoundError(f"benchmark not found: {benchmark_id}")
         return self.records[benchmark_id]
 
@@ -43,9 +43,9 @@ class _StubBenchmarkService:
                          reference_text=None, hotwords=None,
                          candidate_ids=None, audio_variant=None) -> dict[str, Any]:
         # Mimic the real service's validation.
-        from media_processing.asr_benchmark import AsrBenchmarkError
-        from media_processing.asr_presets import get_preset, AsrPresetNotFoundError
-        from media_processing.asr_models import CANDIDATE_MAP
+        from ttvturbo.media_processing.asr_benchmark import AsrBenchmarkError
+        from ttvturbo.media_processing.asr_presets import get_preset, AsrPresetNotFoundError
+        from ttvturbo.media_processing.asr_models import CANDIDATE_MAP
         ids = candidate_ids if candidate_ids is not None else preset_ids
         if not ids:
             raise AsrBenchmarkError("at least one candidate is required")

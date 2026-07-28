@@ -718,7 +718,7 @@ class VoiceCloneService:
                 self._write_metadata(generation_id, meta)
                 self._release_slot(generation_id)
                 raise ValidationError(str(exc)) from exc
-        cmd = [sys.executable, "-m", "voice_clone.runtime", str(job_path)]
+        cmd = [sys.executable, "-m", "ttvturbo.voice_clone.runtime", str(job_path)]
         log_path = self._worker_log_path(generation_id)
         try:
             log_fh = open(log_path, "wb", buffering=0)

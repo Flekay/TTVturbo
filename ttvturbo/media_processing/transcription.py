@@ -689,7 +689,7 @@ class TranscriptionService:
         except OSError as exc:
             self._mark_failed(job_id, f"Could not open worker log file: {exc}")
             return
-        cmd = [sys.executable, "-m", "media_processing.transcription_worker", str(worker_job_path)]
+        cmd = [sys.executable, "-m", "ttvturbo.media_processing.transcription_worker", str(worker_job_path)]
         try:
             proc = subprocess.Popen(
                 cmd, stdout=log_fh, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,

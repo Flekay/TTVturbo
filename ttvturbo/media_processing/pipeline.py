@@ -30,7 +30,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Optional
 
-from vod_pipeline import (
+from ttvturbo.vod_pipeline import (
     VodConflictError,
     VodNotFoundError,
     VodPipelineService,

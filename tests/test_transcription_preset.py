@@ -22,16 +22,16 @@ from typing import Any
 
 import pytest
 
-from media_processing.asr_presets import (
+from ttvturbo.media_processing.asr_presets import (
     AsrDefaultPresetStore,
     MULTILINGUAL_LARGE_V3_QUALITY,
     MULTILINGUAL_LARGE_V3_TURBO,
 )
-from media_processing.audio_extraction import AudioExtractionService
-from media_processing.gpu_lock import GpuLock
-from media_processing.sources import MediaSourceResolver
-from media_processing.storage import MediaJobStorage
-from media_processing.transcription import TranscriptionService
+from ttvturbo.media_processing.audio_extraction import AudioExtractionService
+from ttvturbo.media_processing.gpu_lock import GpuLock
+from ttvturbo.media_processing.sources import MediaSourceResolver
+from ttvturbo.media_processing.storage import MediaJobStorage
+from ttvturbo.media_processing.transcription import TranscriptionService
 
 
 # ---------------------------------------------------------------------------

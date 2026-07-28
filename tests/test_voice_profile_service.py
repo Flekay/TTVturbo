@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from voice_profiles.library import ScriptLibrary
-from voice_profiles.schemas import (
+from ttvturbo.voice_profiles.library import ScriptLibrary
+from ttvturbo.voice_profiles.schemas import (
     EXPECTED_PACK_PROMPT_COUNT,
     ReferenceStatus,
     VoiceProfileConflictError,
@@ -19,8 +19,8 @@ from voice_profiles.schemas import (
     VoiceProfileValidationError,
     VoiceScriptNotFoundError,
 )
-from voice_profiles.service import VoiceProfileService
-from voice_profiles.storage import VoiceProfileStorage
+from ttvturbo.voice_profiles.service import VoiceProfileService
+from ttvturbo.voice_profiles.storage import VoiceProfileStorage
 
 
 # ---------------------------------------------------------------------------

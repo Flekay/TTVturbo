@@ -43,9 +43,9 @@ from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
-from api_utils import error_response as _error_response
+from ttvturbo.api_utils import error_response as _error_response
 
-from media_processing import (
+from ttvturbo.media_processing import (
     AudioExtractionError,
     AudioExtractionService,
     GpuLockBusyError,
@@ -64,7 +64,7 @@ from media_processing import (
     TranscriptionService,
     UploadStorage,
 )
-from media_processing.schemas import (
+from ttvturbo.media_processing.schemas import (
     MediaJobStatus,
     TranscriptionStatus,
 )
@@ -101,7 +101,7 @@ class StartAudioExtractionRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-# _error_response is imported from api_utils.
+# _error_response is imported from ttvturbo.api_utils.
 
 
 def _map_media_error(exc: Exception) -> JSONResponse:

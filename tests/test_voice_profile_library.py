@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from voice_profiles.library import ScriptLibrary
-from voice_profiles.schemas import (
+from ttvturbo.voice_profiles.library import ScriptLibrary
+from ttvturbo.voice_profiles.schemas import (
     VoiceProfileStorageError,
     VoiceScriptNotFoundError,
 )

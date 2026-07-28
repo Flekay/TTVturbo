@@ -20,14 +20,14 @@ from pathlib import Path
 
 import pytest
 
-from media_processing.audio_forensics import (
+from ttvturbo.media_processing.audio_forensics import (
     AUDIO_VARIANTS,
     AudioForensicsService,
     DIAGNOSTICS_SUBDIR,
     compute_audio_metrics,
     ffprobe_source_streams,
 )
-from media_processing.sources import MediaSourceResolver
+from ttvturbo.media_processing.sources import MediaSourceResolver
 
 
 # ---------------------------------------------------------------------------
@@ -59,7 +59,7 @@ class _FakeResolver:
     def resolve(self, source_type: str, source_id: str):
         src = self.sources.get(source_id)
         if src is None:
-            from media_processing.schemas import MediaSourceNotFoundError
+            from ttvturbo.media_processing.schemas import MediaSourceNotFoundError
             raise MediaSourceNotFoundError(f"source not found: {source_id}")
         return src
 

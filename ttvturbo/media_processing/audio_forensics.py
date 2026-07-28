@@ -93,7 +93,7 @@ def _find_ffmpeg() -> str:
     found = _shutil.which("ffmpeg")
     if not found:
         try:
-            from app import _find_executable  # type: ignore[import-not-found]
+            from ttvturbo.app import _find_executable  # type: ignore[import-not-found]
             found = _find_executable("ffmpeg")
         except Exception:
             pass
@@ -106,7 +106,7 @@ def _find_ffprobe() -> str:
     found = _shutil.which("ffprobe")
     if not found:
         try:
-            from app import _find_executable  # type: ignore[import-not-found]
+            from ttvturbo.app import _find_executable  # type: ignore[import-not-found]
             found = _find_executable("ffprobe")
         except Exception:
             pass
@@ -353,7 +353,7 @@ def compute_audio_metrics(path: Path) -> dict[str, Any]:
 
     # Reuse the existing voice_clone quality analyzer for signal metrics.
     try:
-        from voice_clone.quality import analyze_reference, AnalysisError  # type: ignore[import-not-found]
+        from ttvturbo.voice_clone.quality import analyze_reference, AnalysisError  # type: ignore[import-not-found]
         analysis = analyze_reference(str(path))
         d = analysis.to_dict()
         result["sample_rate"] = result["sample_rate"] or d["technical"]["sample_rate"]
@@ -376,7 +376,7 @@ def compute_audio_metrics(path: Path) -> dict[str, Any]:
         result["warnings"].append(f"audio analysis failed: {exc}")
     except Exception as exc:
         result["warnings"].append(
-            f"voice_clone.quality unavailable: {type(exc).__name__}: {exc}"
+            f"ttvturbo.voice_clone.quality unavailable: {type(exc).__name__}: {exc}"
         )
 
     # Reuse the existing asr_diagnostics VAD for speech regions.

@@ -28,9 +28,9 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from api_utils import error_response as _error_response
+from ttvturbo.api_utils import error_response as _error_response
 
-from vod_pipeline import (
+from ttvturbo.vod_pipeline import (
     TwitchClientError,
     TwitchNotFoundError,
     TwitchProfileConflictError,
@@ -43,8 +43,8 @@ from vod_pipeline import (
     VodStorageError,
     VodValidationError,
 )
-from vod_pipeline.service import FFprobeError
-from vod_pipeline.twitch_client import ChannelLister
+from ttvturbo.vod_pipeline.service import FFprobeError
+from ttvturbo.vod_pipeline.twitch_client import ChannelLister
 
 logger = logging.getLogger("ttvturbo.vod_pipeline_api")
 
@@ -69,7 +69,7 @@ class ImportVodRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-# _error_response is imported from api_utils.
+# _error_response is imported from ttvturbo.api_utils.
 
 
 def _map_profile_error(exc: Exception) -> JSONResponse:
@@ -520,13 +520,13 @@ def build_service(
     """
     from pathlib import Path
 
-    from vod_pipeline import VodPipelineStorage
-    from vod_pipeline.schemas import DEFAULT_SYNC_LIMIT
-    from vod_pipeline.service import (
+    from ttvturbo.vod_pipeline import VodPipelineStorage
+    from ttvturbo.vod_pipeline.schemas import DEFAULT_SYNC_LIMIT
+    from ttvturbo.vod_pipeline.service import (
         DEFAULT_MAX_CONCURRENT,
         DEFAULT_TIMEOUT_SECONDS,
     )
-    from vod_pipeline.twitch_client import DEFAULT_TIMEOUT_SECONDS as LISTER_TIMEOUT
+    from ttvturbo.vod_pipeline.twitch_client import DEFAULT_TIMEOUT_SECONDS as LISTER_TIMEOUT
 
     mc = max_concurrent
     if mc is None:

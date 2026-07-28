@@ -20,8 +20,8 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from voice_clone.schemas import GenerationStatus
-from voice_clone.service import VoiceCloneService, ValidationError
+from ttvturbo.voice_clone.schemas import GenerationStatus
+from ttvturbo.voice_clone.service import VoiceCloneService, ValidationError
 
 
 # --------------------------------------------------------------------- helpers
@@ -409,7 +409,7 @@ def test_output_file_check_rejects_byte_identical_to_reference(
 ):
     """If the worker produced a WAV byte-identical to the reference, the
     output validation must reject it and no output.wav may remain."""
-    from voice_clone.runtime import validate_output
+    from ttvturbo.voice_clone.runtime import validate_output
 
     ref = _make_reference(recordings_dir, f"ref_{uuid.uuid4().hex}.wav", seconds=6.0)
     errors, _ = validate_output(str(ref), str(ref))
@@ -417,7 +417,7 @@ def test_output_file_check_rejects_byte_identical_to_reference(
 
 
 def test_output_file_check_rejects_missing_file(tmp_path: Path):
-    from voice_clone.runtime import validate_output
+    from ttvturbo.voice_clone.runtime import validate_output
 
     ref = tmp_path / "ref.wav"
     _write_wav(ref, _tone(5.0))
@@ -426,7 +426,7 @@ def test_output_file_check_rejects_missing_file(tmp_path: Path):
 
 
 def test_output_file_check_rejects_silence(tmp_path: Path):
-    from voice_clone.runtime import validate_output
+    from ttvturbo.voice_clone.runtime import validate_output
 
     ref = tmp_path / "ref.wav"
     _write_wav(ref, _tone(5.0))
@@ -437,7 +437,7 @@ def test_output_file_check_rejects_silence(tmp_path: Path):
 
 
 def test_output_file_check_accepts_real_new_audio(tmp_path: Path):
-    from voice_clone.runtime import validate_output
+    from ttvturbo.voice_clone.runtime import validate_output
 
     ref = tmp_path / "ref.wav"
     _write_wav(ref, _tone(5.0, freq=220.0))
@@ -646,7 +646,7 @@ def test_list_generations_empty_when_none(client, isolated_voice_clone):
 
 # --------------------------------------------------------------------- quality analyzer
 def test_quality_analyzer_rejects_near_silent(tmp_path: Path):
-    from voice_clone.quality import AudioQualityAnalyzer, Quality
+    from ttvturbo.voice_clone.quality import AudioQualityAnalyzer, Quality
 
     path = tmp_path / "silent.wav"
     _write_wav(path, _silent(6.0))
@@ -655,7 +655,7 @@ def test_quality_analyzer_rejects_near_silent(tmp_path: Path):
 
 
 def test_quality_analyzer_reviews_short_reference(tmp_path: Path):
-    from voice_clone.quality import AudioQualityAnalyzer, Quality
+    from ttvturbo.voice_clone.quality import AudioQualityAnalyzer, Quality
 
     path = tmp_path / "short.wav"
     _write_wav(path, _tone(3.0))
@@ -665,7 +665,7 @@ def test_quality_analyzer_reviews_short_reference(tmp_path: Path):
 
 
 def test_quality_anizer_missing_file_raises(tmp_path: Path):
-    from voice_clone.quality import AudioQualityAnalyzer, AnalysisError
+    from ttvturbo.voice_clone.quality import AudioQualityAnalyzer, AnalysisError
 
     with pytest.raises(AnalysisError):
         AudioQualityAnalyzer().analyze(str(tmp_path / "missing.wav"))
@@ -684,9 +684,9 @@ def test_e2e_real_voice_clone_via_api(tmp_path: Path, recordings_dir: Path):
     import time as _time
 
     from fastapi.testclient import TestClient
-    from app_factory import ServiceOverrides, create_app
-    from settings import Settings
-    from voice_clone.service import VoiceCloneService
+    from ttvturbo.app_factory import ServiceOverrides, create_app
+    from ttvturbo.settings import Settings
+    from ttvturbo.voice_clone.service import VoiceCloneService
 
     vc_dir = tmp_path / "voice_clones"
     service = VoiceCloneService(
@@ -736,7 +736,7 @@ def test_e2e_real_voice_clone_via_api(tmp_path: Path, recordings_dir: Path):
             assert b"WAVE" in audio.content[:12]
 
             # The output must not be byte-identical to the reference.
-            from voice_clone.runtime import file_sha256
+            from ttvturbo.voice_clone.runtime import file_sha256
 
             out_path = service._output_path(gen_id)
             assert file_sha256(str(out_path)) != file_sha256(str(ref))

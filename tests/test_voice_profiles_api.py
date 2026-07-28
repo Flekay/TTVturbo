@@ -22,7 +22,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from voice_profiles_api import build_router, build_service
+from ttvturbo.voice_profiles_api import build_router, build_service
 
 
 # ---------------------------------------------------------------------------

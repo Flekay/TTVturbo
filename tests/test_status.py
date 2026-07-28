@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from settings import APP_NAME, APP_VERSION
+from ttvturbo.settings import APP_NAME, APP_VERSION
 
 
 def test_status_returns_online(client):

@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from migrate_to_library import migrate_uploads, migrate_vods
+from ttvturbo.migrate_to_library import migrate_uploads, migrate_vods
 
 
 def _write_vod_meta(
@@ -76,7 +76,7 @@ def _write_upload_meta(
 
 @pytest.fixture()
 def library_service(tmp_path: Path):
-    from library import LibraryService, LibraryStorage
+    from ttvturbo.library import LibraryService, LibraryStorage
     return LibraryService(LibraryStorage(tmp_path / "library"))
 
 

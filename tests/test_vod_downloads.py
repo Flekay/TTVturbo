@@ -20,8 +20,8 @@ from pathlib import Path
 
 import pytest
 
-from vod_pipeline import VodStatus
-from vod_pipeline.service import FFprobeError, ffprobe_inspect
+from ttvturbo.vod_pipeline import VodStatus
+from ttvturbo.vod_pipeline.service import FFprobeError, ffprobe_inspect
 
 
 def _write_fake_worker_script(tmp_path: Path, exit_code: int = 0, delay: float = 0.0, fail_verify: bool = False) -> Path:
@@ -165,7 +165,7 @@ def test_second_parallel_start_blocked(vod_service, vod_with_profile, tmp_path, 
     profile_id = vod_with_profile["profile_id"]
     vod_service.sync_vods(profile_id)
     second = [v for v in vod_service.list_vods(profile_id=profile_id) if v["id"] != vod_with_profile["id"]][0]
-    from vod_pipeline import VodConflictError
+    from ttvturbo.vod_pipeline import VodConflictError
     with pytest.raises(VodConflictError):
         vod_service.start_download(second["id"])
     # Cleanup the running one.
@@ -250,7 +250,7 @@ def test_retry_after_failure(vod_service, vod_with_profile, tmp_path, ffmpeg_ava
 
 def test_retry_only_for_failed_or_canceled(vod_service, vod_with_profile):
     # DISCOVERED -> retry not allowed; use start_download instead.
-    from vod_pipeline import VodConflictError
+    from ttvturbo.vod_pipeline import VodConflictError
     with pytest.raises(VodConflictError):
         vod_service.retry_download(vod_with_profile["id"])
 
@@ -258,8 +258,8 @@ def test_retry_only_for_failed_or_canceled(vod_service, vod_with_profile):
 def test_restart_recovery_marks_transient_failed(vod_data_dir, vod_download_dir, channel_lister, ffmpeg_available):
     if not ffmpeg_available:
         pytest.skip("ffmpeg/ffprobe needed")
-    from vod_pipeline import VodPipelineStorage
-    from vod_pipeline.service import VodPipelineService
+    from ttvturbo.vod_pipeline import VodPipelineStorage
+    from ttvturbo.vod_pipeline.service import VodPipelineService
     storage = VodPipelineStorage(vod_data_dir)
     svc1 = VodPipelineService(
         storage=storage, channel_lister=channel_lister,
@@ -344,7 +344,7 @@ def test_delete_vod_removes_record_and_file(vod_service, vod_with_profile, make_
 
 
 def test_delete_vod_path_traversal_blocked(vod_service):
-    from vod_pipeline import VodStorageError
+    from ttvturbo.vod_pipeline import VodStorageError
     with pytest.raises((VodStorageError, Exception)):
         vod_service.delete_vod("..%2f..%2fetc")
 
@@ -365,7 +365,7 @@ def test_concurrent_progress_hook_writes_do_not_crash(tmp_path):
     race on the same tmp file (regression test for the WinError 2 bug).
     """
     import threading
-    from vod_pipeline.downloader_worker import _atomic_write_json, _build_progress_hook, _ProgressThrottle
+    from ttvturbo.vod_pipeline.downloader_worker import _atomic_write_json, _build_progress_hook, _ProgressThrottle
 
     meta_path = tmp_path / "metadata.json"
     throttle = _ProgressThrottle(interval=0.0)  # always write
@@ -394,7 +394,7 @@ def test_concurrent_progress_hook_writes_do_not_crash(tmp_path):
 def test_thumbnail_timestamp_extraction():
     """VOD sort dates are parsed from the Twitch thumbnail URL when yt-dlp
     flat-playlist provides no timestamp/upload_date for VODs."""
-    from vod_pipeline.service import _parse_thumbnail_timestamp
+    from ttvturbo.vod_pipeline.service import _parse_thumbnail_timestamp
     thumb = "https://static-cdn.jtvnw.net/cf_vods/d3fi1amfgojobc/5f197dca05113246b469_casepayt_317894458983_1785083053//thumb/thumb0-320x180.jpg"
     result = _parse_thumbnail_timestamp(thumb)
     assert result is not None

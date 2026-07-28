@@ -79,17 +79,17 @@ def _update_benchmark(benchmark_path: Path, run_summary: dict[str, Any]) -> None
 
 def _resolve_audio_path(source_type: str, source_id: str) -> Path:
     """Resolve the ready audio artifact path for the source."""
-    from media_processing.audio_extraction import AudioExtractionService  # noqa: PLC0415
-    from media_processing.sources import MediaSourceResolver  # noqa: PLC0415
-    from media_processing.storage import MediaJobStorage  # noqa: PLC0415
-    from vod_pipeline import VodPipelineStorage  # noqa: PLC0415
+    from ttvturbo.media_processing.audio_extraction import AudioExtractionService  # noqa: PLC0415
+    from ttvturbo.media_processing.sources import MediaSourceResolver  # noqa: PLC0415
+    from ttvturbo.media_processing.storage import MediaJobStorage  # noqa: PLC0415
+    from ttvturbo.vod_pipeline import VodPipelineStorage  # noqa: PLC0415
 
     data_dir = Path(os.environ.get("TTVTURBO_DATA_DIR") or
-                    (Path(__file__).resolve().parents[1] / "data"))
+                    (Path(__file__).resolve().parents[2] / "data"))
     vod_storage = VodPipelineStorage(data_dir)
-    from library import LibraryService, LibraryStorage  # noqa: PLC0415
+    from ttvturbo.library import LibraryService, LibraryStorage  # noqa: PLC0415
     library_service = LibraryService(LibraryStorage(data_dir / "library"))
-    from media_processing.uploads import UploadStorage  # noqa: PLC0415
+    from ttvturbo.media_processing.uploads import UploadStorage  # noqa: PLC0415
     upload_storage = UploadStorage(data_dir / "uploads")
     resolver = MediaSourceResolver(
         vod_storage,
@@ -114,16 +114,16 @@ def _resolve_forensic_audio(
     source_type: str, source_id: str, audio_variant: str
 ) -> Path:
     """Resolve a forensic audio variant artifact as the ASR input."""
-    from media_processing.audio_forensics import AudioForensicsService  # noqa: PLC0415
-    from media_processing.sources import MediaSourceResolver  # noqa: PLC0415
-    from vod_pipeline import VodPipelineStorage  # noqa: PLC0415
+    from ttvturbo.media_processing.audio_forensics import AudioForensicsService  # noqa: PLC0415
+    from ttvturbo.media_processing.sources import MediaSourceResolver  # noqa: PLC0415
+    from ttvturbo.vod_pipeline import VodPipelineStorage  # noqa: PLC0415
 
     data_dir = Path(os.environ.get("TTVTURBO_DATA_DIR") or
-                    (Path(__file__).resolve().parents[1] / "data"))
+                    (Path(__file__).resolve().parents[2] / "data"))
     vod_storage = VodPipelineStorage(data_dir)
-    from library import LibraryService, LibraryStorage  # noqa: PLC0415
+    from ttvturbo.library import LibraryService, LibraryStorage  # noqa: PLC0415
     library_service = LibraryService(LibraryStorage(data_dir / "library"))
-    from media_processing.uploads import UploadStorage  # noqa: PLC0415
+    from ttvturbo.media_processing.uploads import UploadStorage  # noqa: PLC0415
     upload_storage = UploadStorage(data_dir / "uploads")
     resolver = MediaSourceResolver(
         vod_storage,
@@ -206,7 +206,7 @@ def run_worker(worker_job_path: str) -> int:
             _write_failed_run(runs_dir, benchmark_path, cid, str(exc), candidate=None)
         return 1
 
-    from media_processing.gpu_lock import GpuLock, GpuLockOwner  # noqa: PLC0415
+    from ttvturbo.media_processing.gpu_lock import GpuLock, GpuLockOwner  # noqa: PLC0415
 
     gpu_lock = GpuLock(gpu_lock_dir)
 

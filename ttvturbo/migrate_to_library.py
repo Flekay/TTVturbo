@@ -28,7 +28,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from storage_utils import atomic_write_json, read_json_optional
+from ttvturbo.storage_utils import atomic_write_json, read_json_optional
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger("migrate_to_library")
@@ -44,7 +44,7 @@ def _save_vod_meta(meta_path: Path, meta: dict, *, dry_run: bool, backup: bool) 
             shutil.copy2(meta_path, bak)
     # Use the VodStorageError class for the atomic write so error messages
     # are consistent with the rest of the codebase.
-    from vod_pipeline.schemas import VodStorageError
+    from ttvturbo.vod_pipeline.schemas import VodStorageError
     atomic_write_json(meta_path, meta, VodStorageError, kind="vod")
 
 
@@ -180,11 +180,11 @@ def main() -> int:
     parser.add_argument("--backup", action="store_true", help="Create .bak copies of VOD metadata before modifying.")
     args = parser.parse_args()
 
-    # Ensure we import from the repo root.
-    repo_dir = Path(__file__).resolve().parent
+    # Ensure we import from the repo root (parent of the ttvturbo package).
+    repo_dir = Path(__file__).resolve().parent.parent
     sys.path.insert(0, str(repo_dir))
 
-    from library import LibraryService, LibraryStorage
+    from ttvturbo.library import LibraryService, LibraryStorage
 
     data_dir = Path(args.data_dir) if args.data_dir else (repo_dir / "data")
     if not data_dir.is_dir():

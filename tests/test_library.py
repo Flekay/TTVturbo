@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from library import (
+from ttvturbo.library import (
     LibraryConflictError,
     LibraryNotFoundError,
     LibraryService,

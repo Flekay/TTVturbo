@@ -85,7 +85,7 @@ getrennt; nur die zweite Stufe erfordert eine NVIDIA-GPU.
 
 ## Basissystem installieren
 
-Das Basissystem reicht für `python app.py`, das React-Dashboard, echte
+Das Basissystem reicht für `python -m ttvturbo.app`, das React-Dashboard, echte
 Mikrofonaufnahmen, FFmpeg-WAV-Konvertierung, Aufnahmenbibliothek und die
 Voice-Clone-Orchestrierung (Qualitätsanalyse, Status-Polling,
 Restart-Recovery). Der Qwen3-TTS-Worker subprocess startet nur dann und
@@ -152,7 +152,7 @@ gibt den gesamten VRAM an das OS zurück.
 Diagnostikbefehl (lädt kein Modell, prüft nur die Runtime-Voraussetzungen):
 
 ```powershell
-python -m voice_clone.diagnostics
+python -m ttvturbo.voice_clone.diagnostics
 ```
 
 Der Diagnose-Endpunkt ist auch zur Laufzeit verfügbar:
@@ -318,7 +318,7 @@ direkt aus, inklusive SPA-Fallback für unbekannte Routen.
 ## Lokaler Produktionsstart
 
 ```powershell
-python app.py
+python -m ttvturbo.app
 ```
 
 Zugriff: `http://127.0.0.1:8765`

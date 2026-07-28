@@ -23,20 +23,20 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from api_utils import error_response as _error_response
+from ttvturbo.api_utils import error_response as _error_response
 
-from voice_clone.service import VoiceCloneService
-from voice_profiles import (
+from ttvturbo.voice_clone.service import VoiceCloneService
+from ttvturbo.voice_profiles import (
     VoiceProfileConflictError,
     VoiceProfileNotFoundError,
     VoiceProfileStorageError,
     VoiceProfileValidationError,
     VoiceScriptNotFoundError,
 )
-from voice_profiles.library import ScriptLibrary
-from voice_profiles.schemas import EXPECTED_PACK_PROMPT_COUNT, ReferenceStatus
-from voice_profiles.service import VoiceProfileService
-from voice_profiles.storage import VoiceProfileStorage
+from ttvturbo.voice_profiles.library import ScriptLibrary
+from ttvturbo.voice_profiles.schemas import EXPECTED_PACK_PROMPT_COUNT, ReferenceStatus
+from ttvturbo.voice_profiles.service import VoiceProfileService
+from ttvturbo.voice_profiles.storage import VoiceProfileStorage
 
 logger = logging.getLogger("ttvturbo.voice_profiles_api")
 
@@ -64,7 +64,7 @@ class AttachReferenceRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-# _error_response is imported from api_utils.
+# _error_response is imported from ttvturbo.api_utils.
 
 
 def _map_voice_profile_error(exc: Exception) -> JSONResponse:
@@ -316,7 +316,7 @@ def make_quality_analyzer(voice_clone_service: Optional[VoiceCloneService]):
 
     def _analyze(filename: str) -> dict:
         # VoiceCloneService.analyze_reference already validates the path
-        # safely and runs the real analyzer from voice_clone.quality.
+        # safely and runs the real analyzer from ttvturbo.voice_clone.quality.
         return analyzer.analyze_reference(filename)
 
     return _analyze

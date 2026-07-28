@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from vod_pipeline import (
+from ttvturbo.vod_pipeline import (
     TwitchClientError,
     TwitchProfileConflictError,
     TwitchProfileNotFoundError,
@@ -19,7 +19,7 @@ from vod_pipeline import (
     VodStatus,
     VodValidationError,
 )
-from vod_pipeline.service import (
+from ttvturbo.vod_pipeline.service import (
     VodPipelineService,
     parse_twitch_video_url,
 )
@@ -120,7 +120,7 @@ def test_sync_auto_links_library_item(vod_service_with_library, channel_lister):
     vod_id = vods[0]["id"]
 
     # Simulate: the VOD was downloaded and promoted to the library.
-    from library import LibraryService, LibraryStorage
+    from ttvturbo.library import LibraryService, LibraryStorage
     lib_service = vod_service_with_library.library_service
     # Create a library item for this VOD (as promote_vod_file would).
     item = lib_service.create_item(
@@ -212,7 +212,7 @@ def test_restart_recovery_preserves_ready_vod_with_library_file(
     assert lib_service.item_file_path(item["id"]).is_file()
 
     # "Restart": build a new service over the same data + library dirs.
-    from vod_pipeline.service import VodPipelineService
+    from ttvturbo.vod_pipeline.service import VodPipelineService
     svc2 = VodPipelineService(
         storage=vod_service_with_library.storage,
         channel_lister=channel_lister,

@@ -26,10 +26,10 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app_factory import create_app
-from settings import Settings
+from ttvturbo.app_factory import create_app
+from ttvturbo.settings import Settings
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parent.parent
 _settings = Settings.from_env()
 RECORDINGS_DIR = _settings.paths().recordings
 

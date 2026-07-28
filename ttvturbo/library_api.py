@@ -17,9 +17,9 @@ from typing import Optional
 from fastapi import APIRouter, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 
-from api_utils import error_response as _error_response
+from ttvturbo.api_utils import error_response as _error_response
 
-from library import (
+from ttvturbo.library import (
     LibraryConflictError,
     LibraryError,
     LibraryNotFoundError,
@@ -31,7 +31,7 @@ from library import (
 logger = logging.getLogger("ttvturbo.library_api")
 
 
-# _error_response is imported from api_utils.
+# _error_response is imported from ttvturbo.api_utils.
 
 
 def _map_error(exc: Exception) -> JSONResponse:

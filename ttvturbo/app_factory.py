@@ -28,7 +28,7 @@ from typing import Any, Optional
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 
-from settings import (
+from ttvturbo.settings import (
     ALLOWED_UPLOAD_EXTENSIONS,
     ALLOWED_UPLOAD_MIME_TYPES,
     APP_NAME,
@@ -38,23 +38,23 @@ from settings import (
     Settings,
 )
 
-from voice_clone.schemas import CreateGenerationRequest
-from voice_clone.service import ValidationError as VoiceCloneValidationError
-from voice_clone.service import VoiceCloneService
+from ttvturbo.voice_clone.schemas import CreateGenerationRequest
+from ttvturbo.voice_clone.service import ValidationError as VoiceCloneValidationError
+from ttvturbo.voice_clone.service import VoiceCloneService
 
-from voice_profiles_api import (
+from ttvturbo.voice_profiles_api import (
     build_router as build_voice_profiles_router,
     build_service as build_voice_profile_service,
     make_quality_analyzer as make_voice_profile_quality_analyzer,
 )
 
-from vod_pipeline_api import (
+from ttvturbo.vod_pipeline_api import (
     build_router as build_vod_pipeline_router,
     build_service as build_vod_pipeline_service,
     build_twitch_status_router,
 )
 
-from media_processing import (
+from ttvturbo.media_processing import (
     AsrBenchmarkService,
     AsrDefaultPresetStore,
     AudioExtractionService,
@@ -66,17 +66,17 @@ from media_processing import (
     TranscriptionService,
     UploadStorage,
 )
-from media_processing_api import build_media_processing_router
-from asr_api import build_asr_router
+from ttvturbo.media_processing_api import build_media_processing_router
+from ttvturbo.asr_api import build_asr_router
 
-from library import LibraryService, LibraryStorage
-from library_api import build_library_router
+from ttvturbo.library import LibraryService, LibraryStorage
+from ttvturbo.library_api import build_library_router
 
 logger = logging.getLogger("ttvturbo")
 
 
 # ---------------------------------------------------------------------------
-# Executable helper (moved from app.py so media_processing modules can import
+# Executable helper (moved from ttvturbo.app.py so media_processing modules can import
 # it without triggering app construction side effects).
 # ---------------------------------------------------------------------------
 
@@ -344,8 +344,8 @@ def _init_services(
 
     # --- Profile reference resolver --------------------------------------
     def _resolve_profile_reference(profile_id: str, script_id: str) -> dict:
-        from voice_clone.service import ValidationError as _VCValidationError
-        from voice_profiles import (
+        from ttvturbo.voice_clone.service import ValidationError as _VCValidationError
+        from ttvturbo.voice_profiles import (
             VoiceProfileNotFoundError,
             VoiceScriptNotFoundError,
             ReferenceStatus,

@@ -20,8 +20,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from app_factory import ServiceContainer, ServiceOverrides, create_app, find_executable
-from settings import APP_NAME, APP_VERSION, BASE_DIR, DataPaths, Settings
+from ttvturbo.app_factory import ServiceContainer, ServiceOverrides, create_app, find_executable
+from ttvturbo.settings import APP_NAME, APP_VERSION, BASE_DIR, DataPaths, Settings
 
 # Re-export for backward compatibility (media_processing modules import this).
 _find_executable = find_executable

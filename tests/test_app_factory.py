@@ -17,8 +17,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from app_factory import ServiceContainer, ServiceOverrides, create_app, find_executable
-from settings import APP_NAME, APP_VERSION, Settings
+from ttvturbo.app_factory import ServiceContainer, ServiceOverrides, create_app, find_executable
+from ttvturbo.settings import APP_NAME, APP_VERSION, Settings
 
 
 # ---------------------------------------------------------------------------
@@ -40,7 +40,7 @@ def test_import_app_creates_no_files_in_repo_data(tmp_path, monkeypatch):
     # Point TTVTURBO_DATA_DIR at a temp dir so the production app uses it.
     monkeypatch.setenv("TTVTURBO_DATA_DIR", str(tmp_path / "import_test_data"))
     import importlib
-    import app as app_module
+    import ttvturbo.app as app_module
     importlib.reload(app_module)
 
     snapshot_after: set[str] = set()
@@ -58,7 +58,7 @@ def test_import_app_creates_no_files_in_repo_data(tmp_path, monkeypatch):
 
 def test_import_app_factory_has_no_side_effects():
     """Importing app_factory must not create directories or recover jobs."""
-    import app_factory
+    import ttvturbo.app_factory as app_factory
     # The module is already imported; just verify it doesn't have
     # module-level service instances or directories.
     assert not hasattr(app_factory, "app")
@@ -158,7 +158,7 @@ def test_service_overrides_replace_voice_clone(tmp_path):
 
 def test_production_app_available_via_app_module():
     """app.app must be a FastAPI instance for uvicorn app:app."""
-    import app as app_module
+    import ttvturbo.app as app_module
 
     assert app_module.app is not None
     assert app_module.app.title == APP_NAME
@@ -166,7 +166,7 @@ def test_production_app_available_via_app_module():
 
 def test_app_module_exports_find_executable():
     """app._find_executable must still be importable (backward compat)."""
-    import app as app_module
+    import ttvturbo.app as app_module
 
     assert callable(app_module._find_executable)
     # It should find something on PATH (e.g., python itself is not searched,

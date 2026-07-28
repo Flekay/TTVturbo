@@ -9,8 +9,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from vod_pipeline import VodStatus
-from vod_pipeline_api import build_router, build_twitch_status_router
+from ttvturbo.vod_pipeline import VodStatus
+from ttvturbo.vod_pipeline_api import build_router, build_twitch_status_router
 
 
 @pytest.fixture()
@@ -45,7 +45,7 @@ def profile_with_vods(api_client, channel_lister):
 
 def test_twitch_status_no_ytdlp(monkeypatch, vod_service, vod_data_dir, vod_download_dir):
     # Simulate yt-dlp not installed.
-    import vod_pipeline_api as api_mod
+    import ttvturbo.vod_pipeline_api as api_mod
     monkeypatch.setattr(api_mod, "_yt_dlp_version", lambda: None)
     app = FastAPI()
     app.include_router(build_twitch_status_router(vod_service))

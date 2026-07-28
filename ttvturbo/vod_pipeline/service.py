@@ -792,7 +792,7 @@ class VodPipelineService:
         except OSError as exc:
             self._mark_failed(vod_id, f"Could not open worker log file: {exc}")
             raise VodConflictError(f"Could not open worker log file: {exc}") from exc
-        cmd = [sys.executable, "-m", "vod_pipeline.downloader_worker", str(job_path)]
+        cmd = [sys.executable, "-m", "ttvturbo.vod_pipeline.downloader_worker", str(job_path)]
         try:
             proc = subprocess.Popen(
                 cmd,

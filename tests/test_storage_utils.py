@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from storage_utils import (
+from ttvturbo.storage_utils import (
     atomic_write_json,
     now_iso,
     read_json,
@@ -254,7 +254,7 @@ def test_read_json_optional_returns_none_for_non_object(tmp_path: Path):
 
 def test_vod_pipeline_storage_uses_storage_utils(tmp_path: Path):
     """VodPipelineStorage should produce valid, atomically-written records."""
-    from vod_pipeline.storage import VodPipelineStorage
+    from ttvturbo.vod_pipeline.storage import VodPipelineStorage
     storage = VodPipelineStorage(tmp_path)
     vod_id = str(uuid.uuid4())
     storage.save_vod({
@@ -273,7 +273,7 @@ def test_vod_pipeline_storage_uses_storage_utils(tmp_path: Path):
 
 def test_library_storage_uses_storage_utils(tmp_path: Path):
     """LibraryStorage should produce valid, atomically-written records."""
-    from library.storage import LibraryStorage
+    from ttvturbo.library.storage import LibraryStorage
     storage = LibraryStorage(tmp_path)
     item_id = str(uuid.uuid4())
     storage.save_item({
@@ -288,7 +288,7 @@ def test_library_storage_uses_storage_utils(tmp_path: Path):
 
 def test_media_job_storage_uses_storage_utils(tmp_path: Path):
     """MediaJobStorage should produce valid, atomically-written records."""
-    from media_processing.storage import MediaJobStorage
+    from ttvturbo.media_processing.storage import MediaJobStorage
     storage = MediaJobStorage(tmp_path)
     job_id = str(uuid.uuid4())
     storage.save_job({
@@ -303,9 +303,9 @@ def test_media_job_storage_uses_storage_utils(tmp_path: Path):
 
 def test_asr_benchmark_uses_storage_utils(tmp_path: Path):
     """AsrBenchmarkService should use the canonical atomic write."""
-    from media_processing.asr_benchmark import AsrBenchmarkService
-    from media_processing.gpu_lock import GpuLock
-    from media_processing.sources import MediaSourceResolver
+    from ttvturbo.media_processing.asr_benchmark import AsrBenchmarkService
+    from ttvturbo.media_processing.gpu_lock import GpuLock
+    from ttvturbo.media_processing.sources import MediaSourceResolver
 
     # Minimal stubs to avoid real GPU / source resolution.
     class _StubGpuLock:

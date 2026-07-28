@@ -9,7 +9,7 @@
       - Frontend-Typecheck (tsc --noEmit)
       - Frontendtests (vitest run)
       - Frontendbuild (vite build)
-      - Runtime-Diagnose (python -m voice_clone.diagnostics)
+      - Runtime-Diagnose (python -m ttvturbo.voice_clone.diagnostics)
       - FFmpeg-Diagnose
 
     Optional mit GPU-Test:
@@ -89,7 +89,7 @@ $env:PYTHONPATH = $repoRoot + [System.IO.Path]::PathSeparator + $existingPp
 
 # --- 1. Python-Compilecheck -------------------------------------------------
 Invoke-Step "Python-Compilecheck (compileall)" {
-    python -m compileall -q app.py voice_clone tests
+    python -m compileall -q ttvturbo tests
 }
 
 # --- 2. Backendtests --------------------------------------------------------
@@ -117,7 +117,7 @@ Invoke-Step "Frontendbuild (vite build)" {
 # Laedt kein Modell; prueft nur Python/soundfile/FFmpeg/Datenverzeichnis und
 # (falls qwen_tts/torch installiert sind) CUDA-Verfuegbarkeit.
 Invoke-Step "Runtime-Diagnose (python -m voice_clone.diagnostics)" {
-    python -m voice_clone.diagnostics
+    python -m ttvturbo.voice_clone.diagnostics
 }
 
 # --- 7. FFmpeg-Diagnose -----------------------------------------------------
@@ -146,10 +146,10 @@ if ($IncludeGpuTest) {
         # bereits. Mit dem Flag wird sie explizit noch einmal als eigener
         # Pflichtschritt ausgewiesen und mit nicht-null Exitcode bewertet,
         # damit ein fehlendes CUDA nicht unbemerkt bleibt.
-        $report = python -m voice_clone.diagnostics
+        $report = python -m ttvturbo.voice_clone.diagnostics
         Write-Host $report
         if ($LASTEXITCODE -ne 0) {
-            throw "voice_clone.diagnostics exit $LASTEXITCODE"
+            throw "ttvturbo.voice_clone.diagnostics exit $LASTEXITCODE"
         }
     }
 } else {

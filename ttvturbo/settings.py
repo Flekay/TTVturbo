@@ -27,7 +27,7 @@ from typing import Optional
 # Constants
 # ---------------------------------------------------------------------------
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_DATA_DIR = BASE_DIR / "data"
 DEFAULT_FRONTEND_DIST = BASE_DIR / "frontend" / "dist"
 

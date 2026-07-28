@@ -82,7 +82,7 @@ def _find_ffmpeg() -> str:
     found = shutil.which("ffmpeg")
     if not found:
         try:
-            from app import _find_executable  # type: ignore[import-not-found]
+            from ttvturbo.app import _find_executable  # type: ignore[import-not-found]
 
             found = _find_executable("ffmpeg")
         except Exception:
@@ -96,7 +96,7 @@ def _find_ffprobe() -> str:
     found = shutil.which("ffprobe")
     if not found:
         try:
-            from app import _find_executable  # type: ignore[import-not-found]
+            from ttvturbo.app import _find_executable  # type: ignore[import-not-found]
 
             found = _find_executable("ffprobe")
         except Exception:

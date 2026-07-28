@@ -33,11 +33,11 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from voice_clone import diagnostics
-from voice_clone.diagnostics import diagnose_runtime
-from voice_clone.runtime import _finalize_output, file_sha256
-from voice_clone.schemas import GenerationStatus
-from voice_clone.service import VoiceCloneService, ValidationError
+from ttvturbo.voice_clone import diagnostics
+from ttvturbo.voice_clone.diagnostics import diagnose_runtime
+from ttvturbo.voice_clone.runtime import _finalize_output, file_sha256
+from ttvturbo.voice_clone.schemas import GenerationStatus
+from ttvturbo.voice_clone.service import VoiceCloneService, ValidationError
 
 
 # --------------------------------------------------------------------- helpers
@@ -242,7 +242,7 @@ def test_runtime_main_rejects_wrong_arg_count(capsys):
     `!= 2` made every real worker exit with code 2 immediately; this test
     pins the contract without loading the model.
     """
-    from voice_clone import runtime
+    from ttvturbo.voice_clone import runtime
 
     assert runtime.main([]) == 2
     assert runtime.main(["a", "b"]) == 2

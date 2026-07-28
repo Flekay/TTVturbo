@@ -26,7 +26,7 @@ from unittest.mock import patch
 
 import pytest
 
-from media_processing.asr_benchmark import (
+from ttvturbo.media_processing.asr_benchmark import (
     AsrBenchmarkError,
     AsrBenchmarkNotFoundError,
     AsrBenchmarkService,
@@ -37,8 +37,8 @@ from media_processing.asr_benchmark import (
     finalise_run,
     recommend_winner,
 )
-from media_processing.asr_diagnostics import VadDiagnosis
-from media_processing.asr_presets import MULTILINGUAL_LARGE_V3_QUALITY
+from ttvturbo.media_processing.asr_diagnostics import VadDiagnosis
+from ttvturbo.media_processing.asr_presets import MULTILINGUAL_LARGE_V3_QUALITY
 
 
 class _FakeResolvedSource:
@@ -61,7 +61,7 @@ class _FakeResolver:
 
 @pytest.fixture()
 def benchmark_service(tmp_path: Path) -> AsrBenchmarkService:
-    from media_processing.gpu_lock import GpuLock
+    from ttvturbo.media_processing.gpu_lock import GpuLock
     return AsrBenchmarkService(
         data_dir=tmp_path,
         source_resolver=_FakeResolver(),  # type: ignore[arg-type]
@@ -141,9 +141,9 @@ def test_start_accepts_queued_benchmark(benchmark_service):
     # raise "benchmark is already QUEUED".
     # We mock subprocess.Popen to avoid actually launching the worker.
     import unittest.mock as _mock
-    with _mock.patch("media_processing.asr_benchmark.subprocess.Popen") as popen_mock:
+    with _mock.patch("ttvturbo.media_processing.asr_benchmark.subprocess.Popen") as popen_mock:
         popen_mock.return_value = _mock.MagicMock(poll=lambda: None, wait=lambda: 0)
-        with _mock.patch("media_processing.asr_benchmark.threading.Thread"):
+        with _mock.patch("ttvturbo.media_processing.asr_benchmark.threading.Thread"):
             try:
                 result = benchmark_service.start(rec["id"])
                 # Should not raise; status should become RUNNING.
@@ -183,7 +183,7 @@ def test_delete_unknown_raises(benchmark_service):
 
 
 def test_restart_recovery_marks_active_failed(tmp_path: Path):
-    from media_processing.gpu_lock import GpuLock
+    from ttvturbo.media_processing.gpu_lock import GpuLock
     svc = AsrBenchmarkService(tmp_path, _FakeResolver(), GpuLock(tmp_path))  # type: ignore[arg-type]
     rec = svc.create_benchmark("twitch_clip", "src-1", preset_ids=["legacy-current"])
     # Simulate a crash mid-run by writing RUNNING on disk.
@@ -215,7 +215,7 @@ def test_finalise_run_attaches_metrics_and_flags(tmp_path):
         "transcript_text": "ich ganken jetzt",
     }
     with patch(
-        "media_processing.asr_benchmark.compute_vad_regions",
+        "ttvturbo.media_processing.asr_benchmark.compute_vad_regions",
         return_value=fake_vad,
     ):
         out = finalise_run(

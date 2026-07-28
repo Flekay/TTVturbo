@@ -13,8 +13,8 @@ from typing import Optional
 import pytest
 from fastapi.testclient import TestClient
 
-from app_factory import create_app
-from settings import Settings
+from ttvturbo.app_factory import create_app
+from ttvturbo.settings import Settings
 
 
 E2E_ENV = "TTVTURBO_RUN_QWEN_TTS_E2E"
@@ -195,25 +195,25 @@ class FakeChannelLister:
     def list_vods(self, login: str, limit: int = 100) -> list[dict]:
         if self.fail_vods_next:
             self.fail_vods_next = False
-            from vod_pipeline import TwitchClientError
+            from ttvturbo.vod_pipeline import TwitchClientError
             raise TwitchClientError("yt-dlp boom")
         return list(self.vods_by_login.get(login.lower(), []))[:limit]
 
     def list_clips(self, login: str, limit: int = 100) -> list[dict]:
         if self.fail_clips_next:
             self.fail_clips_next = False
-            from vod_pipeline import TwitchClientError
+            from ttvturbo.vod_pipeline import TwitchClientError
             raise TwitchClientError("yt-dlp boom")
         return list(self.clips_by_login.get(login.lower(), []))[:limit]
 
     def get_video_info(self, url: str) -> dict:
         if self.fail_info_next:
             self.fail_info_next = False
-            from vod_pipeline import TwitchClientError
+            from ttvturbo.vod_pipeline import TwitchClientError
             raise TwitchClientError("yt-dlp boom")
         info = self.info_by_url.get(url)
         if info is None:
-            from vod_pipeline import TwitchNotFoundError
+            from ttvturbo.vod_pipeline import TwitchNotFoundError
             raise TwitchNotFoundError(f"not found: {url}")
         return info
 
@@ -239,8 +239,8 @@ def channel_lister() -> FakeChannelLister:
 
 @pytest.fixture()
 def vod_service(vod_data_dir: Path, vod_download_dir: Path, channel_lister: FakeChannelLister):
-    from vod_pipeline import VodPipelineStorage
-    from vod_pipeline.service import VodPipelineService
+    from ttvturbo.vod_pipeline import VodPipelineStorage
+    from ttvturbo.vod_pipeline.service import VodPipelineService
     storage = VodPipelineStorage(vod_data_dir)
     return VodPipelineService(
         storage=storage,
@@ -255,9 +255,9 @@ def vod_service(vod_data_dir: Path, vod_download_dir: Path, channel_lister: Fake
 @pytest.fixture()
 def vod_service_with_library(vod_data_dir: Path, vod_download_dir: Path, channel_lister: FakeChannelLister):
     """A VodPipelineService wired to a real LibraryService."""
-    from vod_pipeline import VodPipelineStorage
-    from vod_pipeline.service import VodPipelineService
-    from library import LibraryService, LibraryStorage
+    from ttvturbo.vod_pipeline import VodPipelineStorage
+    from ttvturbo.vod_pipeline.service import VodPipelineService
+    from ttvturbo.library import LibraryService, LibraryStorage
     storage = VodPipelineStorage(vod_data_dir)
     library_service = LibraryService(LibraryStorage(vod_data_dir / "library"))
     return VodPipelineService(

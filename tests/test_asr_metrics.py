@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from media_processing.asr_metrics import (
+from ttvturbo.media_processing.asr_metrics import (
     compute_metrics,
     hypothesis_text,
     normalise_text,
