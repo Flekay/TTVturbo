@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   Play,
   X,
   RefreshCw,
   Trash2,
-  ArrowRight,
   AlertCircle,
   Check,
   Circle,
@@ -34,9 +33,6 @@ import { VodPipelineStartPanel } from "../features/vodPipeline";
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-const ACTIVE_STATUSES = "QUEUED,RUNNING,WAITING_FOR_GPU,CANCELING,RETRYING";
-const HISTORY_STATUSES = "COMPLETED,READY_FOR_CLIP_ANALYSIS,FAILED,CANCELED";
 
 const STEP_LABELS: Record<string, string> = {
   RESOLVE_SOURCE: "Quelle erkannt",
@@ -407,43 +403,47 @@ function RunCard({
 /**
  * VOD Pipeline page.
  *
- * The start area (profile-based VOD selection + compact direct-URL import)
- * sits above the two run tabs "Aktiv" and "Verlauf". Both start paths share
- * the same backend orchestration via the unified source contract.
+ * Two top-level tabs:
+ *  - "Neue Pipeline starten": profile-based VOD selection + direct-URL import.
+ *  - "Verlauf": unified list of all pipeline runs (active and completed),
+ *    active runs first, then history sorted by creation date desc.
+ *
+ * Both start paths share the same backend orchestration via the unified
+ * source contract. The Verlauf list is a single always-polling query so
+ * active runs and naturally-completing runs stay in sync without manual
+ * refresh.
  */
 export function VodPipelinePage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const tab = searchParams.get("tab") === "history" ? "history" : "active";
+  const tab = searchParams.get("tab") === "history" ? "history" : "start";
 
-  const activeQuery = usePipelineRunsFilteredQuery(
-    { status: ACTIVE_STATUSES },
-    { refetchInterval: 2000 },
-  );
-  // History is only fetched when the history tab is open (or always, but
-  // less frequently). We poll it on a slower cadence.
-  const historyQuery = usePipelineRunsFilteredQuery(
-    { status: HISTORY_STATUSES },
-    { refetchInterval: tab === "history" ? 5000 : false },
+  // Single unified query covering active and history runs. Always polled
+  // so a run transitioning from active to completed stays visible and the
+  // list reflects cancel/retry/delete without manual refresh.
+  const runsQuery = usePipelineRunsFilteredQuery(
+    { limit: 100 },
+    { refetchInterval: 4000 },
   );
 
   const cancelMutation = useCancelPipelineRunMutation();
   const retryMutation = useRetryPipelineRunMutation();
   const deleteMutation = useDeletePipelineRunMutation();
 
-  const activeRuns = activeQuery.data?.pipeline_runs ?? [];
-  const historyRuns = historyQuery.data?.pipeline_runs ?? [];
-  const hasActiveRuns = activeRuns.length > 0;
+  const allRuns = runsQuery.data?.pipeline_runs ?? [];
 
-  // If there are no active runs, stop polling active runs to avoid
-  // unnecessary requests. We keep the hook enabled so a freshly started
-  // run shows up, but rely on the refetchInterval being a number only when
-  // there are active runs. TanStack Query keeps the last data.
-  useEffect(() => {
-    // No-op: refetchInterval is set above; this exists to make the
-    // polling-stop-without-active-runs behaviour explicit and testable.
-  }, [hasActiveRuns]);
+  // Active runs first (by created_at desc), then history (by created_at desc).
+  const runs = useMemo(() => {
+    return [...allRuns].sort((a, b) => {
+      const aActive = isRunActive(a.status) ? 0 : 1;
+      const bActive = isRunActive(b.status) ? 0 : 1;
+      if (aActive !== bActive) return aActive - bActive;
+      const at = a.created_at ?? "";
+      const bt = b.created_at ?? "";
+      return bt.localeCompare(at);
+    });
+  }, [allRuns]);
 
-  function setTab(next: "active" | "history") {
+  function setTab(next: "start" | "history") {
     const params = new URLSearchParams(searchParams);
     params.set("tab", next);
     setSearchParams(params, { replace: true });
@@ -455,28 +455,18 @@ export function VodPipelinePage() {
     retryMutation.mutate(run.id);
   }
 
-  const runsToShow = tab === "active" ? activeRuns : historyRuns;
-  const listQuery = tab === "active" ? activeQuery : historyQuery;
-
   return (
     <div className="page">
-      {/* Start area: profile-based VOD selection (primary) + direct URL
-          quick-import (secondary). Both paths share the same backend
-          orchestration via the unified source contract. */}
       <section className="page__section">
-        <VodPipelineStartPanel onStarted={() => setTab("active")} />
-      </section>
-
-      {/* Tabs */}
-      <section className="page__section">
+        {/* Tabs */}
         <div className="vp-tabs" role="tablist">
           <button
             role="tab"
-            aria-selected={tab === "active"}
-            className={`vp-tab${tab === "active" ? " is-active" : ""}`}
-            onClick={() => setTab("active")}
+            aria-selected={tab === "start"}
+            className={`vp-tab${tab === "start" ? " is-active" : ""}`}
+            onClick={() => setTab("start")}
           >
-            Aktiv {activeRuns.length > 0 ? `(${activeRuns.length})` : ""}
+            Neue Pipeline starten
           </button>
           <button
             role="tab"
@@ -484,59 +474,52 @@ export function VodPipelinePage() {
             className={`vp-tab${tab === "history" ? " is-active" : ""}`}
             onClick={() => setTab("history")}
           >
-            Verlauf {historyRuns.length > 0 ? `(${historyRuns.length})` : ""}
+            Verlauf {allRuns.length > 0 ? `(${allRuns.length})` : ""}
           </button>
         </div>
 
-        {listQuery.isLoading && (
-          <LoadingState message={tab === "active" ? "Lade aktive Runs…" : "Lade Verlauf…"} />
-        )}
-        {listQuery.error && (
-          <ErrorState
-            message={
-              listQuery.error instanceof ApiError
-                ? listQuery.error.message
-                : tab === "active"
-                  ? "Aktive Runs konnten nicht geladen werden."
-                  : "Verlauf konnte nicht geladen werden."
-            }
-          />
-        )}
-
-        {listQuery.data && runsToShow.length === 0 && tab === "active" && (
-          <EmptyState
-            title="Keine aktiven Pipeline-Runs"
-            description="Füge oben eine Twitch-VOD- oder Clip-URL ein, um eine neue Pipeline zu starten."
-          />
-        )}
-        {listQuery.data && runsToShow.length === 0 && tab === "history" && (
-          <EmptyState title="Noch kein Pipeline-Verlauf" />
-        )}
-
-        {runsToShow.length > 0 && (
-          <div className="pipeline-runs-list">
-            {runsToShow.map((run) => (
-              <RunCard
-                key={run.id}
-                run={run}
-                onCancel={() => cancelMutation.mutate(run.id)}
-                onRetry={() => retryMutation.mutate(run.id)}
-                onDelete={() => deleteMutation.mutate(run.id)}
-                onRestart={() => handleRestart(run)}
-                cancelPending={cancelMutation.isPending}
-                retryPending={retryMutation.isPending}
-                deletePending={deleteMutation.isPending}
+        {tab === "start" ? (
+          <VodPipelineStartPanel onStarted={() => setTab("history")} />
+        ) : (
+          <>
+            {runsQuery.isLoading && <LoadingState message="Lade Pipeline-Verlauf…" />}
+            {runsQuery.error && (
+              <ErrorState
+                message={
+                  runsQuery.error instanceof ApiError
+                    ? runsQuery.error.message
+                    : "Pipeline-Verlauf konnte nicht geladen werden."
+                }
               />
-            ))}
-          </div>
+            )}
+
+            {runsQuery.data && runs.length === 0 && (
+              <EmptyState
+                title="Noch kein Pipeline-Verlauf"
+                description='Starte über den Reiter „Neue Pipeline starten" eine Twitch-VOD- oder Clip-URL.'
+              />
+            )}
+
+            {runs.length > 0 && (
+              <div className="pipeline-runs-list">
+                {runs.map((run) => (
+                  <RunCard
+                    key={run.id}
+                    run={run}
+                    onCancel={() => cancelMutation.mutate(run.id)}
+                    onRetry={() => retryMutation.mutate(run.id)}
+                    onDelete={() => deleteMutation.mutate(run.id)}
+                    onRestart={() => handleRestart(run)}
+                    cancelPending={cancelMutation.isPending}
+                    retryPending={retryMutation.isPending}
+                    deletePending={deleteMutation.isPending}
+                  />
+                ))}
+              </div>
+            )}
+          </>
         )}
       </section>
-
-      {hasActiveRuns && tab === "active" && (
-        <div className="pipeline-polling-hint">
-          <ArrowRight size={14} /> Aktive Runs werden automatisch aktualisiert.
-        </div>
-      )}
     </div>
   );
 }

@@ -144,7 +144,7 @@ export function VodPipelineStartPanel({ onStarted }: VodPipelineStartPanelProps)
   );
   const historyRunsQuery = usePipelineRunsFilteredQuery(
     { status: "COMPLETED,FAILED,CANCELED", limit: 200 },
-    { refetchInterval: false },
+    { refetchInterval: 10_000 },
   );
 
   const activeByExtId = useMemo(() => {
@@ -531,7 +531,7 @@ export function VodPipelineStartPanel({ onStarted }: VodPipelineStartPanelProps)
                     {isActive && (
                       <Link
                         className="btn btn--ghost btn--sm"
-                        to="/vod-pipeline?tab=active"
+                        to="/vod-pipeline?tab=history"
                         aria-label="Aktiven Run anzeigen"
                       >
                         Aktiven Run anzeigen

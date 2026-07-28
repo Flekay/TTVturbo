@@ -400,6 +400,7 @@ export function useStartPipelineRunMutation() {
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: pipelineRunsQueryKey() });
       queryClient.invalidateQueries({ queryKey: pipelineRunsQueryKey(variables.source_id) });
+      queryClient.invalidateQueries({ queryKey: ["media-processing", "pipeline-runs-filtered"] });
       queryClient.invalidateQueries({ queryKey: ["status"] });
     },
   });
@@ -412,6 +413,7 @@ export function useStartVodPipelineRunMutation() {
     mutationFn: (request: StartPipelineRunFromUrlRequest) => startVodPipelineRun(request),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["media-processing", "pipeline-runs"] });
+      queryClient.invalidateQueries({ queryKey: ["media-processing", "pipeline-runs-filtered"] });
       queryClient.invalidateQueries({ queryKey: ["status"] });
     },
   });
@@ -428,6 +430,7 @@ export function useStartVodPipelineRunBatchMutation() {
     mutationFn: (request: StartPipelineRunBatchRequest) => startVodPipelineRunBatch(request),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["media-processing", "pipeline-runs"] });
+      queryClient.invalidateQueries({ queryKey: ["media-processing", "pipeline-runs-filtered"] });
       queryClient.invalidateQueries({ queryKey: ["status"] });
     },
   });
@@ -470,6 +473,7 @@ export function useCancelPipelineRunMutation() {
     mutationFn: (runId: string) => cancelPipelineRun(runId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["media-processing", "pipeline-runs"] });
+      queryClient.invalidateQueries({ queryKey: ["media-processing", "pipeline-runs-filtered"] });
       queryClient.invalidateQueries({ queryKey: ["status"] });
     },
   });
@@ -481,6 +485,7 @@ export function useRetryPipelineRunMutation() {
     mutationFn: (runId: string) => retryPipelineRun(runId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["media-processing", "pipeline-runs"] });
+      queryClient.invalidateQueries({ queryKey: ["media-processing", "pipeline-runs-filtered"] });
       queryClient.invalidateQueries({ queryKey: ["status"] });
     },
   });
@@ -492,6 +497,7 @@ export function useDeletePipelineRunMutation() {
     mutationFn: (runId: string) => deletePipelineRun(runId),
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["media-processing", "pipeline-runs"] });
+      queryClient.invalidateQueries({ queryKey: ["media-processing", "pipeline-runs-filtered"] });
       queryClient.invalidateQueries({ queryKey: ["status"] });
     },
   });
