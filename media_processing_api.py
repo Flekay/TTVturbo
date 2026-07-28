@@ -271,84 +271,11 @@ def build_media_processing_router(
         return JSONResponse(status_code=201, content=job)
 
     # ------------------------------------------------------------------
-    # Library upload endpoints are now in library_api.py.
-    # The legacy /library/uploads/* endpoints below are kept for backward
-    # compatibility with existing frontend builds until migration completes.
+    # Library upload endpoints are in library_api.py.  The legacy
+    # /library/uploads/* endpoints (GET list, GET file, DELETE) were
+    # removed after verifying the frontend only uses /api/library/items
+    # and POST /api/library/uploads.
     # ------------------------------------------------------------------
-
-    @router.get("/library/uploads")
-    def list_uploads() -> JSONResponse:
-        """List all uploaded media files (legacy endpoint, delegates to library)."""
-        if library_service is not None:
-            try:
-                items = library_service.list_items()
-                # Filter to upload-source items only, map to legacy shape.
-                uploads = [
-                    {
-                        "id": it["id"],
-                        "source_type": "file_upload",
-                        "title": it.get("title", ""),
-                        "file_name": it.get("file_name", ""),
-                        "duration_seconds": it.get("duration_seconds"),
-                        "status": "READY",
-                        "file_size_bytes": it.get("file_size_bytes"),
-                        "created_at": it.get("created_at", ""),
-                        "updated_at": it.get("updated_at", ""),
-                    }
-                    for it in items
-                    if it.get("source") == "upload"
-                ]
-            except Exception as exc:
-                return _error_response(500, "upload_list_failed", str(exc))
-            return JSONResponse(content={"uploads": uploads})
-        if upload_storage is None:
-            return _error_response(503, "uploads_disabled", "File uploads are not configured.")
-        try:
-            uploads = upload_storage.list_uploads()
-        except Exception as exc:
-            return _error_response(500, "upload_list_failed", str(exc))
-        return JSONResponse(content={"uploads": uploads})
-
-    @router.get("/library/uploads/{upload_id}/file")
-    def download_upload(upload_id: str):
-        """Download an uploaded file (legacy endpoint, delegates to library)."""
-        if library_service is not None:
-            try:
-                path = library_service.item_file_path(upload_id)
-                return FileResponse(path, filename=path.name)
-            except Exception as exc:
-                return _map_media_error(exc)
-        if upload_storage is None:
-            return _error_response(503, "uploads_disabled", "File uploads are not configured.")
-        try:
-            meta = upload_storage.load_upload(upload_id)
-        except Exception as exc:
-            return _map_media_error(exc)
-        path = upload_storage.source_file_path(upload_id)
-        if not path.is_file():
-            return _error_response(404, "file_not_found", f"File not found: {meta.get('file_name', upload_id)}")
-        return FileResponse(path, filename=meta.get("file_name", path.name))
-
-    @router.delete("/library/uploads/{upload_id}")
-    def delete_upload(upload_id: str) -> JSONResponse:
-        """Delete an uploaded file (legacy endpoint, delegates to library)."""
-        if library_service is not None:
-            try:
-                deleted = library_service.delete_item(upload_id)
-            except Exception as exc:
-                return _map_media_error(exc)
-            if not deleted:
-                return _error_response(404, "upload_not_found", "Upload not found.")
-            return JSONResponse(content={"deleted": True, "id": upload_id})
-        if upload_storage is None:
-            return _error_response(503, "uploads_disabled", "File uploads are not configured.")
-        try:
-            deleted = upload_storage.delete_upload(upload_id)
-        except Exception as exc:
-            return _map_media_error(exc)
-        if not deleted:
-            return _error_response(404, "upload_not_found", "Upload not found.")
-        return JSONResponse(content={"deleted": True, "id": upload_id})
 
     @router.get("/transcriptions")
     def list_transcriptions(

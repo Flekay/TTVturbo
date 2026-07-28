@@ -204,10 +204,24 @@ def _collect_routes(app) -> list[dict]:
 
 
 def test_api_route_snapshot_unchanged(tmp_path):
-    """The set of public API routes must match the baseline snapshot."""
+    """The set of public API routes must match the baseline snapshot.
+
+    Routes listed in ``INTENTIONALLY_REMOVED`` were removed as part of the
+    cleanup and are excluded from the comparison.  The baseline snapshot
+    itself (``api_routes_before.json``) is immutable.
+    """
     snapshot_path = Path(__file__).parent / "contracts" / "api_routes_before.json"
     with open(snapshot_path, encoding="utf-8") as fh:
         baseline = json.load(fh)
+
+    # Routes intentionally removed during cleanup (Auftrag 5).
+    # Legacy upload endpoints in media_processing_api.py — superseded by
+    # library_api.py which provides /api/library/items and POST /api/library/uploads.
+    INTENTIONALLY_REMOVED = {
+        ("GET", "/api/library/uploads"),
+        ("GET", "/api/library/uploads/{upload_id}/file"),
+        ("DELETE", "/api/library/uploads/{upload_id}"),
+    }
 
     settings = Settings(data_root=tmp_path / "route_check")
     app = create_app(settings=settings)
@@ -222,7 +236,7 @@ def test_api_route_snapshot_unchanged(tmp_path):
         if r["path"] not in _builtin
     }
 
-    missing = baseline_set - actual_set
+    missing = (baseline_set - actual_set) - INTENTIONALLY_REMOVED
     added = actual_set - baseline_set
 
     assert not missing, f"Routes missing from app: {sorted(missing)}"

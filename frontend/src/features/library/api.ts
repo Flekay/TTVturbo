@@ -28,9 +28,3 @@ export async function uploadToLibrary(file: File): Promise<LibraryItem> {
 export async function deleteLibraryItem(itemId: string): Promise<unknown> {
   return apiClient.delete(`${LIBRARY}/items/${encodeURIComponent(itemId)}`);
 }
-
-// Legacy compatibility: keep the old upload file URL builder for any
-// callers that still reference uploads by upload_id.
-export function uploadFileUrl(uploadId: string): string {
-  return `${LIBRARY}/uploads/${encodeURIComponent(uploadId)}/file`;
-}
