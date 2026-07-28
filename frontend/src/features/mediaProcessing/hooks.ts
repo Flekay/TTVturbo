@@ -17,6 +17,7 @@ import {
   startSourceAudioExtraction,
   startPipelineRun,
   startVodPipelineRun,
+  startVodPipelineRunBatch,
   fetchPipelineRuns,
   fetchPipelineRunsFiltered,
   fetchPipelineRun,
@@ -41,6 +42,7 @@ import type {
   StartTranscriptionRequest,
   StartPipelineRunRequest,
   StartPipelineRunFromUrlRequest,
+  StartPipelineRunBatchRequest,
   StartAudioExtractionRequest,
   SaveCorrectionsRequest,
   StartMiningRunRequest,
@@ -408,6 +410,22 @@ export function useStartVodPipelineRunMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (request: StartPipelineRunFromUrlRequest) => startVodPipelineRun(request),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["media-processing", "pipeline-runs"] });
+      queryClient.invalidateQueries({ queryKey: ["status"] });
+    },
+  });
+}
+
+/** Start pipeline runs for a batch of Twitch sources (VOD selection start).
+
+ * The mutation always resolves with a `{created, conflicts, failed}` shape —
+ * partial success is expected and the UI renders per-source outcomes.
+ */
+export function useStartVodPipelineRunBatchMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (request: StartPipelineRunBatchRequest) => startVodPipelineRunBatch(request),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["media-processing", "pipeline-runs"] });
       queryClient.invalidateQueries({ queryKey: ["status"] });

@@ -24,12 +24,12 @@ import { ApiError } from "../api/client";
 import { formatDateTime, formatDuration } from "../utils/format";
 import {
   usePipelineRunsFilteredQuery,
-  useStartVodPipelineRunMutation,
   useCancelPipelineRunMutation,
   useRetryPipelineRunMutation,
   useDeletePipelineRunMutation,
 } from "../features/mediaProcessing";
 import type { PipelineRun } from "../features/mediaProcessing";
+import { VodPipelineStartPanel } from "../features/vodPipeline";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -407,16 +407,13 @@ function RunCard({
 /**
  * VOD Pipeline page.
  *
- * URL-based import is the primary entry point. The page shows two tabs:
- * "Aktiv" (active runs) and "Verlauf" (terminal runs). The old
- * library-card-wall start mechanism has been removed.
+ * The start area (profile-based VOD selection + compact direct-URL import)
+ * sits above the two run tabs "Aktiv" and "Verlauf". Both start paths share
+ * the same backend orchestration via the unified source contract.
  */
 export function VodPipelinePage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = searchParams.get("tab") === "history" ? "history" : "active";
-
-  const [url, setUrl] = useState("");
-  const [urlError, setUrlError] = useState<string | null>(null);
 
   const activeQuery = usePipelineRunsFilteredQuery(
     { status: ACTIVE_STATUSES },
@@ -429,7 +426,6 @@ export function VodPipelinePage() {
     { refetchInterval: tab === "history" ? 5000 : false },
   );
 
-  const startMutation = useStartVodPipelineRunMutation();
   const cancelMutation = useCancelPipelineRunMutation();
   const retryMutation = useRetryPipelineRunMutation();
   const deleteMutation = useDeletePipelineRunMutation();
@@ -453,29 +449,6 @@ export function VodPipelinePage() {
     setSearchParams(params, { replace: true });
   }
 
-  function handleStart() {
-    setUrlError(null);
-    const trimmed = url.trim();
-    if (!trimmed) {
-      setUrlError("Bitte eine Twitch-VOD- oder Clip-URL eingeben.");
-      return;
-    }
-    // Optimistic: disable button via isPending; prevent double-click.
-    startMutation.mutate(
-      { url: trimmed },
-      {
-        onSuccess: () => {
-          setUrl("");
-          setTab("active");
-        },
-        onError: (err) => {
-          const msg = err instanceof ApiError ? err.message : "Pipeline konnte nicht gestartet werden.";
-          setUrlError(msg);
-        },
-      },
-    );
-  }
-
   function handleRestart(run: PipelineRun) {
     // "Neu starten" for a canceled run: retry re-queues from the first
     // non-done step, which is the cleanest reuse of existing artifacts.
@@ -487,52 +460,11 @@ export function VodPipelinePage() {
 
   return (
     <div className="page">
-      {/* Import card */}
+      {/* Start area: profile-based VOD selection (primary) + direct URL
+          quick-import (secondary). Both paths share the same backend
+          orchestration via the unified source contract. */}
       <section className="page__section">
-        <Card className="vp-import-card">
-          <div className="vp-import-card__field">
-            <label className="vp-import-card__label" htmlFor="vp-url-input">
-              Twitch-VOD- oder Clip-URL
-            </label>
-            <input
-              id="vp-url-input"
-              className="input vp-import-card__input"
-              type="url"
-              placeholder="https://www.twitch.tv/videos/123456789"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !startMutation.isPending) {
-                  handleStart();
-                }
-              }}
-              disabled={startMutation.isPending}
-              aria-invalid={!!urlError}
-            />
-            <span className="vp-import-card__hint">
-              Beliebige Twitch-VOD- oder Clip-URL einfügen. Profil und Metadaten werden automatisch erkannt.
-            </span>
-          </div>
-          <div className="vp-import-card__actions">
-            <Button
-              variant="primary"
-              onClick={handleStart}
-              disabled={startMutation.isPending || !url.trim()}
-            >
-              <Play size={14} /> Pipeline starten
-            </Button>
-          </div>
-          {urlError && <div className="vp-import-card__error">{urlError}</div>}
-          {startMutation.error && !urlError && (
-            <ErrorState
-              message={
-                startMutation.error instanceof ApiError
-                  ? startMutation.error.message
-                  : "Pipeline konnte nicht gestartet werden."
-              }
-            />
-          )}
-        </Card>
+        <VodPipelineStartPanel onStarted={() => setTab("active")} />
       </section>
 
       {/* Tabs */}

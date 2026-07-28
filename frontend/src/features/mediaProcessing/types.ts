@@ -64,6 +64,46 @@ export interface StartPipelineRunFromUrlRequest {
   url: string;
 }
 
+/** Unified source contract for starting a VOD pipeline run.
+
+ * Mirrors the backend `BatchPipelineSourceRequest` / `start_run_from_source`
+ * contract. Both the direct-URL import and the VOD-selection start flows
+ * produce the same shape so the backend uses one orchestration path.
+ */
+export interface PipelineSourceContract {
+  provider: "twitch";
+  source_type: "vod" | "clip";
+  external_id: string;
+  url?: string;
+}
+
+export interface PipelineBatchCreatedEntry {
+  source_external_id: string | null;
+  run_id: string;
+}
+
+export interface PipelineBatchConflictEntry {
+  source_external_id: string | null;
+  code: string;
+  message: string;
+}
+
+export interface PipelineBatchFailedEntry {
+  source_external_id: string | null;
+  code: string;
+  message: string;
+}
+
+export interface StartPipelineRunBatchRequest {
+  sources: PipelineSourceContract[];
+}
+
+export interface PipelineRunBatchResponse {
+  created: PipelineBatchCreatedEntry[];
+  conflicts: PipelineBatchConflictEntry[];
+  failed: PipelineBatchFailedEntry[];
+}
+
 export interface StartAudioExtractionRequest {
   force?: boolean;
 }

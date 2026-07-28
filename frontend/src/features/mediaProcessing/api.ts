@@ -19,6 +19,8 @@ import type {
   StartTranscriptionRequest,
   StartPipelineRunRequest,
   StartPipelineRunFromUrlRequest,
+  StartPipelineRunBatchRequest,
+  PipelineRunBatchResponse,
   StartAudioExtractionRequest,
   TranscriptionRuntimeStatus,
   MediaJob,
@@ -274,6 +276,42 @@ export function startPipelineRun(request: StartPipelineRunRequest): Promise<Pipe
 /** Start a VOD pipeline run from a Twitch VOD or clip URL (primary entry point). */
 export function startVodPipelineRun(request: StartPipelineRunFromUrlRequest): Promise<PipelineRun> {
   return apiClient.post("/api/vod-pipeline/runs", { body: request, schema: pipelineRunSchema });
+}
+
+/** Start pipeline runs for a batch of Twitch sources (selection-based start).
+
+ * Each source is validated and started independently; the response reports
+ * per-source created / conflicts / failed entries so the UI can show partial
+ * success. Uses the same backend orchestration as the single URL start.
+ */
+export function startVodPipelineRunBatch(
+  request: StartPipelineRunBatchRequest,
+): Promise<PipelineRunBatchResponse> {
+  return apiClient.post("/api/vod-pipeline/runs/batch", {
+    body: request,
+    schema: z.object({
+      created: z.array(
+        z.object({
+          source_external_id: z.string().nullable(),
+          run_id: z.string(),
+        }),
+      ),
+      conflicts: z.array(
+        z.object({
+          source_external_id: z.string().nullable(),
+          code: z.string(),
+          message: z.string(),
+        }),
+      ),
+      failed: z.array(
+        z.object({
+          source_external_id: z.string().nullable(),
+          code: z.string(),
+          message: z.string(),
+        }),
+      ),
+    }),
+  });
 }
 
 export interface PipelineRunsFilter {
