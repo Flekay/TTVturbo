@@ -234,6 +234,19 @@ class PipelineService:
         return {"total": len(runs), "active": active, "ready_for_clip_analysis": ready, "failed": failed}
 
     # ------------------------------------------------------------------ orchestrator
+    def shutdown(self) -> None:
+        """Stop the orchestrator thread.
+
+        Idempotent: safe to call multiple times.  Signals the orchestrator
+        loop to stop and waits briefly for it to exit.  Does not raise.
+        """
+        self._orchestrator_stop.set()
+        t = self._orchestrator_thread
+        if t is not None and t.is_alive():
+            t.join(timeout=2.0)
+        with self._lock:
+            self._orchestrator_thread = None
+
     def _ensure_orchestrator(self) -> None:
         with self._lock:
             if self._orchestrator_thread is not None and self._orchestrator_thread.is_alive():

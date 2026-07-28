@@ -463,6 +463,30 @@ class AsrBenchmarkService:
         shutil.rmtree(tmp, ignore_errors=True)
         return True
 
+    # ------------------------------------------------------------------ shutdown
+    def shutdown(self) -> None:
+        """Terminate the active benchmark worker and close the log handle.
+
+        Idempotent: safe to call multiple times.  Does not raise.
+        """
+        from ttvturbo.lifecycle import terminate_subprocess
+
+        with self._lock:
+            proc = self._active_proc
+            bench_id = self._active_benchmark_id
+            log_fh = getattr(self, "_active_log_fh", None)
+        if proc is not None:
+            self._cancel_event.set()
+            terminate_subprocess(proc, label=f"asr-benchmark-worker-{bench_id}")
+        with self._lock:
+            self._active_proc = None
+            self._active_benchmark_id = None
+        if log_fh is not None:
+            try:
+                log_fh.close()
+            except OSError:
+                pass
+
     # ------------------------------------------------------------------ helpers
     def is_running(self) -> bool:
         with self._lock:

@@ -855,6 +855,32 @@ class VodPipelineService:
         except (OSError, ProcessLookupError):  # pragma: no cover
             pass
 
+    # ------------------------------------------------------------------ shutdown
+    def shutdown(self) -> None:
+        """Terminate all active download workers and close log handles.
+
+        Idempotent: safe to call multiple times.  Each worker receives a
+        graceful ``terminate()`` then a hard ``kill()`` after the grace
+        period.  Log file handles are closed.  Does not raise — a shutdown
+        failure in one worker does not block the rest.
+        """
+        from ttvturbo.lifecycle import terminate_subprocess
+
+        with self._lock:
+            items = list(self._active.items())
+        for vod_id, proc in items:
+            terminate_subprocess(proc, label=f"vod-worker-{vod_id}")
+        with self._lock:
+            for vod_id in list(self._active.keys()):
+                self._active.pop(vod_id, None)
+            for vod_id in list(self._active_log_fh.keys()):
+                fh = self._active_log_fh.pop(vod_id, None)
+                if fh is not None:
+                    try:
+                        fh.close()
+                    except OSError:
+                        pass
+
     def _finalize_after_exit(self, vod_id: str, exit_code: int, timed_out: bool) -> None:
         vod = self._read_vod(vod_id)
         if vod is None:

@@ -456,6 +456,24 @@ class AudioExtractionService:
         except (OSError, ProcessLookupError):  # pragma: no cover
             pass
 
+    # ------------------------------------------------------------------ shutdown
+    def shutdown(self) -> None:
+        """Terminate all active audio-extraction workers and close log handles.
+
+        Idempotent: safe to call multiple times.  Does not raise.
+        """
+        from ttvturbo.lifecycle import terminate_subprocess
+
+        with self._lock:
+            items = list(self._active.items())
+        for job_id, proc in items:
+            terminate_subprocess(proc, label=f"audio-worker-{job_id}")
+        with self._lock:
+            for job_id in list(self._active.keys()):
+                self._active.pop(job_id, None)
+            for job_id in list(self._active_log_fh.keys()):
+                self._close_log(job_id)
+
     def _close_log(self, job_id: str) -> None:
         fh = self._active_log_fh.pop(job_id, None)
         if fh is not None:

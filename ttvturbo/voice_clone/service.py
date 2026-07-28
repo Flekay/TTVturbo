@@ -839,6 +839,31 @@ class VoiceCloneService:
         except (OSError, ProcessLookupError):  # pragma: no cover - defensive
             pass
 
+    # ------------------------------------------------------------------ shutdown
+    def shutdown(self) -> None:
+        """Terminate the active TTS worker and close the log handle.
+
+        Idempotent: safe to call multiple times.  Does not raise.
+        """
+        from ttvturbo.lifecycle import terminate_subprocess
+
+        with self._lock:
+            proc = self._active_proc
+            gen_id = self._active_id
+            log_fh = self._active_log_fh
+        if proc is not None:
+            terminate_subprocess(proc, label=f"voice-clone-worker-{gen_id}")
+        with self._lock:
+            self._active_id = None
+            self._active_proc = None
+            self._active_log_fh = None
+            self._active_log_path = None
+        if log_fh is not None:
+            try:
+                log_fh.close()
+            except OSError:
+                pass
+
     def _finalize_after_exit(
         self, generation_id: str, exit_code: int, timed_out: bool
     ) -> None:

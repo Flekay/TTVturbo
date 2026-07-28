@@ -986,7 +986,22 @@ def create_app(
     async def _lifespan(app: FastAPI):
         _init_services(container, settings, overrides)
         container.start_time_monotonic = time.monotonic()
-        yield
+        try:
+            yield
+        finally:
+            # Shutdown all services that own subprocesses/threads, in
+            # reverse order of initialisation.  Each shutdown is
+            # idempotent and a failure in one does not block the rest.
+            from ttvturbo.lifecycle import shutdown_service
+
+            shutdown_service(container.audio_forensics_service)
+            shutdown_service(container.asr_benchmark_service)
+            shutdown_service(container.pipeline_service)
+            shutdown_service(container.transcription_service)
+            shutdown_service(container.audio_extraction_service)
+            shutdown_service(container.vod_pipeline_service)
+            shutdown_service(container.voice_clone_service)
+            shutdown_service(container.voice_profile_service)
 
     app = FastAPI(title=APP_NAME, lifespan=_lifespan)
     app.state.container = container
