@@ -62,6 +62,7 @@ ALLOWED_APP_FACTORY_IMPORTERS = {
     "ttvturbo/voice_profiles_api.py",
     "ttvturbo/library_api.py",
     "ttvturbo/media_processing_api.py",
+    "ttvturbo/conversation_mining_api.py",
     "ttvturbo/asr_api.py",
     "ttvturbo/__init__.py",
     "ttvturbo/verify.py",
@@ -142,6 +143,7 @@ def test_no_app_factory_import_outside_allowed_files() -> None:
         "ttvturbo/media_processing/transcription.py",
         "ttvturbo/media_processing/audio_extraction.py",
         "ttvturbo/media_processing/pipeline.py",
+        "ttvturbo/media_processing/conversation_mining.py",
     ],
 )
 def test_services_do_not_read_env_vars(module_path: str) -> None:

@@ -14,6 +14,13 @@ import type {
   transcriptSegmentSchema,
   transcriptRevisionEntrySchema,
   transcriptRevisionsResponseSchema,
+  conversationMiningRuntimeStatusSchema,
+  conversationMiningBlockSchema,
+  conversationMiningModelSchema,
+  conversationSchema,
+  miningRunSchema,
+  miningRunListResponseSchema,
+  miningRunDeleteResponseSchema,
 } from "./schemas";
 
 export type TranscriptionRuntimeStatus = z.infer<typeof transcriptionRuntimeStatusSchema>;
@@ -30,6 +37,13 @@ export type TranscriptView = z.infer<typeof transcriptViewSchema>;
 export type TranscriptSegment = z.infer<typeof transcriptSegmentSchema>;
 export type TranscriptRevisionEntry = z.infer<typeof transcriptRevisionEntrySchema>;
 export type TranscriptRevisionsResponse = z.infer<typeof transcriptRevisionsResponseSchema>;
+export type ConversationMiningRuntimeStatus = z.infer<typeof conversationMiningRuntimeStatusSchema>;
+export type ConversationMiningBlock = z.infer<typeof conversationMiningBlockSchema>;
+export type ConversationMiningModel = z.infer<typeof conversationMiningModelSchema>;
+export type Conversation = z.infer<typeof conversationSchema>;
+export type MiningRun = z.infer<typeof miningRunSchema>;
+export type MiningRunListResponse = z.infer<typeof miningRunListResponseSchema>;
+export type MiningRunDeleteResponse = z.infer<typeof miningRunDeleteResponseSchema>;
 
 export interface StartTranscriptionRequest {
   source_type?: string;
@@ -70,4 +84,9 @@ export interface RevisionConflictDetail {
   message: string;
   current_revision: number;
   transcript?: TranscriptView;
+}
+
+export interface StartMiningRunRequest {
+  media_item_id: string;
+  force?: boolean;
 }

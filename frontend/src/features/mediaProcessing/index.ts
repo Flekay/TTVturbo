@@ -6,3 +6,4 @@ export * from "./api";
 export * from "./hooks";
 export * from "./TranscriptPlayer";
 export * from "./TranscriptEditor";
+export * from "./ConversationMiningPanel";

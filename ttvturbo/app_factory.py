@@ -46,6 +46,7 @@ from ttvturbo.media_processing import (
     AsrDefaultPresetStore,
     AudioExtractionService,
     AudioForensicsService,
+    ConversationMiningService,
     GpuLock,
     MediaJobStorage,
     MediaSourceResolver,
@@ -54,6 +55,7 @@ from ttvturbo.media_processing import (
     UploadStorage,
 )
 from ttvturbo.media_processing_api import build_media_processing_router
+from ttvturbo.conversation_mining_api import build_conversation_mining_router
 from ttvturbo.asr_api import build_asr_router
 
 from ttvturbo.library import LibraryService, LibraryStorage
@@ -91,6 +93,7 @@ class ServiceContainer:
         self.asr_default_preset_store: Any = None
         self.transcription_service: Any = None
         self.pipeline_service: Any = None
+        self.mining_service: Any = None
         self.asr_benchmark_service: Any = None
         self.audio_forensics_service: Any = None
         # Router references (for tests that need to swap router.state).
@@ -98,6 +101,7 @@ class ServiceContainer:
         self.vod_pipeline_router: Any = None
         self.twitch_status_router: Any = None
         self.media_processing_router: Any = None
+        self.conversation_mining_router: Any = None
         self.library_router: Any = None
         self.asr_router: Any = None
         self.app_router: Any = None
@@ -147,6 +151,7 @@ class ServiceOverrides:
     asr_default_preset_store: Any = None
     transcription_service: Any = None
     pipeline_service: Any = None
+    mining_service: Any = None
     asr_benchmark_service: Any = None
     audio_forensics_service: Any = None
 
@@ -280,6 +285,17 @@ def _init_services(
             container.transcription_service.on_audio_ready
         )
 
+    # --- Conversation mining ---------------------------------------------
+    if ov and ov.mining_service is not None:
+        container.mining_service = ov.mining_service
+    else:
+        container.mining_service = ConversationMiningService(
+            transcription_service=container.transcription_service,
+            gpu_lock=container.gpu_lock,
+            settings=settings,
+            worker_python=tools.python,
+        )
+
     if ov and ov.pipeline_service is not None:
         container.pipeline_service = ov.pipeline_service
     else:
@@ -288,6 +304,7 @@ def _init_services(
             vod_service=container.vod_pipeline_service,
             audio_service=container.audio_extraction_service,
             transcription_service=container.transcription_service,
+            mining_service=container.mining_service,
         )
 
     # --- ASR benchmark / forensics ---------------------------------------
@@ -413,6 +430,7 @@ def create_app(
     audio_proxy = _ServiceProxy(container, "audio_extraction_service")
     transcription_proxy = _ServiceProxy(container, "transcription_service")
     pipeline_proxy = _ServiceProxy(container, "pipeline_service")
+    mining_proxy = _ServiceProxy(container, "mining_service")
     upload_proxy = _ServiceProxy(container, "upload_storage")
     benchmark_proxy = _ServiceProxy(container, "asr_benchmark_service")
     preset_store_proxy = _ServiceProxy(container, "asr_default_preset_store")
@@ -439,6 +457,7 @@ def create_app(
         default_store=preset_store_proxy,
         forensics_service=forensics_proxy,
     )
+    conversation_mining_router = build_conversation_mining_router(mining_proxy)
     app_router = build_app_router(container)
 
     @asynccontextmanager
@@ -456,6 +475,7 @@ def create_app(
             shutdown_service(container.audio_forensics_service)
             shutdown_service(container.asr_benchmark_service)
             shutdown_service(container.pipeline_service)
+            shutdown_service(container.mining_service)
             shutdown_service(container.transcription_service)
             shutdown_service(container.audio_extraction_service)
             shutdown_service(container.vod_pipeline_service)
@@ -472,6 +492,7 @@ def create_app(
     container.vod_pipeline_router = vod_pipeline_router
     container.twitch_status_router = twitch_status_router
     container.media_processing_router = media_processing_router
+    container.conversation_mining_router = conversation_mining_router
     container.library_router = library_router
     container.asr_router = asr_router
     container.app_router = app_router
@@ -486,6 +507,7 @@ def create_app(
     app.include_router(vod_pipeline_router)
     app.include_router(twitch_status_router)
     app.include_router(media_processing_router)
+    app.include_router(conversation_mining_router)
     app.include_router(library_router)
     app.include_router(asr_router)
     # App-level routes (status, recordings, voice-clone, SPA fallback).

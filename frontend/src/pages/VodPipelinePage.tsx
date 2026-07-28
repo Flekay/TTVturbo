@@ -43,6 +43,7 @@ const STEP_LABELS: Record<string, string> = {
   DOWNLOAD: "Video herunterladen",
   EXTRACT_AUDIO: "Audio extrahieren",
   TRANSCRIBE: "Transkribieren",
+  CONVERSATION_MINING: "Conversation Mining",
   FIND_CLIPS: "Clip-Suche",
 };
 
@@ -51,6 +52,7 @@ const STEP_ORDER: string[] = [
   "DOWNLOAD",
   "EXTRACT_AUDIO",
   "TRANSCRIBE",
+  "CONVERSATION_MINING",
   "FIND_CLIPS",
 ];
 

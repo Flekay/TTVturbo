@@ -16,6 +16,7 @@ import {
   useVodPipelineRunsQuery,
   transcriptFileUrl,
   audioFileUrl,
+  ConversationMiningPanel,
 } from "../features/mediaProcessing";
 import type { KnownVodStatus } from "../features/vodPipeline/schemas";
 
@@ -266,6 +267,18 @@ export function VodDetailPage() {
               );
             })}
           </div>
+        )}
+      </section>
+
+      <section className="page__section">
+        <h2 className="page__section-title">Conversation Mining</h2>
+        {transcriptions.some((t) => t.status === "READY") ? (
+          <ConversationMiningPanel vodId={vod.id} />
+        ) : (
+          <EmptyState
+            title="Kein Transkript verfügbar"
+            description="Conversation Mining benötigt ein fertiges Transkript. Transkribiere zuerst den VOD."
+          />
         )}
       </section>
 

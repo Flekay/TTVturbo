@@ -29,6 +29,13 @@ import {
   saveTranscriptCorrections,
   resetSegmentCorrection,
   resetAllCorrections,
+  fetchMiningRuntimeStatus,
+  startMiningRun,
+  fetchMiningRuns,
+  fetchMiningRun,
+  cancelMiningRun,
+  retryMiningRun,
+  deleteMiningRun,
 } from "./api";
 import type {
   StartTranscriptionRequest,
@@ -36,6 +43,7 @@ import type {
   StartPipelineRunFromUrlRequest,
   StartAudioExtractionRequest,
   SaveCorrectionsRequest,
+  StartMiningRunRequest,
 } from "./types";
 
 /**
@@ -467,6 +475,120 @@ export function useDeletePipelineRunMutation() {
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["media-processing", "pipeline-runs"] });
       queryClient.invalidateQueries({ queryKey: ["status"] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Conversation Mining
+// ---------------------------------------------------------------------------
+
+export const miningRuntimeQueryKey = ["media-processing", "mining-runtime"] as const;
+export const miningRunsQueryKey = (filter: {
+  mediaItemId?: string;
+  transcriptId?: string;
+  status?: string;
+  stale?: boolean;
+} = {}) =>
+  [
+    "media-processing",
+    "mining-runs",
+    filter.mediaItemId ?? "all",
+    filter.transcriptId ?? "all",
+    filter.status ?? "all",
+    filter.stale ?? "all",
+  ] as const;
+export const miningRunQueryKey = (id: string) => ["media-processing", "mining-runs", id] as const;
+export const vodMiningRunsQueryKey = (vodId: string) =>
+  ["media-processing", "vods", vodId, "mining-runs"] as const;
+
+export function useMiningRuntimeQuery() {
+  return useQuery({
+    queryKey: miningRuntimeQueryKey,
+    queryFn: ({ signal }) => fetchMiningRuntimeStatus(signal),
+    staleTime: 5_000,
+    refetchInterval: 15_000,
+    retry: 1,
+  });
+}
+
+export function useMiningRunsQuery(
+  filter: { mediaItemId?: string; transcriptId?: string; status?: string; stale?: boolean } = {},
+  options?: { refetchInterval?: number | false },
+) {
+  return useQuery({
+    queryKey: miningRunsQueryKey(filter),
+    queryFn: ({ signal }) => fetchMiningRuns(filter, signal),
+    staleTime: 3_000,
+    retry: 1,
+    refetchInterval: options?.refetchInterval,
+  });
+}
+
+export function useMiningRunQuery(runId: string | undefined, options?: { refetchInterval?: number | false }) {
+  return useQuery({
+    queryKey: miningRunQueryKey(runId ?? ""),
+    queryFn: ({ signal }) => fetchMiningRun(runId as string, signal),
+    enabled: !!runId,
+    staleTime: 2_000,
+    retry: 1,
+    refetchInterval: options?.refetchInterval,
+  });
+}
+
+export function useVodMiningRunsQuery(vodId: string | undefined) {
+  return useQuery({
+    queryKey: vodMiningRunsQueryKey(vodId ?? ""),
+    queryFn: ({ signal }) => fetchMiningRuns({ mediaItemId: vodId }, signal),
+    enabled: !!vodId,
+    staleTime: 3_000,
+    retry: 1,
+  });
+}
+
+export function useStartMiningRunMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (request: StartMiningRunRequest) => startMiningRun(request),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["media-processing", "mining-runs"] });
+      if (variables.media_item_id) {
+        queryClient.invalidateQueries({ queryKey: vodMiningRunsQueryKey(variables.media_item_id) });
+      }
+      queryClient.invalidateQueries({ queryKey: miningRuntimeQueryKey });
+    },
+  });
+}
+
+export function useCancelMiningRunMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (runId: string) => cancelMiningRun(runId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["media-processing", "mining-runs"] });
+      queryClient.invalidateQueries({ queryKey: miningRuntimeQueryKey });
+    },
+  });
+}
+
+export function useRetryMiningRunMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (runId: string) => retryMiningRun(runId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["media-processing", "mining-runs"] });
+      queryClient.invalidateQueries({ queryKey: miningRuntimeQueryKey });
+    },
+  });
+}
+
+export function useDeleteMiningRunMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (runId: string) => deleteMiningRun(runId),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["media-processing", "mining-runs"] });
+      queryClient.invalidateQueries({ queryKey: miningRuntimeQueryKey });
     },
   });
 }

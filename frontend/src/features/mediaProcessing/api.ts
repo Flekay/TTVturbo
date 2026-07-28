@@ -10,6 +10,10 @@ import {
   vodTranscriptionsResponseSchema,
   transcriptViewSchema,
   transcriptRevisionsResponseSchema,
+  conversationMiningRuntimeStatusSchema,
+  miningRunSchema,
+  miningRunListResponseSchema,
+  miningRunDeleteResponseSchema,
 } from "./schemas";
 import type {
   StartTranscriptionRequest,
@@ -27,11 +31,17 @@ import type {
   TranscriptView,
   TranscriptRevisionsResponse,
   SaveCorrectionsRequest,
+  ConversationMiningRuntimeStatus,
+  MiningRun,
+  MiningRunListResponse,
+  MiningRunDeleteResponse,
+  StartMiningRunRequest,
 } from "./types";
 
 const TRANSCRIPTIONS = "/api/transcriptions";
 const PIPELINE_RUNS = "/api/pipeline-runs";
 const VODS = "/api/vods";
+const MINING = "/api/conversation-mining";
 
 // ---------------------------------------------------------------------------
 // Transcription
@@ -342,3 +352,61 @@ export function fetchVodPipelineRuns(
 
 // Import zod for the union schema used in startAudioExtraction.
 import { z } from "zod";
+
+// ---------------------------------------------------------------------------
+// Conversation Mining
+// ---------------------------------------------------------------------------
+
+export function fetchMiningRuntimeStatus(
+  signal?: AbortSignal,
+): Promise<ConversationMiningRuntimeStatus> {
+  return apiClient.get(`${MINING}/status`, {
+    schema: conversationMiningRuntimeStatusSchema,
+    signal,
+  });
+}
+
+export function startMiningRun(request: StartMiningRunRequest): Promise<MiningRun> {
+  return apiClient.post(`${MINING}/runs`, { body: request, schema: miningRunSchema });
+}
+
+export function fetchMiningRuns(
+  filter: { mediaItemId?: string; transcriptId?: string; status?: string; stale?: boolean } = {},
+  signal?: AbortSignal,
+): Promise<MiningRunListResponse> {
+  const params = new URLSearchParams();
+  if (filter.mediaItemId) params.set("media_item_id", filter.mediaItemId);
+  if (filter.transcriptId) params.set("transcript_id", filter.transcriptId);
+  if (filter.status) params.set("status", filter.status);
+  if (filter.stale !== undefined) params.set("stale", String(filter.stale));
+  const qs = params.toString() ? `?${params.toString()}` : "";
+  return apiClient.get(`${MINING}/runs${qs}`, {
+    schema: miningRunListResponseSchema,
+    signal,
+  });
+}
+
+export function fetchMiningRun(runId: string, signal?: AbortSignal): Promise<MiningRun> {
+  return apiClient.get(`${MINING}/runs/${encodeURIComponent(runId)}`, {
+    schema: miningRunSchema,
+    signal,
+  });
+}
+
+export function cancelMiningRun(runId: string): Promise<MiningRun> {
+  return apiClient.post(`${MINING}/runs/${encodeURIComponent(runId)}/cancel`, {
+    schema: miningRunSchema,
+  });
+}
+
+export function retryMiningRun(runId: string): Promise<MiningRun> {
+  return apiClient.post(`${MINING}/runs/${encodeURIComponent(runId)}/retry`, {
+    schema: miningRunSchema,
+  });
+}
+
+export function deleteMiningRun(runId: string): Promise<MiningRunDeleteResponse> {
+  return apiClient.delete(`${MINING}/runs/${encodeURIComponent(runId)}`, {
+    schema: miningRunDeleteResponseSchema,
+  });
+}

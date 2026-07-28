@@ -229,6 +229,7 @@ class PipelineStepType(str, Enum):
     DOWNLOAD = "DOWNLOAD"
     EXTRACT_AUDIO = "EXTRACT_AUDIO"
     TRANSCRIBE = "TRANSCRIBE"
+    CONVERSATION_MINING = "CONVERSATION_MINING"
     FIND_CLIPS = "FIND_CLIPS"
 
 
@@ -292,9 +293,10 @@ class PipelineRun(BaseModel):
 # progress so a long download is not equal to a quick metadata resolve.
 PIPELINE_STEP_WEIGHTS: dict[str, float] = {
     PipelineStepType.RESOLVE_SOURCE.value: 5.0,
-    PipelineStepType.DOWNLOAD.value: 50.0,
-    PipelineStepType.EXTRACT_AUDIO.value: 15.0,
-    PipelineStepType.TRANSCRIBE.value: 30.0,
+    PipelineStepType.DOWNLOAD.value: 45.0,
+    PipelineStepType.EXTRACT_AUDIO.value: 13.0,
+    PipelineStepType.TRANSCRIBE.value: 27.0,
+    PipelineStepType.CONVERSATION_MINING.value: 10.0,
 }
 
 

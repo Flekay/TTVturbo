@@ -51,6 +51,14 @@ from ttvturbo.vod_pipeline import (
 from ttvturbo.vod_pipeline.service import parse_twitch_video_url
 
 from .audio_extraction import AudioExtractionService
+from .conversation_mining import (
+    ConversationMiningConflictError,
+    ConversationMiningNotFoundError,
+    ConversationMiningService,
+    ConversationMiningUnavailableError,
+    ConversationMiningValidationError,
+    MiningRunStatus,
+)
 from .schemas import (
     ACTIVE_PIPELINE_STATUSES,
     CANCELLABLE_PIPELINE_STATUSES,
@@ -104,6 +112,7 @@ DEFAULT_VOD_PIPELINE: tuple[str, ...] = (
     PipelineStepType.DOWNLOAD.value,
     PipelineStepType.EXTRACT_AUDIO.value,
     PipelineStepType.TRANSCRIBE.value,
+    PipelineStepType.CONVERSATION_MINING.value,
 )
 
 
@@ -258,11 +267,13 @@ class PipelineService:
         vod_service: VodPipelineService,
         audio_service: AudioExtractionService,
         transcription_service: TranscriptionService,
+        mining_service: Optional[ConversationMiningService] = None,
     ) -> None:
         self.storage = storage
         self.vod_service = vod_service
         self.audio_service = audio_service
         self.transcription_service = transcription_service
+        self.mining_service = mining_service
         self._lock = threading.Lock()
         self._orchestrator_thread: Optional[threading.Thread] = None
         self._orchestrator_stop = threading.Event()
@@ -498,7 +509,7 @@ class PipelineService:
         run["status"] = PipelineStatus.CANCELING.value
         run["updated_at"] = _now_iso()
         self.storage.save_run(run)
-        # Cancel any active underlying job (download / audio / transcription).
+        # Cancel any active underlying job (download / audio / transcription / mining).
         for step in run.get("steps", []):
             job_id = step.get("job_id")
             if not job_id:
@@ -511,6 +522,9 @@ class PipelineService:
                     self.audio_service.cancel_job(job_id)
                 elif step_type == PipelineStepType.TRANSCRIBE.value:
                     self.transcription_service.cancel_job(job_id)
+                elif step_type == PipelineStepType.CONVERSATION_MINING.value:
+                    if self.mining_service is not None:
+                        self.mining_service.cancel_run(job_id)
             except Exception as exc:
                 logger.warning("cancel of step %s job %s failed: %s", step_type, job_id, exc)
         # Reload and finalize as CANCELED. Already-finished library assets
@@ -863,6 +877,113 @@ class PipelineService:
                         self._save_run(run_id, steps=steps)
                         return
 
+        # --- Step: CONVERSATION_MINING ---
+        mining_step = step_by_type.get(PipelineStepType.CONVERSATION_MINING.value)
+        if (
+            mining_step
+            and tr_step
+            and tr_step.get("status") in DONE_STEP_STATUSES
+            and self.mining_service is not None
+        ):
+            # Need a transcript_id to proceed.
+            if transcript_id is None:
+                # Re-derive from the transcription step.
+                existing = self.transcription_service.list_transcriptions(source_id)
+                ready_t = next((t for t in existing if t.get("status") == "READY"), None)
+                if ready_t:
+                    transcript_id = ready_t.get("id")
+            if transcript_id:
+                # Check for an existing completed mining run for this transcript.
+                existing_mining = None
+                try:
+                    existing_mining = self.mining_service.get_latest_for_transcript(transcript_id)
+                except Exception:
+                    pass
+                if (
+                    existing_mining is not None
+                    and existing_mining.get("status") == MiningRunStatus.COMPLETED
+                    and int(existing_mining.get("transcript_revision") or 0)
+                    == int((self.transcription_service.get_transcript_contract(transcript_id) or {}).get("revision") or 0)
+                ):
+                    # Reuse existing valid result.
+                    if mining_step.get("status") not in DONE_STEP_STATUSES:
+                        mining_step["status"] = PipelineStepStatus.SKIPPED.value
+                        mining_step["error"] = None
+                        mining_step["completed_at"] = now
+                        mining_step["artifact_ids"] = [existing_mining.get("id") or ""]
+                else:
+                    # Check if a mining run is already active for this transcript.
+                    mining_job_id = mining_step.get("job_id")
+                    if mining_job_id:
+                        try:
+                            mining_run = self.mining_service.get_run(mining_job_id)
+                            mstatus = mining_run.get("status")
+                            if mstatus == MiningRunStatus.COMPLETED:
+                                mining_step["status"] = PipelineStepStatus.READY.value
+                                mining_step["error"] = None
+                                mining_step["completed_at"] = now
+                                mining_step["artifact_ids"] = [mining_run.get("id") or ""]
+                            elif mstatus in (MiningRunStatus.QUEUED, MiningRunStatus.RUNNING):
+                                mining_step["status"] = PipelineStepStatus.RUNNING.value
+                                mining_step["progress"] = mining_run.get("progress") or 0.0
+                                # Build a progress message.
+                                blocks = mining_run.get("blocks") or []
+                                done_blocks = sum(1 for b in blocks if b.get("status") in ("COMPLETED", "FAILED", "CANCELED"))
+                                mining_step["message"] = f"Block {done_blocks} von {len(blocks)}"
+                            elif mstatus == MiningRunStatus.FAILED:
+                                mining_step["status"] = PipelineStepStatus.FAILED.value
+                                mining_step["error"] = mining_run.get("error") or "mining failed"
+                                self._fail_run(run_id, f"Conversation Mining failed: {mining_step['error']}")
+                                self._save_run(run_id, steps=steps)
+                                return
+                            elif mstatus == MiningRunStatus.CANCELED:
+                                mining_step["status"] = PipelineStepStatus.FAILED.value
+                                mining_step["error"] = "mining was canceled"
+                                self._fail_run(run_id, "Conversation Mining was canceled.")
+                                self._save_run(run_id, steps=steps)
+                                return
+                        except ConversationMiningNotFoundError:
+                            mining_step["job_id"] = None
+                            mining_step["status"] = PipelineStepStatus.PENDING.value
+                        except Exception as exc:
+                            logger.warning("could not load mining run %s: %s", mining_job_id, exc)
+                    if mining_step.get("status") in (PipelineStepStatus.PENDING.value, PipelineStepStatus.WAITING.value):
+                        try:
+                            mining_run = self.mining_service.start_run(source_id)
+                            mining_step["status"] = PipelineStepStatus.RUNNING.value
+                            mining_step["job_id"] = mining_run.get("id")
+                            mining_step["error"] = None
+                            if not mining_step.get("started_at"):
+                                mining_step["started_at"] = now
+                        except ConversationMiningUnavailableError as exc:
+                            mining_step["status"] = PipelineStepStatus.FAILED.value
+                            mining_step["error"] = str(exc)
+                            self._fail_run(run_id, f"Conversation Mining unavailable: {exc}")
+                            self._save_run(run_id, steps=steps)
+                            return
+                        except (ConversationMiningValidationError, ConversationMiningConflictError) as exc:
+                            mining_step["status"] = PipelineStepStatus.FAILED.value
+                            mining_step["error"] = str(exc)
+                            self._fail_run(run_id, f"Conversation Mining failed: {exc}")
+                            self._save_run(run_id, steps=steps)
+                            return
+            else:
+                # No transcript id — cannot mine.
+                if mining_step.get("status") not in DONE_STEP_STATUSES:
+                    mining_step["status"] = PipelineStepStatus.SKIPPED.value
+                    mining_step["error"] = None
+                    mining_step["completed_at"] = now
+        elif (
+            mining_step
+            and tr_step
+            and tr_step.get("status") in DONE_STEP_STATUSES
+            and self.mining_service is None
+        ):
+            # Mining service not wired — mark as NOT_IMPLEMENTED.
+            if mining_step.get("status") not in DONE_STEP_STATUSES:
+                mining_step["status"] = PipelineStepStatus.NOT_IMPLEMENTED.value
+                mining_step["completed_at"] = now
+
         # --- Finalize ---
         all_done = all(s.get("status") in DONE_STEP_STATUSES for s in steps)
         any_waiting_gpu = any(s.get("status") == PipelineStepStatus.WAITING_FOR_GPU.value for s in steps)
@@ -1023,6 +1144,33 @@ class PipelineService:
                             step["status"] = PipelineStepStatus.PENDING.value
                             step["job_id"] = None
                             step["progress"] = None
+                elif step_type == PipelineStepType.CONVERSATION_MINING.value:
+                    # The mining service has its own recovery. Reset the
+                    # pipeline step to PENDING so the orchestrator
+                    # re-evaluates the mining run state.
+                    if self.mining_service is not None and job_id:
+                        try:
+                            mining_run = self.mining_service.get_run(job_id)
+                            mstatus = mining_run.get("status")
+                            if mstatus == MiningRunStatus.COMPLETED:
+                                step["status"] = PipelineStepStatus.READY.value
+                                step["error"] = None
+                                step["completed_at"] = now
+                            elif mstatus in (MiningRunStatus.FAILED, MiningRunStatus.CANCELED, MiningRunStatus.STALE):
+                                step["status"] = PipelineStepStatus.PENDING.value
+                                step["job_id"] = None
+                                step["progress"] = None
+                            # If QUEUED/RUNNING, the mining service recovery
+                            # will have marked it FAILED; leave the pipeline
+                            # step as-is so the orchestrator picks it up.
+                        except Exception:
+                            step["status"] = PipelineStepStatus.PENDING.value
+                            step["job_id"] = None
+                            step["progress"] = None
+                    else:
+                        step["status"] = PipelineStepStatus.PENDING.value
+                        step["job_id"] = None
+                        step["progress"] = None
             run["steps"] = steps
             run["updated_at"] = now
             run["progress"] = _compute_run_progress(run)

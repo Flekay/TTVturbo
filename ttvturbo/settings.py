@@ -200,6 +200,21 @@ class Settings:
     vod_download_timeout_seconds: float = field(default_factory=lambda: _env_float("TTVTURBO_VOD_DOWNLOAD_TIMEOUT_SECONDS", 0.0))
     vod_sync_limit: int = field(default_factory=lambda: _env_int("TTVTURBO_VOD_SYNC_LIMIT", 100))
 
+    # --- conversation mining (local text LLM) ------------------------------
+    # No model is configured by default — the service reports UNAVAILABLE
+    # until an operator sets TTVTURBO_CONVERSATION_MINING_MODEL_ID to a
+    # HuggingFace repo id. The worker subprocess loads the model via
+    # transformers; the FastAPI process never imports it.
+    conversation_mining_model_id: Optional[str] = field(default_factory=lambda: _env_optional_str("TTVTURBO_CONVERSATION_MINING_MODEL_ID"))
+    conversation_mining_device: str = field(default_factory=lambda: _env_str("TTVTURBO_CONVERSATION_MINING_DEVICE", "cuda"))
+    conversation_mining_dtype: str = field(default_factory=lambda: _env_str("TTVTURBO_CONVERSATION_MINING_DTYPE", "auto"))
+    conversation_mining_max_new_tokens: int = field(default_factory=lambda: _env_int("TTVTURBO_CONVERSATION_MINING_MAX_NEW_TOKENS", 2048))
+    conversation_mining_max_concurrent: int = field(default_factory=lambda: _env_int("TTVTURBO_MAX_CONCURRENT_MINING", 1))
+    conversation_mining_block_target_seconds: float = field(default_factory=lambda: _env_float("TTVTURBO_CONVERSATION_MINING_BLOCK_TARGET_SECONDS", 90.0))
+    conversation_mining_block_max_seconds: float = field(default_factory=lambda: _env_float("TTVTURBO_CONVERSATION_MINING_BLOCK_MAX_SECONDS", 180.0))
+    conversation_mining_block_overlap_seconds: float = field(default_factory=lambda: _env_float("TTVTURBO_CONVERSATION_MINING_BLOCK_OVERLAP_SECONDS", 15.0))
+    conversation_mining_pause_seconds: float = field(default_factory=lambda: _env_float("TTVTURBO_CONVERSATION_MINING_PAUSE_SECONDS", 6.0))
+
     # --- server ------------------------------------------------------------
     host: str = "127.0.0.1"
     port: int = 8765

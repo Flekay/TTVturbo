@@ -3,10 +3,10 @@ import { z } from "zod";
 /**
  * Media Processing feature Zod schemas.
  *
- * Mirror the backend responses from media_processing_api.py. Unknown
- * additional fields are stripped by Zod; status values are permissive
- * strings so a future backend status renders as a neutral badge instead
- * of throwing.
+ * Mirror the backend responses from media_processing_api.py and
+ * conversation_mining_api.py. Unknown additional fields are stripped by
+ * Zod; status values are permissive strings so a future backend status
+ * renders as a neutral badge instead of throwing.
  */
 
 // ---------------------------------------------------------------------------
@@ -246,6 +246,92 @@ export const transcriptViewSchema = z.object({
     })
     .optional(),
   segments: z.array(transcriptSegmentSchema),
+});
+
+// ---------------------------------------------------------------------------
+// Conversation Mining
+// ---------------------------------------------------------------------------
+
+export const conversationMiningRuntimeStatusSchema = z.object({
+  available: z.boolean(),
+  model: z.string(),
+  device: z.string(),
+  dtype: z.string().optional(),
+  busy: z.boolean().optional(),
+  busy_owner_type: z.string().nullable().optional(),
+  reasons: z.array(z.string()),
+});
+
+export const conversationMiningBlockSchema = z.object({
+  block_id: z.string(),
+  start: z.number(),
+  end: z.number(),
+  status: z.string(),
+  attempt: z.number().optional(),
+  model_input_segments: z.number().optional(),
+  result_count: z.number().nullable().optional(),
+  error: z.string().nullable().optional(),
+});
+
+export const conversationMiningModelSchema = z.object({
+  provider: z.string(),
+  model_id: z.string(),
+  revision: z.string().nullable().optional(),
+});
+
+export const conversationSchema = z.object({
+  id: z.string(),
+  start: z.number(),
+  end: z.number(),
+  start_segment_id: z.string().optional(),
+  end_segment_id: z.string().optional(),
+  title: z.string(),
+  summary: z.string(),
+  topic: z.string().nullable().optional(),
+  category: z.string(),
+  transcript_excerpt: z.string().optional(),
+  excerpt_has_corrected: z.boolean().optional(),
+  signals: z.array(z.string()),
+  context: z
+    .object({
+      requires_previous_context: z.boolean(),
+      requires_following_context: z.boolean(),
+    })
+    .optional(),
+  confidence: z.number(),
+});
+
+export const miningRunSchema = z.object({
+  schema_version: z.number().optional(),
+  id: z.string(),
+  media_item_id: z.string(),
+  transcript_id: z.string(),
+  transcript_revision: z.number().optional(),
+  status: z.string(),
+  model: conversationMiningModelSchema.nullable().optional(),
+  mining_config_version: z.number().optional(),
+  created_at: z.string(),
+  started_at: z.string().nullable().optional(),
+  completed_at: z.string().nullable().optional(),
+  error: z.string().nullable().optional(),
+  blocks: z.array(conversationMiningBlockSchema).optional(),
+  conversations: z.array(conversationSchema).optional(),
+  progress: z.number().optional(),
+  current_block: z.string().nullable().optional(),
+});
+
+export const miningRunListResponseSchema = z.object({
+  runs: z.array(miningRunSchema),
+});
+
+export const miningRunDeleteResponseSchema = z.object({
+  id: z.string(),
+  deleted: z.boolean(),
+});
+
+export const startMiningRunRequestSchema = z.object({
+  media_item_id: z.string(),
+  force: z.boolean().optional(),
 });
 
 export const transcriptRevisionChangeSchema = z.object({
