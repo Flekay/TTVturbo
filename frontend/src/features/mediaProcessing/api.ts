@@ -123,6 +123,18 @@ export function fetchVodTranscriptions(
   });
 }
 
+/** Fetch transcriptions for any source (twitch_vod or file_upload). */
+export function fetchSourceTranscriptions(
+  sourceType: string,
+  sourceId: string,
+  signal?: AbortSignal,
+): Promise<VodTranscriptionsResponse> {
+  return apiClient.get(`/api/sources/${encodeURIComponent(sourceType)}/${encodeURIComponent(sourceId)}/transcriptions`, {
+    schema: vodTranscriptionsResponseSchema,
+    signal,
+  });
+}
+
 /** Build the transcript file download URL. */
 export function transcriptFileUrl(transcriptionId: string, ext: "json" | "txt" | "srt" | "vtt"): string {
   return `${TRANSCRIPTIONS}/${encodeURIComponent(transcriptionId)}/${ext}`;
@@ -152,6 +164,35 @@ export function startAudioExtraction(
 /** Build the audio file download URL. */
 export function audioFileUrl(vodId: string): string {
   return `${VODS}/${encodeURIComponent(vodId)}/artifacts/audio/file`;
+}
+
+/** Build the audio file download URL for any source type. */
+export function sourceAudioFileUrl(sourceType: string, sourceId: string): string {
+  return `/api/sources/${encodeURIComponent(sourceType)}/${encodeURIComponent(sourceId)}/artifacts/audio/file`;
+}
+
+/** Fetch audio artifact metadata for any source type. */
+export function fetchSourceAudioArtifact(
+  sourceType: string,
+  sourceId: string,
+  signal?: AbortSignal,
+): Promise<AudioArtifact> {
+  return apiClient.get(`/api/sources/${encodeURIComponent(sourceType)}/${encodeURIComponent(sourceId)}/artifacts/audio`, {
+    schema: audioArtifactSchema,
+    signal,
+  });
+}
+
+/** Start audio extraction for any source type. */
+export function startSourceAudioExtraction(
+  sourceType: string,
+  sourceId: string,
+  request: StartAudioExtractionRequest = {},
+): Promise<MediaJob | AudioArtifact> {
+  return apiClient.post(`/api/sources/${encodeURIComponent(sourceType)}/${encodeURIComponent(sourceId)}/artifacts/audio`, {
+    body: request,
+    schema: audioArtifactSchema.or(mediaJobSchema),
+  });
 }
 
 // ---------------------------------------------------------------------------

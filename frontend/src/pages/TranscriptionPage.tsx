@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   FileText,
   X,
@@ -7,6 +8,9 @@ import {
   Download,
   AlertCircle,
   Upload,
+  Library,
+  Film,
+  Music,
 } from "lucide-react";
 import { Badge, type BadgeVariant } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
@@ -16,15 +20,19 @@ import { EmptyState } from "../components/ui/EmptyState";
 import { ErrorState } from "../components/ui/ErrorState";
 import { LoadingState } from "../components/ui/LoadingState";
 import { ApiError } from "../api/client";
-import { formatDateTime, formatDuration } from "../utils/format";
+import { formatBytes, formatDateTime, formatDuration } from "../utils/format";
 import {
   useTranscriptionsQuery,
   useUploadTranscriptionMutation,
+  useStartTranscriptionMutation,
   useCancelTranscriptionMutation,
   useRetryTranscriptionMutation,
   useDeleteTranscriptionMutation,
   transcriptFileUrl,
+  sourceAudioFileUrl,
 } from "../features/mediaProcessing";
+import { libraryItemFileUrl } from "../features/library/api";
+import { useLibraryItemsQuery } from "../features/library/hooks";
 import type { MediaJob } from "../features/mediaProcessing";
 
 function jobStatusBadge(status: string): { variant: BadgeVariant; label: string } {
@@ -104,13 +112,20 @@ function TranscriptionJobCard({
   const phase = phaseLabel(progress?.phase);
   const transcript = job.transcript;
   const hasFiles = transcript?.files != null;
+  const isFileUpload = job.source_type === "file_upload";
+  const sourceDetailPath = isFileUpload
+    ? `/library/${job.source_id}`
+    : `/vod-pipeline/${job.source_id}`;
 
   return (
     <Card className="transcription-card">
       <div className="transcription-card__header">
         <div className="transcription-card__title">
           <Badge variant={status.variant}>{status.label}</Badge>
-          <span className="transcription-card__vod-title">{job.source_id}</span>
+          <Link to={sourceDetailPath} className="transcription-card__vod-title" title="Details öffnen">
+            {isFileUpload ? <Library size={12} /> : <Film size={12} />}
+            {job.source_id}
+          </Link>
         </div>
         <div className="transcription-card__actions">
           {active && (
@@ -163,6 +178,24 @@ function TranscriptionJobCard({
       {job.status === "READY" && transcript && hasFiles && (
         <div className="transcription-card__downloads">
           <span className="transcription-card__downloads-label">Downloads:</span>
+          {isFileUpload && (
+            <a
+              href={libraryItemFileUrl(job.source_id)}
+              className="transcription-card__download-link"
+              download
+            >
+              <Film size={12} />
+              Video
+            </a>
+          )}
+          <a
+            href={sourceAudioFileUrl(job.source_type, job.source_id)}
+            className="transcription-card__download-link"
+            download
+          >
+            <Music size={12} />
+            Audio
+          </a>
           {(["txt", "srt", "vtt", "json"] as const).map((ext) => (
             <a
               key={ext}
@@ -192,22 +225,29 @@ function TranscriptionJobCard({
   );
 }
 
+type SourceMode = "upload" | "library";
+
 /**
  * Transcription on-demand page.
  *
- * Lets the user pick a READY VOD and start a transcription. Shows a
- * list of all transcription jobs with progress, cancel/retry/delete and
- * download links (TXT, SRT, VTT, JSON). Runtime status is surfaced in
- * the topbar status popover.
+ * Lets the user start a transcription either by uploading a file or by
+ * picking an existing item from the Bibliothek. Shows a list of all
+ * transcription jobs with progress, cancel/retry/delete and download
+ * links (TXT, SRT, VTT, JSON). Runtime status is surfaced in the
+ * topbar status popover.
  */
 export function TranscriptionPage() {
+  const [mode, setMode] = useState<SourceMode>("library");
   const [language, setLanguage] = useState<string>("de");
   const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [selectedItemId, setSelectedItemId] = useState<string>("");
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
   const jobsQuery = useTranscriptionsQuery(undefined, { refetchInterval: 3_000 });
+  const libraryQuery = useLibraryItemsQuery();
 
   const uploadMutation = useUploadTranscriptionMutation();
+  const startMutation = useStartTranscriptionMutation();
   const cancelMutation = useCancelTranscriptionMutation();
   const retryMutation = useRetryTranscriptionMutation();
   const deleteMutation = useDeleteTranscriptionMutation();
@@ -215,6 +255,20 @@ export function TranscriptionPage() {
   const jobs = jobsQuery.data?.transcriptions ?? [];
 
   const hasActiveJobs = useMemo(() => jobs.some((j) => isJobActive(j.status)), [jobs]);
+
+  // Only items that actually have a file on disk are eligible.
+  const libraryItems = useMemo(() => {
+    const all = libraryQuery.data?.items ?? [];
+    return all.filter((it) => it.file_exists !== false);
+  }, [libraryQuery.data?.items]);
+
+  const selectedItem = useMemo(
+    () => libraryItems.find((it) => it.id === selectedItemId) ?? null,
+    [libraryItems, selectedItemId],
+  );
+
+  const startPending = uploadMutation.isPending || startMutation.isPending;
+  const startError = uploadMutation.error ?? startMutation.error ?? null;
 
   const handleUpload = () => {
     if (!uploadFile) return;
@@ -226,53 +280,146 @@ export function TranscriptionPage() {
     );
   };
 
+  const handleStartFromLibrary = () => {
+    if (!selectedItemId) return;
+    startMutation.mutate(
+      {
+        source_type: "file_upload",
+        source_id: selectedItemId,
+        language: language || undefined,
+      },
+      {
+        onSuccess: () => setSelectedItemId(""),
+      },
+    );
+  };
+
   return (
     <div className="page">
       <section className="page__section">
         <h2 className="page__section-title">Neue Transkription starten</h2>
         <Card className="transcription-form-card">
+          <div className="transcription-source-toggle" role="tablist" aria-label="Quelle wählen">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === "upload"}
+              className={`transcription-source-toggle__btn${mode === "upload" ? " is-active" : ""}`}
+              onClick={() => setMode("upload")}
+              disabled={startPending}
+            >
+              <Upload size={14} /> Datei hochladen
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === "library"}
+              className={`transcription-source-toggle__btn${mode === "library" ? " is-active" : ""}`}
+              onClick={() => setMode("library")}
+              disabled={startPending}
+            >
+              <Library size={14} /> Aus Bibliothek
+            </button>
+          </div>
+
           <div className="transcription-form">
-            <label className="transcription-form__field">
-              <span className="transcription-form__label">Datei hochladen</span>
-              <input
-                type="file"
-                accept="video/*,audio/*"
-                onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
-                className="transcription-form__file-input"
-                disabled={uploadMutation.isPending}
-              />
-            </label>
+            {mode === "upload" ? (
+              <label className="transcription-form__field">
+                <span className="transcription-form__label">Datei hochladen</span>
+                <input
+                  type="file"
+                  accept="video/*,audio/*"
+                  onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
+                  className="transcription-form__file-input"
+                  disabled={startPending}
+                />
+              </label>
+            ) : (
+              <label className="transcription-form__field">
+                <span className="transcription-form__label">Bibliothekseintrag</span>
+                {libraryQuery.isLoading ? (
+                  <span className="transcription-form__muted">Lade Bibliothek …</span>
+                ) : libraryItems.length === 0 ? (
+                  <span className="transcription-form__muted">Keine Dateien in der Bibliothek.</span>
+                ) : (
+                  <select
+                    value={selectedItemId}
+                    onChange={(e) => setSelectedItemId(e.target.value)}
+                    className="transcription-form__select"
+                    disabled={startPending}
+                  >
+                    <option value="">— Eintrag wählen —</option>
+                    {libraryItems.map((it) => (
+                      <option key={it.id} value={it.id}>
+                        {it.title || it.file_name}
+                        {it.duration_seconds != null ? ` (${formatDuration(it.duration_seconds)})` : ""}
+                        {it.file_size_bytes != null ? ` · ${formatBytes(it.file_size_bytes)}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </label>
+            )}
             <label className="transcription-form__field">
               <span className="transcription-form__label">Sprache</span>
               <select
                 value={language}
                 onChange={(e) => setLanguage(e.target.value)}
                 className="transcription-form__select"
-                disabled={uploadMutation.isPending}
+                disabled={startPending}
               >
                 <option value="de">Deutsch</option>
                 <option value="en">Englisch</option>
                 <option value="auto">Automatisch</option>
               </select>
             </label>
-            <Button
-              variant="primary"
-              onClick={handleUpload}
-              disabled={!uploadFile || uploadMutation.isPending}
-              loading={uploadMutation.isPending}
-            >
-              <Upload size={14} />
-              Hochladen & transkribieren
-            </Button>
+            {mode === "upload" ? (
+              <Button
+                variant="primary"
+                onClick={handleUpload}
+                disabled={!uploadFile || startPending}
+                loading={uploadMutation.isPending}
+              >
+                <Upload size={14} />
+                Hochladen & transkribieren
+              </Button>
+            ) : (
+              <Button
+                variant="primary"
+                onClick={handleStartFromLibrary}
+                disabled={!selectedItemId || startPending}
+                loading={startMutation.isPending}
+              >
+                <FileText size={14} />
+                Transkribieren
+              </Button>
+            )}
           </div>
-          {uploadMutation.error && (
+          {startError && (
             <ErrorState
-              message={uploadMutation.error instanceof ApiError ? uploadMutation.error.message : "Upload fehlgeschlagen."}
+              message={startError instanceof ApiError ? startError.message : "Transkription konnte nicht gestartet werden."}
             />
           )}
-          <p className="transcription-form__hint">
-            Unabhängig vom VOD Downloader — die Datei wird direkt transkribiert.
-          </p>
+          {mode === "upload" ? (
+            <p className="transcription-form__hint">
+              Unabhängig vom VOD Downloader — die Datei wird direkt transkribiert.
+            </p>
+          ) : (
+            <p className="transcription-form__hint">
+              Wähle eine Datei aus der Bibliothek. Heruntergeladene VODs und Uploads stehen zur Verfügung.
+            </p>
+          )}
+          {mode === "library" && selectedItem && (
+            <p className="transcription-form__hint">
+              Auswahl: <strong>{selectedItem.title || selectedItem.file_name}</strong>
+              {selectedItem.duration_seconds != null
+                ? ` · ${formatDuration(selectedItem.duration_seconds)}`
+                : ""}
+              {selectedItem.file_size_bytes != null
+                ? ` · ${formatBytes(selectedItem.file_size_bytes)}`
+                : ""}
+            </p>
+          )}
         </Card>
       </section>
 
@@ -287,7 +434,7 @@ export function TranscriptionPage() {
         {jobsQuery.data && jobs.length === 0 && (
           <EmptyState
             title="Keine Transkriptionen"
-            description="Lade eine Datei hoch, um eine Transkription zu starten."
+            description="Lade eine Datei hoch oder wähle einen Eintrag aus der Bibliothek, um eine Transkription zu starten."
           />
         )}
         {jobs.length > 0 && (

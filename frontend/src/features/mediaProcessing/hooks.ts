@@ -10,8 +10,11 @@ import {
   retryTranscription,
   deleteTranscription,
   fetchVodTranscriptions,
+  fetchSourceTranscriptions,
   fetchAudioArtifact,
+  fetchSourceAudioArtifact,
   startAudioExtraction,
+  startSourceAudioExtraction,
   startPipelineRun,
   fetchPipelineRuns,
   fetchPipelineRun,
@@ -184,6 +187,52 @@ export function useStartAudioExtractionMutation() {
       queryClient.invalidateQueries({ queryKey: audioArtifactQueryKey(variables.vodId) });
       queryClient.invalidateQueries({ queryKey: ["status"] });
     },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Audio artifacts / transcriptions for any source type (twitch_vod, file_upload)
+// ---------------------------------------------------------------------------
+
+export const sourceAudioArtifactQueryKey = (sourceType: string, sourceId: string) =>
+  ["media-processing", "sources", sourceType, sourceId, "audio-artifact"] as const;
+export const sourceTranscriptionsQueryKey = (sourceType: string, sourceId: string) =>
+  ["media-processing", "sources", sourceType, sourceId, "transcriptions"] as const;
+
+export function useSourceAudioArtifactQuery(sourceType: string | null, sourceId: string | null) {
+  return useQuery({
+    queryKey: sourceType && sourceId
+      ? sourceAudioArtifactQueryKey(sourceType, sourceId)
+      : ["media-processing", "sources", "__none__", "audio-artifact"],
+    enabled: !!sourceType && !!sourceId,
+    queryFn: ({ signal }) => fetchSourceAudioArtifact(sourceType as string, sourceId as string, signal),
+    staleTime: 5_000,
+    retry: 0,
+  });
+}
+
+export function useStartSourceAudioExtractionMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sourceType, sourceId, request }: { sourceType: string; sourceId: string; request?: StartAudioExtractionRequest }) =>
+      startSourceAudioExtraction(sourceType, sourceId, request ?? {}),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: sourceAudioArtifactQueryKey(variables.sourceType, variables.sourceId) });
+      queryClient.invalidateQueries({ queryKey: ["status"] });
+    },
+  });
+}
+
+export function useSourceTranscriptionsQuery(sourceType: string | null, sourceId: string | null, options?: { refetchInterval?: number }) {
+  return useQuery({
+    queryKey: sourceType && sourceId
+      ? sourceTranscriptionsQueryKey(sourceType, sourceId)
+      : ["media-processing", "sources", "__none__", "transcriptions"],
+    enabled: !!sourceType && !!sourceId,
+    queryFn: ({ signal }) => fetchSourceTranscriptions(sourceType as string, sourceId as string, signal),
+    staleTime: 3_000,
+    retry: 1,
+    refetchInterval: options?.refetchInterval,
   });
 }
 

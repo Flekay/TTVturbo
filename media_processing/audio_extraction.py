@@ -186,8 +186,11 @@ class AudioExtractionService:
         self._recover_on_startup()
 
     # ------------------------------------------------------------------ public
-    def artifact_dir(self, vod_id: str) -> Path:
-        vod_dir = self.source_resolver.get_vod_dir(vod_id)
+    def artifact_dir(self, vod_id: str, source_type: str = "twitch_vod") -> Path:
+        if source_type == "twitch_vod":
+            vod_dir = self.source_resolver.get_vod_dir(vod_id)
+        else:
+            vod_dir = self.source_resolver.get_source_dir(source_type, vod_id)
         return vod_dir / ARTIFACTS_SUBDIR / AUDIO_SUBDIR
 
     def artifact_dir_for(self, source_type: str, source_id: str) -> Path:
@@ -195,17 +198,17 @@ class AudioExtractionService:
         source_dir = self.source_resolver.get_source_dir(source_type, source_id)
         return source_dir / ARTIFACTS_SUBDIR / AUDIO_SUBDIR
 
-    def artifact_path(self, vod_id: str) -> Path:
-        return self.artifact_dir(vod_id) / AUDIO_FILENAME
+    def artifact_path(self, vod_id: str, source_type: str = "twitch_vod") -> Path:
+        return self.artifact_dir(vod_id, source_type) / AUDIO_FILENAME
 
-    def artifact_metadata_path(self, vod_id: str) -> Path:
-        return self.artifact_dir(vod_id) / AUDIO_METADATA_FILENAME
+    def artifact_metadata_path(self, vod_id: str, source_type: str = "twitch_vod") -> Path:
+        return self.artifact_dir(vod_id, source_type) / AUDIO_METADATA_FILENAME
 
-    def get_audio_artifact(self, vod_id: str) -> Optional[dict]:
+    def get_audio_artifact(self, vod_id: str, source_type: str = "twitch_vod") -> Optional[dict]:
         """Return the persisted audio artifact metadata if it exists and
         the FLAC file is present on disk, else None.
         """
-        meta_path = self.artifact_metadata_path(vod_id)
+        meta_path = self.artifact_metadata_path(vod_id, source_type)
         if not meta_path.is_file():
             return None
         try:
@@ -213,7 +216,7 @@ class AudioExtractionService:
                 payload = json.load(fh)
         except (OSError, json.JSONDecodeError):
             return None
-        flac = self.artifact_path(vod_id)
+        flac = self.artifact_path(vod_id, source_type)
         if not flac.is_file():
             return None
         return payload
@@ -232,7 +235,7 @@ class AudioExtractionService:
 
         # Reuse existing artifact unless forced.
         if not force:
-            existing = self.get_audio_artifact(source_id)
+            existing = self.get_audio_artifact(source_id, source_type)
             if existing is not None:
                 return existing
 
@@ -316,8 +319,9 @@ class AudioExtractionService:
         self.storage.save_job(job)
         # Remove the .part file if present.
         source_id = job.get("source_id")
+        source_type = job.get("source_type", "twitch_vod")
         if source_id:
-            part = self.artifact_path(source_id).with_name(AUDIO_FILENAME + AUDIO_PART_SUFFIX)
+            part = self.artifact_path(source_id, source_type).with_name(AUDIO_FILENAME + AUDIO_PART_SUFFIX)
             try:
                 if part.exists():
                     part.unlink()
@@ -362,7 +366,7 @@ class AudioExtractionService:
     def _spawn_worker(self, job_id: str, resolved: ResolvedMediaSource) -> None:
         job_dir = self.storage._job_dir(job_id)  # noqa: SLF001
         job_dir.mkdir(parents=True, exist_ok=True)
-        artifact_dir = self.artifact_dir(resolved.source_id)
+        artifact_dir = self.artifact_dir(resolved.source_id, resolved.source_type)
         artifact_dir.mkdir(parents=True, exist_ok=True)
         worker_job = {
             "job_id": job_id,
@@ -490,8 +494,9 @@ class AudioExtractionService:
                     pass
                 # Clean up any .part files for this source.
                 source_id = job.get("source_id")
+                source_type = job.get("source_type", "twitch_vod")
                 if source_id:
-                    part = self.artifact_path(source_id).with_name(AUDIO_FILENAME + AUDIO_PART_SUFFIX)
+                    part = self.artifact_path(source_id, source_type).with_name(AUDIO_FILENAME + AUDIO_PART_SUFFIX)
                     try:
                         if part.exists():
                             part.unlink()

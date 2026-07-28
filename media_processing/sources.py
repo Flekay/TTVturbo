@@ -259,6 +259,13 @@ class MediaSourceResolver:
         if source_type == "twitch_vod":
             return self.get_vod_dir(source_id)
         if source_type == "file_upload":
+            # Prefer the library (new system) over legacy upload storage.
+            if self.library_service is not None:
+                try:
+                    self.library_service.get_item(source_id)
+                except Exception as exc:
+                    raise MediaSourceNotFoundError(f"library item not found: {source_id}") from exc
+                return self.library_service.storage._item_dir(source_id)  # noqa: SLF001
             if self.upload_storage is None:
                 raise MediaSourceError("file_upload sources are not configured")
             try:

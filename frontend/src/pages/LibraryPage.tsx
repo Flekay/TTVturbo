@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { Download, Upload, Trash2, AlertCircle, Loader2, Film, FileVideo, Search, MoreVertical } from "lucide-react";
+import { Link } from "react-router-dom";
 import { Button } from "../components/ui/Button";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { EmptyState } from "../components/ui/EmptyState";
@@ -409,9 +410,15 @@ function LibraryCard({
 
       <div className="library-card__body">
         <div className="library-card__title-row">
-          <div className="library-card__title" title={item.title}>
-            {item.title}
-          </div>
+          {!isDownloading ? (
+            <Link to={`/library/${item.id}`} className="library-card__title" title={item.title}>
+              {item.title}
+            </Link>
+          ) : (
+            <div className="library-card__title" title={item.title}>
+              {item.title}
+            </div>
+          )}
           {/* 3-dots menu — right of the title */}
           <Menu
             trigger={

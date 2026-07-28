@@ -1505,6 +1505,15 @@ a.btn--danger:hover:not(:disabled) {
   min-width: 0;
 }
 
+a.library-card__title {
+  color: var(--color-text-primary);
+  text-decoration: none;
+}
+
+a.library-card__title:hover {
+  color: var(--color-primary);
+}
+
 .library-card__menu-trigger {
   flex-shrink: 0;
 }

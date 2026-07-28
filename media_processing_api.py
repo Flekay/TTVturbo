@@ -479,6 +479,16 @@ def build_media_processing_router(
         except Exception as exc:
             return _map_media_error(exc)
 
+    @router.get("/sources/{source_type}/{source_id}/transcriptions")
+    def list_source_transcriptions(source_type: str, source_id: str) -> JSONResponse:
+        """List transcriptions for any supported source (twitch_vod, file_upload)."""
+        try:
+            transcription_service.poll_dependencies()
+            transcripts = transcription_service.list_transcriptions(vod_id=source_id)
+            return JSONResponse(content={"transcriptions": transcripts})
+        except Exception as exc:
+            return _map_media_error(exc)
+
     # ----------------------------------------------------------------- audio artifacts
     @router.get("/vods/{vod_id}/artifacts/audio")
     def get_audio_artifact(vod_id: str) -> JSONResponse:
@@ -505,6 +515,38 @@ def build_media_processing_router(
             if meta is None:
                 return _error_response(404, "audio_artifact_not_found", "No audio artifact for this VOD.")
             path = audio_service.artifact_path(vod_id)
+            if not path.is_file():
+                return _error_response(404, "audio_artifact_not_found", "Audio file is missing on disk.")
+            return FileResponse(path, media_type="audio/flac", filename="source_audio.flac")
+        except Exception as exc:
+            return _map_media_error(exc)
+
+    # ----------------------------------------------------------------- audio artifacts (generic source)
+    @router.get("/sources/{source_type}/{source_id}/artifacts/audio")
+    def get_source_audio_artifact(source_type: str, source_id: str) -> JSONResponse:
+        try:
+            meta = audio_service.get_audio_artifact(source_id, source_type)
+            if meta is None:
+                return _error_response(404, "audio_artifact_not_found", "No audio artifact for this source.")
+            return JSONResponse(content=meta)
+        except Exception as exc:
+            return _map_media_error(exc)
+
+    @router.post("/sources/{source_type}/{source_id}/artifacts/audio")
+    def start_source_audio_extraction(source_type: str, source_id: str, request: StartAudioExtractionRequest) -> JSONResponse:
+        try:
+            job = audio_service.start_extraction(source_type, source_id, force=request.force)
+            return JSONResponse(status_code=201, content=job)
+        except Exception as exc:
+            return _map_media_error(exc)
+
+    @router.get("/sources/{source_type}/{source_id}/artifacts/audio/file")
+    def get_source_audio_file(source_type: str, source_id: str) -> Any:
+        try:
+            meta = audio_service.get_audio_artifact(source_id, source_type)
+            if meta is None:
+                return _error_response(404, "audio_artifact_not_found", "No audio artifact for this source.")
+            path = audio_service.artifact_path(source_id, source_type)
             if not path.is_file():
                 return _error_response(404, "audio_artifact_not_found", "Audio file is missing on disk.")
             return FileResponse(path, media_type="audio/flac", filename="source_audio.flac")

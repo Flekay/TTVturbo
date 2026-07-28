@@ -148,32 +148,37 @@ class TranscriptionService:
         self._recover_on_startup()
 
     # ------------------------------------------------------------------ paths
-    def _source_dir_for(self, source_id: str) -> Path:
+    def _source_dir_for(self, source_id: str, source_type: Optional[str] = None) -> Path:
         """Resolve the source directory for a source_id that may be either a
-        twitch_vod or a file_upload. Tries VOD storage first, then uploads.
+        twitch_vod or a file_upload. When ``source_type`` is known, use it
+        directly; otherwise try VOD storage first, then uploads.
         """
+        if source_type == "file_upload":
+            return self.source_resolver.get_source_dir("file_upload", source_id)
+        if source_type == "twitch_vod":
+            return self.source_resolver.get_vod_dir(source_id)
         try:
             return self.source_resolver.get_vod_dir(source_id)
         except MediaSourceNotFoundError:
             pass
-        if self.source_resolver.upload_storage is not None:
+        if self.source_resolver.upload_storage is not None or self.source_resolver.library_service is not None:
             try:
                 return self.source_resolver.get_source_dir("file_upload", source_id)
             except MediaSourceError:
                 pass
         raise MediaSourceNotFoundError(f"source not found: {source_id}")
 
-    def transcripts_dir(self, vod_id: str) -> Path:
-        source_dir = self._source_dir_for(vod_id)
+    def transcripts_dir(self, vod_id: str, source_type: Optional[str] = None) -> Path:
+        source_dir = self._source_dir_for(vod_id, source_type)
         return source_dir / ARTIFACTS_SUBDIR / TRANSCRIPTS_SUBDIR
 
-    def transcript_dir(self, vod_id: str, transcription_id: str) -> Path:
+    def transcript_dir(self, vod_id: str, transcription_id: str, source_type: Optional[str] = None) -> Path:
         # Validate transcription_id as UUID to prevent path traversal.
         try:
             uuid.UUID(transcription_id)
         except (ValueError, AttributeError, TypeError) as exc:
             raise MediaJobValidationError(f"invalid transcription id: {transcription_id!r}") from exc
-        return self.transcripts_dir(vod_id) / transcription_id
+        return self.transcripts_dir(vod_id, source_type) / transcription_id
 
     # ------------------------------------------------------------------ runtime
     def runtime_status(self) -> dict:
@@ -334,7 +339,7 @@ class TranscriptionService:
                         if rec is not None:
                             out.append(rec)
         else:
-            # Iterate all source roots (VODs + uploads) that have transcripts.
+            # Iterate all source roots (VODs + uploads + library) that have transcripts.
             source_roots: list[Path] = []
             vods_root = self.source_resolver.vod_storage.vods_dir
             if vods_root.is_dir():
@@ -343,6 +348,10 @@ class TranscriptionService:
                 uploads_root = self.source_resolver.upload_storage.uploads_dir
                 if uploads_root.is_dir():
                     source_roots.append(uploads_root)
+            if self.source_resolver.library_service is not None:
+                library_root = self.source_resolver.library_service.storage.library_dir
+                if library_root.is_dir():
+                    source_roots.append(library_root)
             for root in source_roots:
                 for src_dir in root.iterdir():
                     if not src_dir.is_dir():
@@ -382,8 +391,9 @@ class TranscriptionService:
         for rec in self.list_transcriptions():
             if rec.get("id") == transcription_id:
                 vod_id = rec.get("source_id")
+                stype = rec.get("source_type")
                 if vod_id:
-                    return self.transcript_dir(vod_id, transcription_id)
+                    return self.transcript_dir(vod_id, transcription_id, stype)
         raise MediaJobNotFoundError(f"transcription not found: {transcription_id}")
 
     # ------------------------------------------------------------------ start
@@ -426,7 +436,7 @@ class TranscriptionService:
         effective_model = model or self.model
 
         # Ensure audio artifact exists (start extraction if needed).
-        audio_meta = self.audio_service.get_audio_artifact(source_id)
+        audio_meta = self.audio_service.get_audio_artifact(source_id, source_type)
         audio_job_id: Optional[str] = None
         if audio_meta is None or force_audio_extraction:
             # Start audio extraction. This raises if the source is not READY.
@@ -566,16 +576,17 @@ class TranscriptionService:
             self._mark_failed(job_id, "job is missing source_id or transcription_id")
             return
         # Resolve the audio artifact path.
-        audio_meta = self.audio_service.get_audio_artifact(source_id)
+        source_type = job.get("source_type", "twitch_vod")
+        audio_meta = self.audio_service.get_audio_artifact(source_id, source_type)
         if audio_meta is None:
             self._mark_failed(job_id, "audio artifact is missing")
             return
-        audio_path = self.audio_service.artifact_path(source_id)
+        audio_path = self.audio_service.artifact_path(source_id, source_type)
         if not audio_path.is_file():
             self._mark_failed(job_id, "audio artifact file is missing on disk")
             return
 
-        transcript_dir = self.transcript_dir(source_id, transcription_id)
+        transcript_dir = self.transcript_dir(source_id, transcription_id, source_type)
         transcript_dir.mkdir(parents=True, exist_ok=True)
 
         options = job.get("options") or {}
@@ -693,8 +704,9 @@ class TranscriptionService:
         # Clean up .part transcript files.
         tid = job.get("transcription_id")
         sid = job.get("source_id")
+        stype = job.get("source_type", "twitch_vod")
         if tid and sid:
-            tdir = self.transcript_dir(sid, tid)
+            tdir = self.transcript_dir(sid, tid, stype)
             for name in (TRANSCRIPT_JSON, TRANSCRIPT_TXT, TRANSCRIPT_SRT, TRANSCRIPT_VTT):
                 part = tdir / (name + TRANSCRIPT_PART_SUFFIX)
                 try:
@@ -738,9 +750,10 @@ class TranscriptionService:
         # Also delete the transcript artifact dir.
         tid = job.get("transcription_id")
         sid = job.get("source_id")
+        stype = job.get("source_type", "twitch_vod")
         deleted = self.storage.delete_job(job_id)
         if tid and sid:
-            tdir = self.transcript_dir(sid, tid)
+            tdir = self.transcript_dir(sid, tid, stype)
             try:
                 if tdir.exists():
                     shutil.rmtree(tdir, ignore_errors=True)
@@ -751,9 +764,13 @@ class TranscriptionService:
     def delete_transcription(self, transcription_id: str) -> bool:
         """Delete a transcript artifact by id. Does NOT delete the source
         video or the audio artifact.
+
+        Also deletes any job record pointing to this transcription. If the
+        transcript artifact dir does not exist (e.g. the job failed before
+        producing one), the job is still cleaned up.
         """
-        tdir = self._find_transcription_dir(transcription_id)
-        # Also delete any job that points to this transcription.
+        # Find and delete any job that points to this transcription.
+        found_job = False
         for job in self.storage.iter_jobs():
             if job.get("transcription_id") == transcription_id:
                 if job.get("status") in {s.value for s in TRANSIENT_JOB_STATUSES}:
@@ -762,12 +779,21 @@ class TranscriptionService:
                     )
                 try:
                     self.storage.delete_job(job["id"])
+                    found_job = True
                 except MediaJobStorageError:
                     pass
+        # Best-effort: remove the transcript artifact dir if it exists.
         try:
-            shutil.rmtree(tdir, ignore_errors=True)
-        except OSError:
-            pass
+            tdir = self._find_transcription_dir(transcription_id)
+        except MediaJobNotFoundError:
+            tdir = None
+        if tdir is not None:
+            try:
+                shutil.rmtree(tdir, ignore_errors=True)
+            except OSError:
+                pass
+        if not found_job and tdir is None:
+            raise MediaJobNotFoundError(f"transcription not found: {transcription_id}")
         return True
 
     # ------------------------------------------------------------------ file access
@@ -786,7 +812,7 @@ class TranscriptionService:
         vod_id = rec.get("source_id")
         if not vod_id:
             raise MediaJobNotFoundError("transcript record is missing source_id")
-        tdir = self.transcript_dir(vod_id, transcription_id)
+        tdir = self.transcript_dir(vod_id, transcription_id, rec.get("source_type"))
         filename = f"transcript.{ext}"
         path = (tdir / filename).resolve()
         try:

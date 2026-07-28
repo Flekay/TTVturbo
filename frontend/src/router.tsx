@@ -9,6 +9,7 @@ import { VodPipelinePage } from "./pages/VodPipelinePage";
 import { VodDetailPage } from "./pages/VodDetailPage";
 import { TranscriptionPage } from "./pages/TranscriptionPage";
 import { LibraryPage } from "./pages/LibraryPage";
+import { LibraryDetailPage } from "./pages/LibraryDetailPage";
 import { TwitchProfilesPage } from "./pages/TwitchProfilesPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
@@ -115,6 +116,15 @@ export function AppRouter() {
         element={
           <AppLayout>
             <LibraryPage />
+          </AppLayout>
+        }
+      />
+      {/* Library item detail: video, audio artifact, transcriptions. */}
+      <Route
+        path="/library/:itemId"
+        element={
+          <AppLayout>
+            <LibraryDetailPage />
           </AppLayout>
         }
       />
