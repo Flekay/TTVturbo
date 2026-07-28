@@ -16,6 +16,11 @@ Endpoints:
   GET    /api/transcriptions/{id}/txt
   GET    /api/transcriptions/{id}/srt
   GET    /api/transcriptions/{id}/vtt
+  GET    /api/transcriptions/{id}/transcript
+  PATCH  /api/transcriptions/{id}/corrections
+  POST   /api/transcriptions/{id}/segments/{segment_id}/reset
+  POST   /api/transcriptions/{id}/reset-corrections
+  GET    /api/transcriptions/{id}/revisions
   GET    /api/vods/{vod_id}/transcriptions
 
   POST   /api/pipeline-runs
@@ -60,6 +65,7 @@ from ttvturbo.media_processing import (
     PipelineRunNotFoundError,
     PipelineRunValidationError,
     PipelineService,
+    TranscriptRevisionConflictError,
     TranscriptionError,
     TranscriptionService,
     UploadStorage,
@@ -97,6 +103,16 @@ class StartPipelineRunRequest(BaseModel):
 
 class StartAudioExtractionRequest(BaseModel):
     force: bool = False
+
+
+class SegmentCorrectionRequest(BaseModel):
+    segment_id: str
+    corrected_text: Optional[str] = None
+
+
+class SaveCorrectionsRequest(BaseModel):
+    expected_revision: int
+    segments: list[SegmentCorrectionRequest] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -441,6 +457,118 @@ def build_media_processing_router(
         try:
             path = transcription_service.transcript_file_path(transcription_id, "vtt")
             return FileResponse(path, media_type="text/vtt", filename="transcript.vtt")
+        except Exception as exc:
+            return _map_media_error(exc)
+
+    # ----------------------------------------------------------------- transcript corrections
+    @router.get("/transcriptions/{transcription_id}/transcript")
+    def get_transcript_view(transcription_id: str) -> JSONResponse:
+        """Return the canonical (schema_version 2) transcript view.
+
+        Includes ``raw_text``, ``corrected_text``, ``revision``,
+        ``correction_status``, ``engine`` and per-segment
+        ``raw_text``/``corrected_text``. Old schema_version 1
+        transcripts are interpreted on read (no rewrite).
+        """
+        try:
+            transcript = transcription_service.get_transcript(transcription_id)
+            return JSONResponse(content=transcript)
+        except Exception as exc:
+            return _map_media_error(exc)
+
+    @router.patch("/transcriptions/{transcription_id}/corrections")
+    def save_corrections(
+        transcription_id: str, request: SaveCorrectionsRequest,
+    ) -> JSONResponse:
+        """Apply a batch of segment corrections atomically.
+
+        Optimistic concurrency: the client sends ``expected_revision``;
+        if the stored revision differs, HTTP 409 is returned with the
+        current transcript so the UI can reload.
+        """
+        try:
+            segment_updates = [
+                {"segment_id": s.segment_id, "corrected_text": s.corrected_text}
+                for s in request.segments
+            ]
+            transcript = transcription_service.save_corrections(
+                transcription_id=transcription_id,
+                expected_revision=request.expected_revision,
+                segments=segment_updates,
+            )
+            return JSONResponse(content=transcript)
+        except TranscriptRevisionConflictError as exc:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "detail": {
+                        "code": "revision_conflict",
+                        "message": str(exc),
+                        "current_revision": exc.current_revision,
+                        "transcript": exc.transcript,
+                    }
+                },
+            )
+        except Exception as exc:
+            return _map_media_error(exc)
+
+    @router.post(
+        "/transcriptions/{transcription_id}/segments/{segment_id}/reset"
+    )
+    def reset_segment_correction(
+        transcription_id: str, segment_id: str,
+    ) -> JSONResponse:
+        """Reset a single segment's correction to ``None``."""
+        try:
+            transcript = transcription_service.reset_segment_correction(
+                transcription_id=transcription_id,
+                segment_id=segment_id,
+            )
+            return JSONResponse(content=transcript)
+        except TranscriptRevisionConflictError as exc:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "detail": {
+                        "code": "revision_conflict",
+                        "message": str(exc),
+                        "current_revision": exc.current_revision,
+                        "transcript": exc.transcript,
+                    }
+                },
+            )
+        except Exception as exc:
+            return _map_media_error(exc)
+
+    @router.post("/transcriptions/{transcription_id}/reset-corrections")
+    def reset_all_corrections(transcription_id: str) -> JSONResponse:
+        """Reset every segment correction to ``None`` and bump the revision."""
+        try:
+            transcript = transcription_service.reset_all_corrections(
+                transcription_id=transcription_id,
+            )
+            return JSONResponse(content=transcript)
+        except TranscriptRevisionConflictError as exc:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "detail": {
+                        "code": "revision_conflict",
+                        "message": str(exc),
+                        "current_revision": exc.current_revision,
+                        "transcript": exc.transcript,
+                    }
+                },
+            )
+        except Exception as exc:
+            return _map_media_error(exc)
+
+    @router.get("/transcriptions/{transcription_id}/revisions")
+    def list_transcript_revisions(transcription_id: str) -> JSONResponse:
+        """Return the lightweight revision history."""
+        try:
+            revisions = transcription_service.list_revisions(transcription_id)
+            return JSONResponse(content={"revisions": revisions})
         except Exception as exc:
             return _map_media_error(exc)
 
