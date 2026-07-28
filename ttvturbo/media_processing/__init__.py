@@ -53,6 +53,14 @@ from .gpu_lock import GpuLock, GpuLockBusyError, GpuLockError, GpuLockOwner
 from .sources import MediaSourceResolver, ResolvedMediaSource
 from .audio_extraction import AudioExtractionService, AudioExtractionError
 from .transcription import TranscriptionService, TranscriptionError
+from .transcript_corrections import (
+    TranscriptCorrectionError,
+    TranscriptCorrectionStore,
+    TranscriptRevisionConflictError,
+    get_effective_segments,
+    get_effective_text,
+    effective_contract as transcript_effective_contract,
+)
 from .pipeline import PipelineService, PipelineError
 from .uploads import (
     UploadNotFoundError,
@@ -156,6 +164,12 @@ __all__ = [
     "TranscriptionService",
     "TranscriptionStatus",
     "TranscriptionWord",
+    "TranscriptCorrectionError",
+    "TranscriptCorrectionStore",
+    "TranscriptRevisionConflictError",
+    "get_effective_segments",
+    "get_effective_text",
+    "transcript_effective_contract",
     "UploadNotFoundError",
     "UploadStorage",
     "UploadStorageError",

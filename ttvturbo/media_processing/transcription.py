@@ -880,6 +880,107 @@ class TranscriptionService:
             raise MediaJobNotFoundError(f"transcription not found: {transcription_id}")
         return True
 
+    # ------------------------------------------------------------------ corrections
+    def _correction_store(self, transcription_id: str) -> "TranscriptCorrectionStore":
+        """Build a TranscriptCorrectionStore for the given transcript id.
+
+        Resolves the transcript directory via the metadata record and
+        validates the id as a UUID (path-traversal guard).
+        """
+        from .transcript_corrections import (
+            TranscriptCorrectionStore,
+            validate_transcription_id,
+        )
+
+        validate_transcription_id(transcription_id)
+        rec = self.get_transcription(transcription_id)
+        if rec.get("status") != TranscriptionStatus.READY.value:
+            raise MediaJobConflictError(
+                f"transcript is not READY (current: {rec.get('status')})"
+            )
+        vod_id = rec.get("source_id")
+        if not vod_id:
+            raise MediaJobNotFoundError("transcript record is missing source_id")
+        tdir = self.transcript_dir(vod_id, transcription_id, rec.get("source_type"))
+        return TranscriptCorrectionStore(tdir)
+
+    def _job_for_transcription(self, transcription_id: str) -> Optional[dict]:
+        """Return the producing job for a transcription id, if any."""
+        for job in self.storage.iter_jobs():
+            if job.get("transcription_id") == transcription_id:
+                return job
+        return None
+
+    def get_transcript(self, transcription_id: str) -> dict:
+        """Return the canonical (schema_version 2) transcript view.
+
+        Loads ``transcript.json`` and normalises it. Old schema_version 1
+        transcripts are interpreted on read (no rewrite).
+        """
+        store = self._correction_store(transcription_id)
+        job = self._job_for_transcription(transcription_id)
+        return store.load(job=job)
+
+    def get_transcript_contract(self, transcription_id: str) -> dict:
+        """Return the slim effective-text contract for later consumers
+        (Conversation Mining)."""
+        from .transcript_corrections import effective_contract
+
+        transcript = self.get_transcript(transcription_id)
+        job = self._job_for_transcription(transcription_id)
+        return effective_contract(transcript, job)
+
+    def save_corrections(
+        self,
+        transcription_id: str,
+        expected_revision: int,
+        segments: list[dict],
+    ) -> dict:
+        """Apply a batch of segment corrections atomically.
+
+        See :meth:`TranscriptCorrectionStore.save_corrections`.
+        """
+        store = self._correction_store(transcription_id)
+        job = self._job_for_transcription(transcription_id)
+        return store.save_corrections(
+            expected_revision=expected_revision,
+            segment_updates=segments,
+            job=job,
+        )
+
+    def reset_segment_correction(
+        self,
+        transcription_id: str,
+        segment_id: str,
+        expected_revision: Optional[int] = None,
+    ) -> dict:
+        """Reset a single segment's correction to ``None``."""
+        store = self._correction_store(transcription_id)
+        job = self._job_for_transcription(transcription_id)
+        return store.reset_segment(
+            segment_id=segment_id,
+            expected_revision=expected_revision,
+            job=job,
+        )
+
+    def reset_all_corrections(
+        self,
+        transcription_id: str,
+        expected_revision: Optional[int] = None,
+    ) -> dict:
+        """Reset every segment correction to ``None`` and bump the revision."""
+        store = self._correction_store(transcription_id)
+        job = self._job_for_transcription(transcription_id)
+        return store.reset_all_corrections(
+            expected_revision=expected_revision,
+            job=job,
+        )
+
+    def list_revisions(self, transcription_id: str) -> list[dict]:
+        """Return the lightweight revision history entries."""
+        store = self._correction_store(transcription_id)
+        return store.list_revisions()
+
     # ------------------------------------------------------------------ file access
     def transcript_file_path(self, transcription_id: str, ext: str) -> Path:
         """Return the path to a READY transcript file. Validates ext and
