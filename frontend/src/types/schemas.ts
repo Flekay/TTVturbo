@@ -234,8 +234,3 @@ export const qualityMetricsSchema = z.object({
     warnings: z.array(z.string()),
   }),
 });
-
-/** Best-effort error response schema. Many FastAPI errors return `{detail: ...}`. */
-export const errorResponseSchema = z.object({
-  detail: z.union([z.string(), z.array(z.any())]),
-});

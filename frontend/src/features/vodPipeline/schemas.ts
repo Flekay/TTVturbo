@@ -117,8 +117,3 @@ export const vodLogResponseSchema = z.object({
   id: z.string(),
   log: z.string(),
 });
-
-/** Best-effort error response schema. FastAPI errors return `{detail: ...}`. */
-export const apiErrorSchema = z.object({
-  detail: z.union([z.string(), z.array(z.any()), z.record(z.string(), z.any())]),
-});
