@@ -120,6 +120,25 @@ export const pipelineStepSchema = z.object({
   status: z.string(),
   job_id: z.string().nullable().optional(),
   error: z.string().nullable().optional(),
+  // Additive v2 fields (old runs default to null/0/[]).
+  progress: z.number().nullable().optional(),
+  message: z.string().nullable().optional(),
+  attempt: z.number().optional(),
+  started_at: z.string().nullable().optional(),
+  completed_at: z.string().nullable().optional(),
+  artifact_ids: z.array(z.string()).optional(),
+});
+
+export const pipelineSourceSchema = z.object({
+  provider: z.string().optional(),
+  type: z.string().nullable().optional(),
+  external_id: z.string().nullable().optional(),
+  url: z.string().nullable().optional(),
+  profile_id: z.string().nullable().optional(),
+  title: z.string().nullable().optional(),
+  thumbnail_url: z.string().nullable().optional(),
+  duration_seconds: z.number().nullable().optional(),
+  legacy: z.boolean().optional(),
 });
 
 export const pipelineRunSchema = z.object({
@@ -134,6 +153,13 @@ export const pipelineRunSchema = z.object({
   created_at: z.string(),
   updated_at: z.string(),
   completed_at: z.string().nullable().optional(),
+  // Additive v2 fields (old runs default to null).
+  source: pipelineSourceSchema.nullable().optional(),
+  progress: z.number().nullable().optional(),
+  current_step: z.string().nullable().optional(),
+  started_at: z.string().nullable().optional(),
+  library_item_id: z.string().nullable().optional(),
+  transcript_id: z.string().nullable().optional(),
 });
 
 export const pipelineRunListResponseSchema = z.object({

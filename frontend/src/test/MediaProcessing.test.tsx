@@ -145,50 +145,69 @@ describe("Media Processing frontend", () => {
     });
   });
 
-  it("renders the VOD Pipeline page with startable VODs", async () => {
+  it("renders the VOD Pipeline page with URL import and tabs", async () => {
     const { container } = renderWithProviders(<AppRouter />, {
       initialEntries: ["/vod-pipeline"],
     });
     const main = mainOf(container);
     await waitFor(() => {
-      expect(within(main).getByRole("heading", { name: "Pipeline starten" })).toBeInTheDocument();
+      expect(within(main).getByLabelText("Twitch-VOD- oder Clip-URL")).toBeInTheDocument();
     });
-    // The Ready VOD should appear as a startable VOD.
-    await waitFor(() => {
-      expect(within(main).getByText("Ready VOD")).toBeInTheDocument();
-    });
+    // Both tabs are rendered.
+    expect(within(main).getByRole("tab", { name: /Aktiv/ })).toBeInTheDocument();
+    expect(within(main).getByRole("tab", { name: /Verlauf/ })).toBeInTheDocument();
   });
 
-  it("starts a pipeline run when the button is clicked", async () => {
+  it("starts a pipeline run from a URL when the button is clicked", async () => {
     const user = userEvent.setup();
-    mock.setResponse("POST /api/pipeline-runs", 201, {
-      schema_version: 1,
+    mock.setResponse("POST /api/vod-pipeline/runs", 201, {
+      schema_version: 2,
       id: "44444444-4444-4444-4444-444444444444",
       source_type: "twitch_vod",
       source_id: vodReady.id,
       profile_id: "11111111-1111-1111-1111-111111111111",
       status: "RUNNING",
       steps: [
-        { type: "DOWNLOAD", status: "READY", job_id: null, error: null },
-        { type: "EXTRACT_AUDIO", status: "WAITING", job_id: null, error: null },
-        { type: "TRANSCRIBE", status: "WAITING", job_id: null, error: null },
-        { type: "FIND_CLIPS", status: "NOT_IMPLEMENTED", job_id: null, error: null },
+        { type: "RESOLVE_SOURCE", status: "READY", job_id: null, error: null },
+        { type: "DOWNLOAD", status: "SKIPPED", job_id: null, error: null },
+        { type: "EXTRACT_AUDIO", status: "PENDING", job_id: null, error: null },
+        { type: "TRANSCRIBE", status: "PENDING", job_id: null, error: null },
       ],
       error: null,
       created_at: "2024-01-01T00:00:00+00:00",
       updated_at: "2024-01-01T00:00:00+00:00",
       completed_at: null,
+      source: {
+        provider: "twitch",
+        type: "vod",
+        external_id: "123456789",
+        url: "https://www.twitch.tv/videos/123456789",
+        profile_id: "11111111-1111-1111-1111-111111111111",
+        title: "Ready VOD",
+        thumbnail_url: null,
+        duration_seconds: 600,
+        legacy: false,
+      },
+      progress: 5,
+      current_step: "EXTRACT_AUDIO",
+      started_at: "2024-01-01T00:00:00+00:00",
+      library_item_id: null,
+      transcript_id: null,
     });
     const { container } = renderWithProviders(<AppRouter />, {
       initialEntries: ["/vod-pipeline"],
     });
     const main = mainOf(container);
-    await waitFor(() => expect(within(main).getByText("Ready VOD")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(within(main).getByLabelText("Twitch-VOD- oder Clip-URL")).toBeInTheDocument(),
+    );
+    const input = within(main).getByLabelText("Twitch-VOD- oder Clip-URL") as HTMLInputElement;
+    await user.type(input, "https://www.twitch.tv/videos/123456789");
     const startBtn = within(main).getByRole("button", { name: /Pipeline starten/ });
     await user.click(startBtn);
     await waitFor(() => {
       const call = mock.calls.find(
-        (c) => c.url === "/api/pipeline-runs" && c.method === "POST",
+        (c) => c.url === "/api/vod-pipeline/runs" && c.method === "POST",
       );
       expect(call).toBeDefined();
     });

@@ -101,6 +101,10 @@ class StartPipelineRunRequest(BaseModel):
     source_id: str
 
 
+class StartPipelineRunFromUrlRequest(BaseModel):
+    url: str
+
+
 class StartAudioExtractionRequest(BaseModel):
     force: bool = False
 
@@ -665,9 +669,37 @@ def build_media_processing_router(
         except Exception as exc:
             return _map_pipeline_error(exc)
 
+    @router.post("/vod-pipeline/runs")
+    def start_vod_pipeline_run(request: StartPipelineRunFromUrlRequest) -> JSONResponse:
+        """Start a new VOD pipeline run from a Twitch VOD or clip URL.
+
+        This is the primary, URL-based entry point. The legacy
+        ``POST /api/pipeline-runs`` (library-id based) is kept for
+        backward compatibility (library reprocessing).
+        """
+        try:
+            run = pipeline_service.start_run_from_url(request.url)
+            return JSONResponse(status_code=201, content=run)
+        except Exception as exc:
+            return _map_pipeline_error(exc)
+
     @router.get("/pipeline-runs")
-    def list_pipeline_runs(source_id: Optional[str] = Query(default=None)) -> JSONResponse:
-        runs = pipeline_service.list_runs(source_id=source_id)
+    def list_pipeline_runs(
+        source_id: Optional[str] = Query(default=None),
+        status: Optional[str] = Query(default=None),
+        profile_id: Optional[str] = Query(default=None),
+        source_type: Optional[str] = Query(default=None),
+        search: Optional[str] = Query(default=None),
+        limit: Optional[int] = Query(default=None),
+    ) -> JSONResponse:
+        runs = pipeline_service.list_runs(
+            source_id=source_id,
+            status=status,
+            profile_id=profile_id,
+            source_type=source_type,
+            search=search,
+            limit=limit,
+        )
         return JSONResponse(content={"pipeline_runs": runs})
 
     @router.get("/pipeline-runs/{run_id}")

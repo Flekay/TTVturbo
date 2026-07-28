@@ -14,6 +14,7 @@ import {
 import type {
   StartTranscriptionRequest,
   StartPipelineRunRequest,
+  StartPipelineRunFromUrlRequest,
   StartAudioExtractionRequest,
   TranscriptionRuntimeStatus,
   MediaJob,
@@ -260,11 +261,44 @@ export function startPipelineRun(request: StartPipelineRunRequest): Promise<Pipe
   return apiClient.post(PIPELINE_RUNS, { body: request, schema: pipelineRunSchema });
 }
 
+/** Start a VOD pipeline run from a Twitch VOD or clip URL (primary entry point). */
+export function startVodPipelineRun(request: StartPipelineRunFromUrlRequest): Promise<PipelineRun> {
+  return apiClient.post("/api/vod-pipeline/runs", { body: request, schema: pipelineRunSchema });
+}
+
+export interface PipelineRunsFilter {
+  sourceId?: string;
+  status?: string;
+  profileId?: string;
+  sourceType?: string;
+  search?: string;
+  limit?: number;
+}
+
 export function fetchPipelineRuns(
   sourceId?: string,
   signal?: AbortSignal,
 ): Promise<PipelineRunListResponse> {
   const qs = sourceId ? `?source_id=${encodeURIComponent(sourceId)}` : "";
+  return apiClient.get(`${PIPELINE_RUNS}${qs}`, {
+    schema: pipelineRunListResponseSchema,
+    signal,
+  });
+}
+
+/** Fetch pipeline runs with the full filter set (status, profile, search, ...). */
+export function fetchPipelineRunsFiltered(
+  filter: PipelineRunsFilter,
+  signal?: AbortSignal,
+): Promise<PipelineRunListResponse> {
+  const params = new URLSearchParams();
+  if (filter.sourceId) params.set("source_id", filter.sourceId);
+  if (filter.status) params.set("status", filter.status);
+  if (filter.profileId) params.set("profile_id", filter.profileId);
+  if (filter.sourceType) params.set("source_type", filter.sourceType);
+  if (filter.search) params.set("search", filter.search);
+  if (filter.limit !== undefined && filter.limit > 0) params.set("limit", String(filter.limit));
+  const qs = params.toString() ? `?${params.toString()}` : "";
   return apiClient.get(`${PIPELINE_RUNS}${qs}`, {
     schema: pipelineRunListResponseSchema,
     signal,

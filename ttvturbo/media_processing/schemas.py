@@ -190,12 +190,42 @@ class PipelineStatus(str, Enum):
     QUEUED = "QUEUED"
     RUNNING = "RUNNING"
     WAITING_FOR_GPU = "WAITING_FOR_GPU"
+    CANCELING = "CANCELING"
+    RETRYING = "RETRYING"
     READY_FOR_CLIP_ANALYSIS = "READY_FOR_CLIP_ANALYSIS"
+    COMPLETED = "COMPLETED"
     FAILED = "FAILED"
     CANCELED = "CANCELED"
 
 
+# Active (non-terminal) run statuses — polled by the UI "Aktiv" tab.
+ACTIVE_PIPELINE_STATUSES = frozenset({
+    PipelineStatus.QUEUED.value,
+    PipelineStatus.RUNNING.value,
+    PipelineStatus.WAITING_FOR_GPU.value,
+    PipelineStatus.CANCELING.value,
+    PipelineStatus.RETRYING.value,
+})
+
+# Terminal run statuses — shown in the "Verlauf" tab and deletable.
+TERMINAL_PIPELINE_STATUSES = frozenset({
+    PipelineStatus.COMPLETED.value,
+    PipelineStatus.READY_FOR_CLIP_ANALYSIS.value,
+    PipelineStatus.FAILED.value,
+    PipelineStatus.CANCELED.value,
+})
+
+# Statuses from which a run may be canceled.
+CANCELLABLE_PIPELINE_STATUSES = frozenset({
+    PipelineStatus.QUEUED.value,
+    PipelineStatus.RUNNING.value,
+    PipelineStatus.WAITING_FOR_GPU.value,
+    PipelineStatus.RETRYING.value,
+})
+
+
 class PipelineStepType(str, Enum):
+    RESOLVE_SOURCE = "RESOLVE_SOURCE"
     DOWNLOAD = "DOWNLOAD"
     EXTRACT_AUDIO = "EXTRACT_AUDIO"
     TRANSCRIBE = "TRANSCRIBE"
@@ -203,13 +233,24 @@ class PipelineStepType(str, Enum):
 
 
 class PipelineStepStatus(str, Enum):
+    PENDING = "PENDING"
+    QUEUED = "QUEUED"
     WAITING = "WAITING"
     RUNNING = "RUNNING"
     WAITING_FOR_GPU = "WAITING_FOR_GPU"
     READY = "READY"
     FAILED = "FAILED"
+    SKIPPED = "SKIPPED"
     CANCELED = "CANCELED"
     NOT_IMPLEMENTED = "NOT_IMPLEMENTED"
+
+
+# Step statuses that count as "done" for orchestration purposes.
+DONE_STEP_STATUSES = frozenset({
+    PipelineStepStatus.READY.value,
+    PipelineStepStatus.SKIPPED.value,
+    PipelineStepStatus.NOT_IMPLEMENTED.value,
+})
 
 
 class PipelineStep(BaseModel):
@@ -217,6 +258,13 @@ class PipelineStep(BaseModel):
     status: str = PipelineStepStatus.WAITING.value
     job_id: Optional[str] = None
     error: Optional[str] = None
+    # Additive fields (v2 runs). Old runs normalize these to defaults.
+    progress: Optional[float] = None
+    message: Optional[str] = None
+    attempt: int = 0
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    artifact_ids: list[str] = Field(default_factory=list)
 
 
 class PipelineRun(BaseModel):
@@ -231,6 +279,23 @@ class PipelineRun(BaseModel):
     created_at: str
     updated_at: str
     completed_at: Optional[str] = None
+    # Additive fields (v2 runs). Old runs normalize these to None.
+    source: Optional[dict[str, Any]] = None
+    progress: Optional[float] = None
+    current_step: Optional[str] = None
+    started_at: Optional[str] = None
+    library_item_id: Optional[str] = None
+    transcript_id: Optional[str] = None
+
+
+# Fixed progress weights per step (sum = 100). Used for the overall run
+# progress so a long download is not equal to a quick metadata resolve.
+PIPELINE_STEP_WEIGHTS: dict[str, float] = {
+    PipelineStepType.RESOLVE_SOURCE.value: 5.0,
+    PipelineStepType.DOWNLOAD.value: 50.0,
+    PipelineStepType.EXTRACT_AUDIO.value: 15.0,
+    PipelineStepType.TRANSCRIBE.value: 30.0,
+}
 
 
 # ---------------------------------------------------------------------------

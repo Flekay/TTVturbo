@@ -21,6 +21,9 @@ from __future__ import annotations
 from .schemas import (
     SCHEMA_VERSION,
     SUPPORTED_SCHEMA_VERSIONS,
+    ACTIVE_PIPELINE_STATUSES,
+    CANCELLABLE_PIPELINE_STATUSES,
+    TERMINAL_PIPELINE_STATUSES,
     AudioArtifactMetadata,
     JobType,
     MediaJob,
@@ -33,6 +36,7 @@ from .schemas import (
     MediaSourceNotFoundError,
     MediaSourceNotReadyError,
     MediaProgress,
+    PIPELINE_STEP_WEIGHTS,
     PipelineRun,
     PipelineRunError,
     PipelineRunNotFoundError,
@@ -61,7 +65,7 @@ from .transcript_corrections import (
     get_effective_text,
     effective_contract as transcript_effective_contract,
 )
-from .pipeline import PipelineService, PipelineError
+from .pipeline import PipelineService, PipelineError, DEFAULT_VOD_PIPELINE
 from .uploads import (
     UploadNotFoundError,
     UploadStorage,
@@ -124,6 +128,9 @@ from .asr_models import (
 __all__ = [
     "SCHEMA_VERSION",
     "SUPPORTED_SCHEMA_VERSIONS",
+    "ACTIVE_PIPELINE_STATUSES",
+    "CANCELLABLE_PIPELINE_STATUSES",
+    "TERMINAL_PIPELINE_STATUSES",
     "AudioArtifactMetadata",
     "AudioExtractionError",
     "AudioExtractionService",
@@ -145,6 +152,8 @@ __all__ = [
     "MediaSourceNotReadyError",
     "MediaSourceResolver",
     "MediaSourceResolver",
+    "DEFAULT_VOD_PIPELINE",
+    "PIPELINE_STEP_WEIGHTS",
     "PipelineError",
     "PipelineRun",
     "PipelineRunConflictError",

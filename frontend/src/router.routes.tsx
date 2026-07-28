@@ -48,7 +48,7 @@ export const ROUTES: RouteMeta[] = [
   {
     path: "/vod-pipeline",
     label: "VOD Pipeline",
-    description: "Download, Audio-Extraktion und Transkription automatisieren.",
+    description: "Twitch-VODs und Clips automatisch herunterladen und verarbeiten.",
     icon: Workflow,
     status: "available",
     section: "automation",

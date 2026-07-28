@@ -4,6 +4,8 @@ import type {
   mediaJobSchema,
   transcriptionListResponseSchema,
   audioArtifactSchema,
+  pipelineStepSchema,
+  pipelineSourceSchema,
   pipelineRunSchema,
   pipelineRunListResponseSchema,
   pipelineRunDeleteResponseSchema,
@@ -18,6 +20,8 @@ export type TranscriptionRuntimeStatus = z.infer<typeof transcriptionRuntimeStat
 export type MediaJob = z.infer<typeof mediaJobSchema>;
 export type TranscriptionListResponse = z.infer<typeof transcriptionListResponseSchema>;
 export type AudioArtifact = z.infer<typeof audioArtifactSchema>;
+export type PipelineStep = z.infer<typeof pipelineStepSchema>;
+export type PipelineSource = z.infer<typeof pipelineSourceSchema>;
 export type PipelineRun = z.infer<typeof pipelineRunSchema>;
 export type PipelineRunListResponse = z.infer<typeof pipelineRunListResponseSchema>;
 export type PipelineRunDeleteResponse = z.infer<typeof pipelineRunDeleteResponseSchema>;
@@ -40,6 +44,10 @@ export interface StartTranscriptionRequest {
 export interface StartPipelineRunRequest {
   source_type?: string;
   source_id: string;
+}
+
+export interface StartPipelineRunFromUrlRequest {
+  url: string;
 }
 
 export interface StartAudioExtractionRequest {

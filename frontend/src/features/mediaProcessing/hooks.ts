@@ -16,7 +16,9 @@ import {
   startAudioExtraction,
   startSourceAudioExtraction,
   startPipelineRun,
+  startVodPipelineRun,
   fetchPipelineRuns,
+  fetchPipelineRunsFiltered,
   fetchPipelineRun,
   cancelPipelineRun,
   retryPipelineRun,
@@ -31,6 +33,7 @@ import {
 import type {
   StartTranscriptionRequest,
   StartPipelineRunRequest,
+  StartPipelineRunFromUrlRequest,
   StartAudioExtractionRequest,
   SaveCorrectionsRequest,
 } from "./types";
@@ -389,6 +392,49 @@ export function useStartPipelineRunMutation() {
       queryClient.invalidateQueries({ queryKey: pipelineRunsQueryKey(variables.source_id) });
       queryClient.invalidateQueries({ queryKey: ["status"] });
     },
+  });
+}
+
+/** Start a VOD pipeline run from a Twitch VOD or clip URL. */
+export function useStartVodPipelineRunMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (request: StartPipelineRunFromUrlRequest) => startVodPipelineRun(request),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["media-processing", "pipeline-runs"] });
+      queryClient.invalidateQueries({ queryKey: ["status"] });
+    },
+  });
+}
+
+export const pipelineRunsFilteredQueryKey = (filter: {
+  status?: string;
+  profileId?: string;
+  sourceType?: string;
+  search?: string;
+  limit?: number;
+}) =>
+  [
+    "media-processing",
+    "pipeline-runs-filtered",
+    filter.status ?? "all",
+    filter.profileId ?? "all",
+    filter.sourceType ?? "all",
+    filter.search ?? "",
+    filter.limit ?? 0,
+  ] as const;
+
+/** Fetch pipeline runs with the full filter set. */
+export function usePipelineRunsFilteredQuery(
+  filter: { status?: string; profileId?: string; sourceType?: string; search?: string; limit?: number },
+  options?: { refetchInterval?: number | false },
+) {
+  return useQuery({
+    queryKey: pipelineRunsFilteredQueryKey(filter),
+    queryFn: ({ signal }) => fetchPipelineRunsFiltered(filter, signal),
+    staleTime: 3_000,
+    retry: 1,
+    refetchInterval: options?.refetchInterval,
   });
 }
 

@@ -697,10 +697,18 @@ class TestPipeline:
         assert run["source_id"] == vod_id
         assert run["status"] == PipelineStatus.RUNNING.value
         steps = run["steps"]
-        assert len(steps) == 4
-        assert steps[0]["type"] == PipelineStepType.DOWNLOAD.value
-        assert steps[3]["type"] == PipelineStepType.FIND_CLIPS.value
-        assert steps[3]["status"] == "NOT_IMPLEMENTED"
+        # New URL-pipeline step model: RESOLVE_SOURCE, DOWNLOAD, EXTRACT_AUDIO, TRANSCRIBE.
+        assert steps[0]["type"] == PipelineStepType.RESOLVE_SOURCE.value
+        assert steps[0]["status"] == "READY"
+        assert steps[1]["type"] == PipelineStepType.DOWNLOAD.value
+        # VOD is already READY -> DOWNLOAD is SKIPPED.
+        assert steps[1]["status"] == "SKIPPED"
+        assert steps[2]["type"] == PipelineStepType.EXTRACT_AUDIO.value
+        assert steps[3]["type"] == PipelineStepType.TRANSCRIBE.value
+        # Source block is populated for the new URL-based run.
+        assert run["source"]["external_id"] is not None
+        assert run["source"]["legacy"] is False
+        assert run["progress"] is not None
 
     def test_start_run_for_not_downloaded_vod(
         self, pipeline_service, vod_service, channel_lister
@@ -754,3 +762,134 @@ class TestPipeline:
         runs = pipeline_service.list_runs(source_id=vod_id)
         assert len(runs) >= 1
         assert all(r["source_id"] == vod_id for r in runs)
+
+    # ------------------------------------------------------------------ URL-based start
+
+    def test_start_run_from_url_creates_profile_and_imports_vod(
+        self, pipeline_service, vod_service, channel_lister
+    ):
+        """URL start fetches metadata, auto-creates a profile, imports the
+        VOD and creates a run with a populated source block."""
+        url = "https://www.twitch.tv/videos/999999"
+        entry = channel_lister.add_vod("urlimporttest", "999999", title="URL Import VOD", duration=120.0)
+        # Simulate the uploader field that the real yt-dlp get_video_info
+        # returns (flat-playlist entries don't include it).
+        entry["uploader"] = "urlimporttest"
+        run = pipeline_service.start_run_from_url(url)
+        assert run["status"] == PipelineStatus.RUNNING.value
+        # Source block is populated with the external id and title.
+        assert run["source"]["external_id"] == "999999"
+        assert run["source"]["title"] == "URL Import VOD"
+        assert run["source"]["legacy"] is False
+        assert run["source"]["type"] == "vod"
+        # A profile was auto-created for the uploader.
+        assert run["profile_id"] is not None
+        # RESOLVE_SOURCE is READY, DOWNLOAD is not SKIPPED (VOD is not READY).
+        steps = {s["type"]: s for s in run["steps"]}
+        assert steps["RESOLVE_SOURCE"]["status"] == "READY"
+        assert steps["DOWNLOAD"]["status"] != "SKIPPED"
+        # The VOD was imported into the VOD storage.
+        vod = vod_service.storage.load_vod(run["source_id"])
+        assert vod["twitch_video_id"] == "999999"
+
+    def test_start_run_from_url_reuses_existing_vod(
+        self, pipeline_service, vod_service, channel_lister
+    ):
+        """If the VOD was already imported (e.g. via sync), URL start reuses
+        it instead of creating a duplicate."""
+        url = "https://www.twitch.tv/videos/888888"
+        channel_lister.add_vod("reuseuser", "888888", title="Reuse VOD", duration=60.0)
+        # First start imports the VOD.
+        run1 = pipeline_service.start_run_from_url(url)
+        vod_id_1 = run1["source_id"]
+        # Cancel the first run so we can start again.
+        pipeline_service.cancel_run(run1["id"])
+        # Second start should reuse the same VOD record.
+        run2 = pipeline_service.start_run_from_url(url)
+        assert run2["source_id"] == vod_id_1
+
+    def test_start_run_from_url_rejects_invalid_url(
+        self, pipeline_service
+    ):
+        from ttvturbo.media_processing.schemas import PipelineRunValidationError
+
+        with pytest.raises(PipelineRunValidationError):
+            pipeline_service.start_run_from_url("https://www.youtube.com/watch?v=abc")
+        with pytest.raises(PipelineRunValidationError):
+            pipeline_service.start_run_from_url("")
+
+    def test_start_run_from_url_rejects_active_duplicate(
+        self, pipeline_service, vod_service, channel_lister
+    ):
+        """A second URL start for the same external id while the first is
+        active is rejected with a conflict error."""
+        from ttvturbo.media_processing.schemas import PipelineRunConflictError
+
+        url = "https://www.twitch.tv/videos/777777"
+        channel_lister.add_vod("dupuser", "777777", title="Dup VOD", duration=60.0)
+        pipeline_service.start_run_from_url(url)
+        with pytest.raises(PipelineRunConflictError):
+            pipeline_service.start_run_from_url(url)
+
+    def test_start_run_from_url_not_found(
+        self, pipeline_service, channel_lister
+    ):
+        """A URL for a non-existent Twitch video raises a validation error."""
+        from ttvturbo.media_processing.schemas import PipelineRunValidationError
+
+        url = "https://www.twitch.tv/videos/404404"
+        # No add_vod() call -> get_video_info raises TwitchNotFoundError.
+        with pytest.raises(PipelineRunValidationError):
+            pipeline_service.start_run_from_url(url)
+
+    def test_list_runs_filters(
+        self, pipeline_service, vod_service, make_real_mp4, ffmpeg_available, channel_lister
+    ):
+        if not ffmpeg_available:
+            pytest.skip("ffmpeg not available")
+        vod_id, _ = _make_ready_vod(vod_service, make_real_mp4, channel_lister, title="Filter Test VOD")
+        run = pipeline_service.start_run("twitch_vod", vod_id)
+        # Filter by status.
+        active = pipeline_service.list_runs(status="RUNNING")
+        assert any(r["id"] == run["id"] for r in active)
+        completed = pipeline_service.list_runs(status="COMPLETED")
+        assert not any(r["id"] == run["id"] for r in completed)
+        # Filter by profile_id.
+        profile_id = run["profile_id"]
+        by_profile = pipeline_service.list_runs(profile_id=profile_id)
+        assert all(r["profile_id"] == profile_id for r in by_profile)
+        # Filter by search (title substring).
+        by_search = pipeline_service.list_runs(search="Filter Test")
+        assert any(r["id"] == run["id"] for r in by_search)
+        # Limit.
+        limited = pipeline_service.list_runs(limit=1)
+        assert len(limited) <= 1
+
+    def test_delete_run_only_terminal(
+        self, pipeline_service, vod_service, make_real_mp4, ffmpeg_available, channel_lister
+    ):
+        if not ffmpeg_available:
+            pytest.skip("ffmpeg not available")
+        from ttvturbo.media_processing.schemas import PipelineRunConflictError
+
+        vod_id, _ = _make_ready_vod(vod_service, make_real_mp4, channel_lister)
+        run = pipeline_service.start_run("twitch_vod", vod_id)
+        # Active run cannot be deleted.
+        with pytest.raises(PipelineRunConflictError):
+            pipeline_service.delete_run(run["id"])
+        # Cancel it, then delete should succeed.
+        pipeline_service.cancel_run(run["id"])
+        assert pipeline_service.delete_run(run["id"]) is True
+
+    def test_retry_failed_run(
+        self, pipeline_service, vod_service, make_real_mp4, ffmpeg_available, channel_lister
+    ):
+        if not ffmpeg_available:
+            pytest.skip("ffmpeg not available")
+        vod_id, _ = _make_ready_vod(vod_service, make_real_mp4, channel_lister)
+        run = pipeline_service.start_run("twitch_vod", vod_id)
+        # Cancel -> terminal, then retry re-queues.
+        run = pipeline_service.cancel_run(run["id"])
+        assert run["status"] == PipelineStatus.CANCELED.value
+        retried = pipeline_service.retry_run(run["id"])
+        assert retried["status"] == PipelineStatus.RUNNING.value
