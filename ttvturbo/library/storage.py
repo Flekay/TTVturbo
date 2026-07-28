@@ -97,6 +97,61 @@ class LibraryStorage:
             fh.write(content)
         return dest
 
+    async def stream_item_file(
+        self,
+        item_id: str,
+        file_name: str,
+        async_iterator,
+        *,
+        chunk_size: int = 1024 * 1024,
+    ) -> Path:
+        """Stream an async iterator of bytes into ``{item_dir}/{file_name}``.
+
+        The file is written to a temporary path first, then atomically
+        renamed to the final destination via ``os.replace``.  This means:
+
+        * A partial upload (client disconnect, network error) never leaves
+          a half-written file at the final path — the temp file is cleaned
+          up.
+        * Concurrent reads of the final path never see a partial file.
+
+        *async_iterator* must yield ``bytes`` chunks; it is exhausted
+        fully before the rename.  The caller is responsible for closing
+        the upstream source (e.g. ``await file.close()``).
+        """
+        import asyncio
+        import os
+        import time
+
+        from ttvturbo.storage_utils import atomic_tmp_name
+
+        if not file_name or "/" in file_name or "\\" in file_name:
+            raise LibraryStorageError(f"invalid file_name: {file_name!r}")
+        if file_name.startswith(".") or file_name.startswith("~"):
+            raise LibraryStorageError(f"invalid file_name: {file_name!r}")
+        dest = self._item_dir(item_id) / Path(file_name).name
+        if dest.name != file_name:
+            raise LibraryStorageError(f"invalid file_name: {file_name!r}")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = dest.parent / atomic_tmp_name(dest)
+        try:
+            with open(tmp_path, "wb") as fh:
+                while True:
+                    chunk = await async_iterator.read(chunk_size) if hasattr(async_iterator, "read") else await async_iterator.__anext__()
+                    if not chunk:
+                        break
+                    fh.write(chunk)
+                    fh.flush()
+                    os.fsync(fh.fileno())
+            os.replace(tmp_path, dest)
+        except Exception:
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+            raise
+        return dest
+
     def _metadata_path(self, item_id: str) -> Path:
         return self._item_dir(item_id) / ITEM_FILENAME
 

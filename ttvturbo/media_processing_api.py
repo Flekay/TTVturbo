@@ -63,6 +63,7 @@ from ttvturbo.media_processing import (
     TranscriptionError,
     TranscriptionService,
     UploadStorage,
+    UploadStorageError,
 )
 from ttvturbo.media_processing.schemas import (
     MediaJobStatus,
@@ -215,38 +216,45 @@ def build_media_processing_router(
     ) -> JSONResponse:
         """Upload a media file and start a transcription for it.
 
-        The file is stored as a library item and transcribed directly.
+        The file is streamed to a temp path and atomically renamed, so a
+        partial upload never leaves a half-written file at the final path.
         """
         if library_service is None and upload_storage is None:
             return _error_response(503, "uploads_disabled", "File uploads are not configured.")
         if not file.filename:
             return _error_response(400, "upload_validation", "File name is required.")
+        upload_id = None
         # Save the uploaded file via the library (preferred) or legacy upload storage.
         if library_service is not None:
             try:
                 meta = library_service.create_upload_item(file_name=file.filename, title=file.filename)
                 upload_id = meta["id"]
-                content = await file.read()
-                dest = library_service.storage.write_item_file(upload_id, file.filename, content)
+                dest = await library_service.storage.stream_item_file(upload_id, file.filename, file)
                 meta["file_size_bytes"] = dest.stat().st_size
                 library_service.storage.save_item(meta)
             except Exception as exc:
-                try:
-                    library_service.delete_item(upload_id)
-                except Exception:
-                    pass
+                if upload_id is not None:
+                    try:
+                        library_service.delete_item(upload_id)
+                    except Exception:
+                        pass
                 return _error_response(500, "upload_save_failed", str(exc))
             finally:
                 await file.close()
         else:
             meta = upload_storage.create_upload(file_name=file.filename, title=file.filename)
             upload_id = meta["id"]
-            upload_dir = upload_storage.upload_dir(upload_id)
-            dest = upload_dir / file.filename
             try:
-                content = await file.read()
-                with open(dest, "wb") as fh:
-                    fh.write(content)
+                dest = await upload_storage.stream_upload_file(upload_id, file.filename, file)
+                meta["file_size_bytes"] = dest.stat().st_size
+                # Persist the enriched metadata.
+                from ttvturbo.storage_utils import atomic_write_json
+
+                atomic_write_json(
+                    upload_storage._metadata_path(upload_id),
+                    meta,
+                    UploadStorageError,
+                )
             except Exception as exc:
                 upload_storage.delete_upload(upload_id)
                 return _error_response(500, "upload_save_failed", str(exc))

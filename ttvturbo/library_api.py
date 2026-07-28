@@ -78,22 +78,27 @@ def build_library_router(service: LibraryService) -> APIRouter:
 
     @router.post("/uploads")
     async def upload_to_library(file: UploadFile) -> JSONResponse:
-        """Upload a media file to the library."""
+        """Upload a media file to the library.
+
+        The file is streamed to a temp path and atomically renamed, so a
+        partial upload never leaves a half-written file at the final path.
+        """
         if not file.filename:
             return _error_response(400, "upload_validation", "File name is required.")
+        item_id = None
         try:
             meta = service.create_upload_item(file_name=file.filename, title=file.filename)
             item_id = meta["id"]
-            # Write the file into the item directory via the public helper.
-            content = await file.read()
-            dest = service.storage.write_item_file(item_id, file.filename, content)
+            # Stream the file into the item directory atomically.
+            dest = await service.storage.stream_item_file(item_id, file.filename, file)
             meta["file_size_bytes"] = dest.stat().st_size
             service.storage.save_item(meta)
         except Exception as exc:
-            try:
-                service.delete_item(item_id)
-            except Exception:
-                pass
+            if item_id is not None:
+                try:
+                    service.delete_item(item_id)
+                except Exception:
+                    pass
             return _map_error(exc)
         finally:
             await file.close()

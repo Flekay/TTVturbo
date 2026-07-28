@@ -130,6 +130,53 @@ class UploadStorage:
         meta = self.load_upload(upload_id)
         return self._upload_dir(upload_id) / meta["file_name"]
 
+    async def stream_upload_file(
+        self,
+        upload_id: str,
+        file_name: str,
+        file,
+        *,
+        chunk_size: int = 1024 * 1024,
+    ) -> Path:
+        """Stream an uploaded file into the upload directory atomically.
+
+        The file is written to a temporary path first, then atomically
+        renamed to ``{upload_dir}/{file_name}`` via ``os.replace``.  A
+        partial upload (client disconnect, network error) never leaves a
+        half-written file at the final path — the temp file is cleaned up.
+
+        *file* must be a Starlette/FastAPI ``UploadFile`` (or any object
+        with an async ``read(n)`` method).  The caller is responsible for
+        closing the upstream source.
+        """
+        import os
+
+        from ttvturbo.storage_utils import atomic_tmp_name
+
+        upload_dir = self._upload_dir(upload_id)
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        dest = upload_dir / Path(file_name).name
+        if dest.name != file_name:
+            raise UploadStorageError(f"invalid file_name: {file_name!r}")
+        tmp_path = upload_dir / atomic_tmp_name(dest)
+        try:
+            with open(tmp_path, "wb") as fh:
+                while True:
+                    chunk = await file.read(chunk_size)
+                    if not chunk:
+                        break
+                    fh.write(chunk)
+                    fh.flush()
+                    os.fsync(fh.fileno())
+            os.replace(tmp_path, dest)
+        except Exception:
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+            raise
+        return dest
+
     def delete_upload(self, upload_id: str) -> bool:
         try:
             upload_dir = self._upload_dir(upload_id)
