@@ -8,6 +8,8 @@ import {
   pipelineRunListResponseSchema,
   pipelineRunDeleteResponseSchema,
   vodTranscriptionsResponseSchema,
+  transcriptViewSchema,
+  transcriptRevisionsResponseSchema,
 } from "./schemas";
 import type {
   StartTranscriptionRequest,
@@ -21,6 +23,9 @@ import type {
   PipelineRunListResponse,
   PipelineRunDeleteResponse,
   VodTranscriptionsResponse,
+  TranscriptView,
+  TranscriptRevisionsResponse,
+  SaveCorrectionsRequest,
 } from "./types";
 
 const TRANSCRIPTIONS = "/api/transcriptions";
@@ -142,6 +147,54 @@ export function fetchSourceTranscriptions(
 /** Build the transcript file download URL. */
 export function transcriptFileUrl(transcriptionId: string, ext: "json" | "txt" | "srt" | "vtt"): string {
   return `${TRANSCRIPTIONS}/${encodeURIComponent(transcriptionId)}/${ext}`;
+}
+
+// ---------------------------------------------------------------------------
+// Editable transcript (corrections)
+// ---------------------------------------------------------------------------
+
+export function fetchTranscriptView(transcriptionId: string, signal?: AbortSignal): Promise<TranscriptView> {
+  return apiClient.get(`${TRANSCRIPTIONS}/${encodeURIComponent(transcriptionId)}/transcript`, {
+    schema: transcriptViewSchema,
+    signal,
+  });
+}
+
+export function saveTranscriptCorrections(
+  transcriptionId: string,
+  request: SaveCorrectionsRequest,
+): Promise<TranscriptView> {
+  return apiClient.patch(`${TRANSCRIPTIONS}/${encodeURIComponent(transcriptionId)}/corrections`, {
+    body: request,
+    schema: transcriptViewSchema,
+  });
+}
+
+export function resetSegmentCorrection(
+  transcriptionId: string,
+  segmentId: string,
+): Promise<TranscriptView> {
+  return apiClient.post(
+    `${TRANSCRIPTIONS}/${encodeURIComponent(transcriptionId)}/segments/${encodeURIComponent(segmentId)}/reset`,
+    { schema: transcriptViewSchema },
+  );
+}
+
+export function resetAllCorrections(transcriptionId: string): Promise<TranscriptView> {
+  return apiClient.post(
+    `${TRANSCRIPTIONS}/${encodeURIComponent(transcriptionId)}/reset-corrections`,
+    { schema: transcriptViewSchema },
+  );
+}
+
+export function fetchTranscriptRevisions(
+  transcriptionId: string,
+  signal?: AbortSignal,
+): Promise<TranscriptRevisionsResponse> {
+  return apiClient.get(`${TRANSCRIPTIONS}/${encodeURIComponent(transcriptionId)}/revisions`, {
+    schema: transcriptRevisionsResponseSchema,
+    signal,
+  });
 }
 
 // ---------------------------------------------------------------------------

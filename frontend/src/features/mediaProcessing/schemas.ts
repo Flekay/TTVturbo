@@ -177,3 +177,63 @@ export const vodTranscriptionsResponseSchema = z.object({
     }),
   ),
 });
+
+// ---------------------------------------------------------------------------
+// Editable transcript (schema_version 2 view) + corrections
+// ---------------------------------------------------------------------------
+
+export const transcriptSegmentSchema = z.object({
+  id: z.string(),
+  start: z.number(),
+  end: z.number(),
+  raw_text: z.string(),
+  corrected_text: z.string().nullable().optional(),
+  avg_logprob: z.number().nullable().optional(),
+  no_speech_probability: z.number().nullable().optional(),
+  words: z.array(z.any()).optional(),
+});
+
+export const transcriptViewSchema = z.object({
+  schema_version: z.number().optional(),
+  id: z.string(),
+  source_type: z.string().nullable().optional(),
+  source_id: z.string().nullable().optional(),
+  media_item_id: z.string().nullable().optional(),
+  audio_artifact: z.string().nullable().optional(),
+  model: z.string().nullable().optional(),
+  device: z.string().nullable().optional(),
+  compute_type: z.string().nullable().optional(),
+  language: z.string().nullable().optional(),
+  language_probability: z.number().nullable().optional(),
+  duration_seconds: z.number().nullable().optional(),
+  created_at: z.string(),
+  updated_at: z.string().optional(),
+  revision: z.number(),
+  correction_status: z.string(),
+  raw_text: z.string(),
+  corrected_text: z.string().nullable().optional(),
+  engine: z
+    .object({
+      family: z.string(),
+      model: z.string().nullable().optional(),
+      language: z.string().nullable().optional(),
+    })
+    .optional(),
+  segments: z.array(transcriptSegmentSchema),
+});
+
+export const transcriptRevisionChangeSchema = z.object({
+  segment_id: z.string(),
+  before: z.string().nullable().optional(),
+  after: z.string().nullable().optional(),
+});
+
+export const transcriptRevisionEntrySchema = z.object({
+  revision: z.number(),
+  created_at: z.string(),
+  changes: z.array(transcriptRevisionChangeSchema),
+});
+
+export const transcriptRevisionsResponseSchema = z.object({
+  revisions: z.array(transcriptRevisionEntrySchema),
+});

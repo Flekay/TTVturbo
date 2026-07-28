@@ -22,8 +22,18 @@ import {
   retryPipelineRun,
   deletePipelineRun,
   fetchVodPipelineRuns,
+  fetchTranscriptView,
+  fetchTranscriptRevisions,
+  saveTranscriptCorrections,
+  resetSegmentCorrection,
+  resetAllCorrections,
 } from "./api";
-import type { StartTranscriptionRequest, StartPipelineRunRequest, StartAudioExtractionRequest } from "./types";
+import type {
+  StartTranscriptionRequest,
+  StartPipelineRunRequest,
+  StartAudioExtractionRequest,
+  SaveCorrectionsRequest,
+} from "./types";
 
 /**
  * TanStack Query integration for the Media Processing feature.
@@ -76,7 +86,10 @@ export function usePreloadTranscriptionModelMutation() {
 // Transcriptions
 // ---------------------------------------------------------------------------
 
-export function useTranscriptionsQuery(sourceId?: string, options?: { refetchInterval?: number }) {
+export function useTranscriptionsQuery(
+  sourceId?: string,
+  options?: { refetchInterval?: number | false },
+) {
   return useQuery({
     queryKey: transcriptionsQueryKey(sourceId),
     queryFn: ({ signal }) => fetchTranscriptions(sourceId, signal),
@@ -171,6 +184,91 @@ export function useDeleteTranscriptionMutation() {
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["media-processing", "transcriptions"] });
       queryClient.invalidateQueries({ queryKey: ["status"] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Editable transcript (corrections)
+// ---------------------------------------------------------------------------
+
+export const transcriptViewQueryKey = (id: string) =>
+  ["media-processing", "transcript", id] as const;
+export const transcriptRevisionsQueryKey = (id: string) =>
+  ["media-processing", "transcript", id, "revisions"] as const;
+
+export function useTranscriptViewQuery(id: string | null) {
+  return useQuery({
+    queryKey: id
+      ? transcriptViewQueryKey(id)
+      : ["media-processing", "transcript", "__none__"],
+    enabled: !!id,
+    queryFn: ({ signal }) => fetchTranscriptView(id as string, signal),
+    staleTime: 0,
+    retry: 0,
+  });
+}
+
+export function useTranscriptRevisionsQuery(id: string | null) {
+  return useQuery({
+    queryKey: id
+      ? transcriptRevisionsQueryKey(id)
+      : ["media-processing", "transcript", "__none__", "revisions"],
+    enabled: !!id,
+    queryFn: ({ signal }) => fetchTranscriptRevisions(id as string, signal),
+    staleTime: 0,
+    retry: 0,
+  });
+}
+
+export function useSaveCorrectionsMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      transcriptionId,
+      request,
+    }: {
+      transcriptionId: string;
+      request: SaveCorrectionsRequest;
+    }) => saveTranscriptCorrections(transcriptionId, request),
+    onSuccess: (_data, variables) => {
+      queryClient.setQueryData(transcriptViewQueryKey(variables.transcriptionId), _data);
+      queryClient.invalidateQueries({
+        queryKey: transcriptRevisionsQueryKey(variables.transcriptionId),
+      });
+      queryClient.invalidateQueries({ queryKey: ["media-processing", "transcriptions"] });
+    },
+  });
+}
+
+export function useResetSegmentCorrectionMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      transcriptionId,
+      segmentId,
+    }: {
+      transcriptionId: string;
+      segmentId: string;
+    }) => resetSegmentCorrection(transcriptionId, segmentId),
+    onSuccess: (data, variables) => {
+      queryClient.setQueryData(transcriptViewQueryKey(variables.transcriptionId), data);
+      queryClient.invalidateQueries({
+        queryKey: transcriptRevisionsQueryKey(variables.transcriptionId),
+      });
+    },
+  });
+}
+
+export function useResetAllCorrectionsMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (transcriptionId: string) => resetAllCorrections(transcriptionId),
+    onSuccess: (data, transcriptionId) => {
+      queryClient.setQueryData(transcriptViewQueryKey(transcriptionId), data);
+      queryClient.invalidateQueries({
+        queryKey: transcriptRevisionsQueryKey(transcriptionId),
+      });
     },
   });
 }

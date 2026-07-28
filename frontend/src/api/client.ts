@@ -156,6 +156,8 @@ export const apiClient = {
     apiRequest(path, { ...options, method: "GET" }),
   post: <T>(path: string, options?: Omit<RequestOptions, "method"> & { schema?: ZodSchema<T> }) =>
     apiRequest(path, { ...options, method: "POST" }),
+  patch: <T>(path: string, options?: Omit<RequestOptions, "method"> & { schema?: ZodSchema<T> }) =>
+    apiRequest(path, { ...options, method: "PATCH" }),
   delete: <T>(path: string, options?: Omit<RequestOptions, "method" | "body"> & { schema?: ZodSchema<T> }) =>
     apiRequest(path, { ...options, method: "DELETE" }),
 };

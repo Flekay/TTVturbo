@@ -35,6 +35,7 @@ import { libraryItemFileUrl } from "../features/library/api";
 import { useLibraryItemsQuery } from "../features/library/hooks";
 import type { MediaJob } from "../features/mediaProcessing";
 import { AsrComparisonPanel } from "../features/asrComparison";
+import { TranscriptEditor } from "../features/mediaProcessing";
 
 function jobStatusBadge(status: string): { variant: BadgeVariant; label: string } {
   switch (status) {
@@ -243,7 +244,7 @@ type SourceMode = "upload" | "library";
  * topbar status popover.
  */
 export function TranscriptionPage() {
-  const [pageMode, setPageMode] = useState<"transcribe" | "asr-comparison">("transcribe");
+  const [pageMode, setPageMode] = useState<"transcribe" | "asr-comparison" | "corrections">("transcribe");
   const [mode, setMode] = useState<SourceMode>("library");
   const [language, setLanguage] = useState<string>("de");
   const [modelFamily, setModelFamily] = useState<string>("whisper");
@@ -325,6 +326,15 @@ export function TranscriptionPage() {
         <button
           type="button"
           role="tab"
+          aria-selected={pageMode === "corrections"}
+          className={`transcription-mode-tabs__btn${pageMode === "corrections" ? " is-active" : ""}`}
+          onClick={() => setPageMode("corrections")}
+        >
+          Korrektur
+        </button>
+        <button
+          type="button"
+          role="tab"
           aria-selected={pageMode === "asr-comparison"}
           className={`transcription-mode-tabs__btn${pageMode === "asr-comparison" ? " is-active" : ""}`}
           onClick={() => setPageMode("asr-comparison")}
@@ -335,6 +345,8 @@ export function TranscriptionPage() {
 
       {pageMode === "asr-comparison" ? (
         <AsrComparisonPanel />
+      ) : pageMode === "corrections" ? (
+        <TranscriptEditor />
       ) : (
         <>
       <section className="page__section">
