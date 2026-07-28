@@ -235,16 +235,16 @@ MULTILINGUAL_LARGE_V3_TURBO = AsrPreset(
     id="multilingual-large-v3-turbo",
     name="Large v3 Turbo – Multilingual",
     description=(
-        "large-v3-turbo, float16, automatische Spracherkennung, multilingual "
-        "an, VAD an. Vergleicht Geschwindigkeit und Qualität gegen Large v3."
+        "large-v3-turbo, int8_float16, automatische Spracherkennung, multilingual "
+        "an, VAD an, beam_size=1. Vergleicht Geschwindigkeit und Qualität gegen Large v3."
     ),
     model="large-v3-turbo",
     device="cuda",
-    compute_type="float16",
+    compute_type="int8_float16",
     task="transcribe",
     language=None,
     multilingual=True,
-    beam_size=5,
+    beam_size=1,
     word_timestamps=True,
     condition_on_previous_text=False,
     vad_filter=True,

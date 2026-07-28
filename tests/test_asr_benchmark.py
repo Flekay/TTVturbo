@@ -128,6 +128,35 @@ def test_get_unknown_benchmark_raises(benchmark_service):
         benchmark_service.get_benchmark("does-not-exist")
 
 
+def test_start_accepts_queued_benchmark(benchmark_service):
+    """The normal flow is create (→ QUEUED) → start. Start must NOT
+    refuse a QUEUED benchmark — that's exactly the state it should
+    start from. Only RUNNING should be refused."""
+    rec = benchmark_service.create_benchmark(
+        "twitch_clip", "src-1", preset_ids=["legacy-current"],
+    )
+    assert rec["status"] == "QUEUED"
+    # start() spawns a subprocess; we don't want that in unit tests, so
+    # we verify the status check logic directly: the service should not
+    # raise "benchmark is already QUEUED".
+    # We mock subprocess.Popen to avoid actually launching the worker.
+    import unittest.mock as _mock
+    with _mock.patch("media_processing.asr_benchmark.subprocess.Popen") as popen_mock:
+        popen_mock.return_value = _mock.MagicMock(poll=lambda: None, wait=lambda: 0)
+        with _mock.patch("media_processing.asr_benchmark.threading.Thread"):
+            try:
+                result = benchmark_service.start(rec["id"])
+                # Should not raise; status should become RUNNING.
+                assert result["status"] == "RUNNING"
+            except AsrBenchmarkError as exc:
+                if "already QUEUED" in str(exc):
+                    pytest.fail(f"start() refused a QUEUED benchmark: {exc}")
+                # Other errors (e.g. worker spawn) are acceptable in unit tests.
+    # Clean up the active benchmark state so other tests aren't affected.
+    benchmark_service._active_benchmark_id = None  # noqa: SLF001
+    benchmark_service._active_proc = None  # noqa: SLF001
+
+
 def test_list_benchmarks_returns_records(benchmark_service):
     a = benchmark_service.create_benchmark("twitch_clip", "src-1", preset_ids=["legacy-current"])
     b = benchmark_service.create_benchmark("twitch_clip", "src-2", preset_ids=["legacy-current"])

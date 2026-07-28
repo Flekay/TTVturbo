@@ -13,12 +13,13 @@ TTVturbo/
 ├── voice_profiles_api.py # Voice-Profile FastAPI-Router + Service-Factory
 ├── vod_pipeline_api.py   # VOD-Pipeline FastAPI-Router (Twitch-Profile, VODs, Downloads, Status)
 ├── media_processing_api.py # Media-Processing FastAPI-Router (Transkription, Audio-Artefakte, Pipeline-Runs)
+├── asr_api.py            # ASR-Preset + Benchmark FastAPI-Router (Presets, Benchmarks, Default-Auswahl)
 ├── library_api.py        # Library FastAPI-Router (persistente Video-Sammlung, Uploads)
 ├── verify.py             # automatisierter Backend-Verifikationslauf
 ├── migrate_to_library.py # Migration: VOD-Downloads in die persistente Library übernehmen
 ├── voice_profiles/       # Voice-Profile-Kern (Library, Storage, Service, Schemas)
 ├── vod_pipeline/         # Twitch-VOD-Pipeline-Kern (Schemas, Storage, TwitchClient, Service, Downloader-Worker)
-├── media_processing/     # Shared Media-Processing-Kern (Schemas, Storage, GPU-Lock, Sources, Audio-Extraktion, Transkription, Pipeline)
+├── media_processing/     # Shared Media-Processing-Kern (Schemas, Storage, GPU-Lock, Sources, Audio-Extraktion, Transkription, Pipeline, ASR-Presets, ASR-Metriken, ASR-Diagnose, ASR-Benchmark)
 ├── voice_clone/          # Qwen3-TTS Voice-Clone-Modul (Service, Runtime, Qualitätsanalyse, Diagnostics)
 ├── library/              # Persistente Video-Sammlung (Schemas, Storage, Service)
 ├── config/               # Voice-Pack-Skripte (config/voice_lab/scripts/de-DE/ttvturbo_voice_pack_v1.json)
@@ -187,6 +188,47 @@ Diagnostik-Endpunkt:
 ```powershell
 curl http://127.0.0.1:8765/api/transcription/status
 ```
+
+### ASR-Presets und Benchmark-Vergleich
+
+Das System verwaltet vier vordefinierte ASR-Presets in
+`media_processing/asr_presets.py`:
+
+| Preset-ID | Modell | Compute-Type | VAD | Beam | Spracherkennung | Produktions­tauglich |
+|-----------|--------|-------------|-----|------|-----------------|----------------------|
+| `legacy-current` | `large-v3` | `int8_float16` | an | 1 | `de` (fest) | ja |
+| `multilingual-large-v3-quality` | `large-v3` | `float16` | an | 5 | auto | ja |
+| `multilingual-large-v3-no-vad` | `large-v3` | `float16` | aus | 5 | auto | nein (Diagnose) |
+| `multilingual-large-v3-turbo` | `large-v3-turbo` | `int8_float16` | an | 1 | auto | ja |
+
+Der Benchmark-Vergleich (`/transcription` → Tab *ASR-Vergleich*) transkribiert
+einen Clip nacheinander mit allen ausgewählten Presets, misst WER/CER gegen
+eine optionale Ground Truth, markiert Halluzinations- und Auslassungs-Hinweise
+und zeigt eine VAD-Timeline pro Run. Der Sieger wird per transparenter
+Rangfolge (niedrigster WER → wenigste Insertionen → wenigste Deletionen →
+kürzeste Laufzeit) ermittelt; ohne Ground Truth wird kein Sieger deklariert.
+
+Das ausgewählte Produktions-Preset wird in `data/asr/default_preset.json`
+persistiert und steuert alle neuen Transkriptionen. Bestehende Transkripte
+werden nicht geändert. Explizite `language`/`model`-Parameter pro Request
+haben Vorrang vor dem Preset.
+
+API-Endpunkte:
+
+| Methode | Pfad | Beschreibung |
+|---------|------|-------------|
+| GET | `/api/asr/presets` | alle Presets auflisten |
+| GET | `/api/asr/status` | Lauf-Status + aktuelles Default-Preset |
+| GET | `/api/asr/default` | aktuelles Default-Preset |
+| POST | `/api/asr/default` | Default-Preset setzen |
+| POST | `/api/asr/benchmarks` | Benchmark erstellen |
+| GET | `/api/asr/benchmarks` | Benchmarks auflisten |
+| GET | `/api/asr/benchmarks/{id}` | Benchmark-Detail |
+| POST | `/api/asr/benchmarks/{id}/start` | Benchmark ausführen |
+| POST | `/api/asr/benchmarks/{id}/cancel` | Benchmark abbrechen |
+| DELETE | `/api/asr/benchmarks/{id}` | Benchmark löschen |
+| POST | `/api/asr/benchmarks/{id}/select-default` | Sieger als Default setzen |
+| GET | `/api/asr/benchmarks/{id}/runs/{preset_id}` | Run-Detail mit Segmenten |
 
 ### VOD Pipeline
 
@@ -468,6 +510,18 @@ Der Status-Endpunkt `/api/twitch/status` zeigt ehrlich an, ob `yt-dlp`,
 | GET     | `/api/vods/{id}/artifacts/audio` | Audio-Artefakte eines VODs                 |
 | POST    | `/api/vods/{id}/artifacts/audio` | Audio-Extraktion für einen VOD anstoßen     |
 | GET     | `/api/vods/{id}/artifacts/audio/file` | Audio-Artefakt-Datei herunterladen     |
+| GET     | `/api/asr/presets`            | ASR-Presets auflisten                         |
+| GET     | `/api/asr/status`            | ASR-Status + Default-Preset                   |
+| GET     | `/api/asr/default`           | aktuelles Default-Preset                      |
+| POST    | `/api/asr/default`           | Default-Preset setzen                         |
+| POST    | `/api/asr/benchmarks`        | ASR-Benchmark erstellen                       |
+| GET     | `/api/asr/benchmarks`        | ASR-Benchmarks auflisten                      |
+| GET     | `/api/asr/benchmarks/{id}`   | ASR-Benchmark-Detail                          |
+| POST    | `/api/asr/benchmarks/{id}/start` | ASR-Benchmark ausführen                  |
+| POST    | `/api/asr/benchmarks/{id}/cancel` | ASR-Benchmark abbrechen                  |
+| DELETE  | `/api/asr/benchmarks/{id}`   | ASR-Benchmark löschen                         |
+| POST    | `/api/asr/benchmarks/{id}/select-default` | Sieger als Default setzen          |
+| GET     | `/api/asr/benchmarks/{id}/runs/{preset_id}` | ASR-Run-Detail mit Segmenten      |
 | GET     | `/api/library/uploads`        | listet Library-Uploads                        |
 | GET     | `/api/library/uploads/{id}/file` | Library-Upload-Datei herunterladen        |
 | DELETE  | `/api/library/uploads/{id}`   | Library-Upload löschen                        |

@@ -1,0 +1,467 @@
+/* ASR comparison feature styles.
+   Reuses TTVturbo design-system variables (see styles/variables.css) and
+   base component classes (.btn, .card, .badge, .state, .dialog, .input).
+   Only feature-specific layout is defined here. */
+
+/* ---------------------------------------------------------------------------
+ * Layout
+ * --------------------------------------------------------------------------- */
+
+.asr-comparison {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* ---------------------------------------------------------------------------
+ * Form card
+ * --------------------------------------------------------------------------- */
+
+.asr-form-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.asr-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+
+@media (max-width: 720px) {
+  .asr-form {
+    grid-template-columns: 1fr;
+  }
+}
+
+.asr-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.asr-form__label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.asr-form__select,
+.asr-form__input,
+.asr-form__textarea {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-bg-elevated);
+  color: var(--color-text-primary);
+  font-size: 14px;
+  font-family: var(--font-sans);
+  line-height: 1.4;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.asr-form__select:focus,
+.asr-form__input:focus,
+.asr-form__textarea:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px rgba(109, 124, 255, 0.18);
+}
+
+.asr-form__select:disabled,
+.asr-form__input:disabled,
+.asr-form__textarea:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.asr-form__textarea {
+  resize: vertical;
+  min-height: 4rem;
+}
+
+.asr-form__muted {
+  color: var(--color-text-muted);
+  font-size: 13px;
+  padding: var(--space-2) var(--space-3);
+}
+
+.asr-form__presets {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.asr-form__preset-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+}
+
+.asr-form__preset {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.asr-form__preset input[type="checkbox"] {
+  accent-color: var(--color-accent);
+}
+
+.asr-form__preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background-color: var(--color-bg-panel);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.asr-form__player {
+  width: 100%;
+  max-height: 240px;
+  border-radius: var(--radius-sm);
+  background: #000;
+}
+
+.asr-form__actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* ---------------------------------------------------------------------------
+ * Benchmark result
+ * --------------------------------------------------------------------------- */
+
+.asr-benchmark {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.asr-benchmark__header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  align-items: center;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.asr-run-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: var(--space-3);
+}
+
+/* ---------------------------------------------------------------------------
+ * Run card
+ * --------------------------------------------------------------------------- */
+
+.asr-run-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.asr-run-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.asr-run-card__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.asr-run-card__meta,
+.asr-run-card__metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.asr-run-card__transcript {
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.asr-run-card__transcript-label {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.asr-run-card__error,
+.asr-run-card__flags {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 12px;
+  color: var(--color-error);
+}
+
+/* ---------------------------------------------------------------------------
+ * Run detail
+ * --------------------------------------------------------------------------- */
+
+.asr-run-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-3);
+}
+
+.asr-run-detail__params,
+.asr-run-detail__vad {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.asr-run-detail__vad h4,
+.asr-run-detail__segments h4,
+.asr-run-detail__diff h4,
+.asr-run-detail__flags h4 {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.asr-run-detail__segments {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.asr-run-detail__segment {
+  display: grid;
+  grid-template-columns: 90px 1fr 70px;
+  gap: var(--space-2);
+  text-align: left;
+  padding: var(--space-1) var(--space-2);
+  background-color: var(--color-bg-panel);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  color: var(--color-text-primary);
+  transition: background-color var(--transition-fast);
+}
+
+.asr-run-detail__segment:hover {
+  background-color: var(--color-bg-elevated);
+}
+
+.asr-run-detail__segment-time {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.asr-run-detail__segment-prob {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+/* ---------------------------------------------------------------------------
+ * Timeline
+ * --------------------------------------------------------------------------- */
+
+.asr-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.asr-timeline__track {
+  position: relative;
+  height: 28px;
+  background-color: var(--color-bg-panel);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.asr-timeline__vad {
+  position: absolute;
+  top: 0;
+  height: 12px;
+  background: rgba(66, 199, 129, 0.45);
+  min-width: 2px;
+}
+
+.asr-timeline__seg {
+  position: absolute;
+  top: 14px;
+  height: 12px;
+  background: rgba(85, 167, 232, 0.7);
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  min-width: 2px;
+}
+
+.asr-timeline__seg:hover {
+  background: rgba(85, 167, 232, 1);
+}
+
+.asr-timeline__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.asr-timeline__legend-vad::before {
+  content: "";
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  background: rgba(66, 199, 129, 0.45);
+  margin-right: 4px;
+  vertical-align: middle;
+  border-radius: 2px;
+}
+
+.asr-timeline__legend-seg::before {
+  content: "";
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  background: rgba(85, 167, 232, 0.7);
+  margin-right: 4px;
+  vertical-align: middle;
+  border-radius: 2px;
+}
+
+.asr-timeline__legend-silence::before {
+  content: "";
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  background: var(--color-bg-panel);
+  border: 1px solid var(--color-border);
+  margin-right: 4px;
+  vertical-align: middle;
+  border-radius: 2px;
+}
+
+/* ---------------------------------------------------------------------------
+ * Word diff
+ * --------------------------------------------------------------------------- */
+
+.asr-diff {
+  font-size: 13px;
+  line-height: 1.6;
+  word-spacing: 2px;
+  color: var(--color-text-primary);
+}
+
+.asr-diff__del {
+  color: var(--color-error);
+  text-decoration: line-through;
+}
+
+.asr-diff__ins {
+  color: var(--color-warning);
+}
+
+.asr-diff__sub {
+  color: var(--color-warning);
+}
+
+.asr-diff__eq {
+  color: var(--color-text-primary);
+}
+
+.asr-diff__legend {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  margin-top: var(--space-1);
+}
+
+/* ---------------------------------------------------------------------------
+ * Diagnostic flags
+ * --------------------------------------------------------------------------- */
+
+.asr-flag {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 12px;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+}
+
+.asr-flag--warning {
+  background: rgba(229, 172, 69, 0.12);
+  color: var(--color-warning);
+}
+
+.asr-flag--info {
+  background: rgba(85, 167, 232, 0.1);
+  color: var(--color-info);
+}
+
+.asr-run-detail__select-default {
+  margin-top: var(--space-2);
+}
+
+.asr-run-detail__muted {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+/* ---------------------------------------------------------------------------
+ * Mode tabs on the transcription page
+ * --------------------------------------------------------------------------- */
+
+.transcription-mode-tabs {
+  display: flex;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.transcription-mode-tabs__btn {
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+  color: var(--color-text-muted);
+  border-bottom: 2px solid transparent;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.transcription-mode-tabs__btn:hover {
+  color: var(--color-text-secondary);
+}
+
+.transcription-mode-tabs__btn.is-active {
+  color: var(--color-text-primary);
+  border-bottom-color: var(--color-accent);
+  font-weight: 600;
+}

@@ -266,6 +266,10 @@ def run_worker(worker_job_path: str) -> int:
     compute_type = wjob.get("compute_type", "int8_float16")
     language = wjob.get("language") or None
     gpu_lock_dir = Path(wjob["gpu_lock_dir"])
+    # Preset parameters (when the job was started with a selected ASR
+    # preset). When present, these override the worker's hardcoded
+    # transcription defaults below.
+    preset_params = wjob.get("preset_params") or {}
 
     if not audio_path.is_file():
         _update_job(job_path, status="FAILED", error=f"audio file missing: {audio_path.name}")
@@ -393,14 +397,37 @@ def run_worker(worker_job_path: str) -> int:
                 """Run the transcription and populate segments_list."""
                 nonlocal language_probability, detected_language, last_progress_write
                 segments_list.clear()
+                # Build transcribe kwargs. When preset_params is present
+                # (the job was started with a selected ASR preset), use
+                # the preset's parameters; otherwise fall back to the
+                # worker's original hardcoded defaults.
+                if preset_params:
+                    transcribe_kwargs: dict = dict(preset_params)
+                    # Force task to transcribe (presets don't carry it).
+                    transcribe_kwargs.pop("task", None)
+                    transcribe_kwargs["task"] = "transcribe"
+                    # The ``vad`` argument to this function overrides the
+                    # preset's vad_filter on retry (when the first pass
+                    # with VAD produced no segments, we retry without).
+                    transcribe_kwargs["vad_filter"] = vad
+                    # Use the resolved language (may be None for auto-detect).
+                    transcribe_kwargs["language"] = language
+                    # Remove non-transcribe fields the preset carries.
+                    for k in ("model", "device", "compute_type", "name", "description",
+                              "id", "production_eligible"):
+                        transcribe_kwargs.pop(k, None)
+                else:
+                    transcribe_kwargs = {
+                        "language": language,
+                        "task": "transcribe",
+                        "word_timestamps": True,
+                        "vad_filter": vad,
+                        "beam_size": 5,
+                        "condition_on_previous_text": True,
+                    }
                 segments_iter, info = model.transcribe(
                     str(audio_path),
-                    language=language,
-                    task="transcribe",
-                    word_timestamps=True,
-                    vad_filter=vad,
-                    beam_size=5,
-                    condition_on_previous_text=True,
+                    **transcribe_kwargs,
                 )
                 language_probability = getattr(info, "language_probability", None)
                 detected_language = getattr(info, "language", None)

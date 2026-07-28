@@ -34,6 +34,7 @@ import {
 import { libraryItemFileUrl } from "../features/library/api";
 import { useLibraryItemsQuery } from "../features/library/hooks";
 import type { MediaJob } from "../features/mediaProcessing";
+import { AsrComparisonPanel } from "../features/asrComparison";
 
 function jobStatusBadge(status: string): { variant: BadgeVariant; label: string } {
   switch (status) {
@@ -237,6 +238,7 @@ type SourceMode = "upload" | "library";
  * topbar status popover.
  */
 export function TranscriptionPage() {
+  const [pageMode, setPageMode] = useState<"transcribe" | "asr-comparison">("transcribe");
   const [mode, setMode] = useState<SourceMode>("library");
   const [language, setLanguage] = useState<string>("de");
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -296,6 +298,31 @@ export function TranscriptionPage() {
 
   return (
     <div className="page">
+      <div className="transcription-mode-tabs" role="tablist" aria-label="Seitenmodus">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={pageMode === "transcribe"}
+          className={`transcription-mode-tabs__btn${pageMode === "transcribe" ? " is-active" : ""}`}
+          onClick={() => setPageMode("transcribe")}
+        >
+          Transkription
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={pageMode === "asr-comparison"}
+          className={`transcription-mode-tabs__btn${pageMode === "asr-comparison" ? " is-active" : ""}`}
+          onClick={() => setPageMode("asr-comparison")}
+        >
+          ASR-Vergleich
+        </button>
+      </div>
+
+      {pageMode === "asr-comparison" ? (
+        <AsrComparisonPanel />
+      ) : (
+        <>
       <section className="page__section">
         <h2 className="page__section-title">Neue Transkription starten</h2>
         <Card className="transcription-form-card">
@@ -477,6 +504,8 @@ export function TranscriptionPage() {
         }}
         onCancel={() => setDeleteTarget(null)}
       />
+        </>
+      )}
     </div>
   );
 }

@@ -77,7 +77,8 @@ def test_no_vad_preset_disables_vad():
 def test_turbo_preset_uses_turbo_model():
     p = MULTILINGUAL_LARGE_V3_TURBO
     assert p.model == "large-v3-turbo"
-    assert p.compute_type == "float16"
+    assert p.compute_type == "int8_float16"
+    assert p.beam_size == 1
     assert p.multilingual is True
     assert p.language is None
 

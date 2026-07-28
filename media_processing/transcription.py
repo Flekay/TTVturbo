@@ -48,6 +48,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .audio_extraction import AudioExtractionService
+from .asr_presets import AsrDefaultPresetStore, AsrPreset, get_preset
 from .gpu_lock import GpuLock, GpuLockBusyError, GpuLockError, GpuLockOwner
 from .schemas import (
     CANCELLABLE_JOB_STATUSES,
@@ -121,11 +122,13 @@ class TranscriptionService:
         compute_type: Optional[str] = None,
         language: Optional[str] = None,
         max_concurrent: Optional[int] = None,
+        default_preset_store: Optional[AsrDefaultPresetStore] = None,
     ) -> None:
         self.storage = storage
         self.source_resolver = source_resolver
         self.audio_service = audio_service
         self.gpu_lock = gpu_lock
+        self.default_preset_store = default_preset_store
         self.model = model or os.environ.get(ENV_MODEL, DEFAULT_MODEL)
         self.device = device or os.environ.get(ENV_DEVICE, DEFAULT_DEVICE)
         self.compute_type = compute_type or os.environ.get(ENV_COMPUTE_TYPE, DEFAULT_COMPUTE_TYPE)
@@ -146,6 +149,45 @@ class TranscriptionService:
         self._runtime_ttl = 5.0
 
         self._recover_on_startup()
+
+    # ------------------------------------------------------------------ preset
+    def _resolve_effective_preset(
+        self, language: Optional[str], model: Optional[str]
+    ) -> tuple[Optional[AsrPreset], str, str]:
+        """Resolve the effective ASR parameters for a new transcription.
+
+        Priority (highest first):
+          1. explicit per-request ``language`` / ``model`` overrides;
+          2. the production default preset from :class:`AsrDefaultPresetStore`
+             (if configured);
+          3. the service's env-var / constructor defaults.
+
+        Returns ``(preset_or_None, effective_language, effective_model)``.
+        When a preset is active, its ``language`` and ``model`` fields
+        override the service defaults unless the caller passed explicit
+        values. ``preset`` is ``None`` when no preset store is configured
+        (legacy behaviour).
+        """
+        preset: Optional[AsrPreset] = None
+        if self.default_preset_store is not None:
+            try:
+                selection = self.default_preset_store.get()
+                if selection and selection.get("preset_id"):
+                    preset = get_preset(selection["preset_id"])
+            except Exception as exc:
+                logger.warning(
+                    "could not load default ASR preset, falling back to "
+                    "service defaults: %s", exc,
+                )
+                preset = None
+
+        if preset is not None:
+            eff_lang = language or preset.language or self.language
+            eff_model = model or preset.model or self.model
+        else:
+            eff_lang = language or self.language
+            eff_model = model or self.model
+        return preset, eff_lang, eff_model
 
     # ------------------------------------------------------------------ paths
     def _source_dir_for(self, source_id: str, source_type: Optional[str] = None) -> Path:
@@ -432,8 +474,9 @@ class TranscriptionService:
         # options, unless the user explicitly wants a new one. We treat
         # each start as a new version for simplicity in this phase, but
         # we expose the existing ones via list_transcriptions.
-        effective_language = language or self.language
-        effective_model = model or self.model
+        preset, effective_language, effective_model = self._resolve_effective_preset(
+            language, model
+        )
 
         # Ensure audio artifact exists (start extraction if needed).
         audio_meta = self.audio_service.get_audio_artifact(source_id, source_type)
@@ -468,6 +511,8 @@ class TranscriptionService:
                 "language": effective_language,
                 "model": effective_model,
                 "force_audio_extraction": bool(force_audio_extraction),
+                "preset_id": preset.id if preset else None,
+                "preset_params": preset.to_dict() if preset else None,
             },
             "result": None,
             "error": None,
@@ -590,20 +635,42 @@ class TranscriptionService:
         transcript_dir.mkdir(parents=True, exist_ok=True)
 
         options = job.get("options") or {}
-        worker_job = {
-            "job_id": job_id,
-            "job_path": str(self.storage.job_path(job_id)),
-            "source_type": job.get("source_type", "twitch_vod"),
-            "source_id": source_id,
-            "transcription_id": transcription_id,
-            "audio_path": str(audio_path),
-            "transcript_dir": str(transcript_dir),
-            "model": options.get("model") or self.model,
-            "device": self.device,
-            "compute_type": self.compute_type,
-            "language": options.get("language") or self.language,
-            "gpu_lock_dir": str(self.gpu_lock.data_dir),
-        }
+        # When a preset was selected for this job, forward the full preset
+        # parameters so the worker uses them instead of its hardcoded
+        # defaults. This is what makes the benchmark-selected preset
+        # actually take effect in production.
+        preset_params = options.get("preset_params")
+        if preset_params and isinstance(preset_params, dict):
+            worker_job = {
+                "job_id": job_id,
+                "job_path": str(self.storage.job_path(job_id)),
+                "source_type": job.get("source_type", "twitch_vod"),
+                "source_id": source_id,
+                "transcription_id": transcription_id,
+                "audio_path": str(audio_path),
+                "transcript_dir": str(transcript_dir),
+                "model": options.get("model") or self.model,
+                "device": preset_params.get("device") or self.device,
+                "compute_type": preset_params.get("compute_type") or self.compute_type,
+                "language": options.get("language") or self.language,
+                "gpu_lock_dir": str(self.gpu_lock.data_dir),
+                "preset_params": preset_params,
+            }
+        else:
+            worker_job = {
+                "job_id": job_id,
+                "job_path": str(self.storage.job_path(job_id)),
+                "source_type": job.get("source_type", "twitch_vod"),
+                "source_id": source_id,
+                "transcription_id": transcription_id,
+                "audio_path": str(audio_path),
+                "transcript_dir": str(transcript_dir),
+                "model": options.get("model") or self.model,
+                "device": self.device,
+                "compute_type": self.compute_type,
+                "language": options.get("language") or self.language,
+                "gpu_lock_dir": str(self.gpu_lock.data_dir),
+            }
         worker_job_path = self.storage._job_dir(job_id) / "worker_job.json"  # noqa: SLF001
         with open(worker_job_path, "w", encoding="utf-8") as fh:
             json.dump(worker_job, fh, indent=2, ensure_ascii=False)

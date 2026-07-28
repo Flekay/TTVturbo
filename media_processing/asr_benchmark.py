@@ -278,9 +278,14 @@ class AsrBenchmarkService:
                     f"({self._active_benchmark_id})"
                 )
             payload = self.get_benchmark(benchmark_id)
-            if payload["status"] in ACTIVE_STATUSES:
+            # QUEUED is the initial state after create_benchmark — it is
+            # exactly the state we want to start from. Only refuse if a
+            # worker is already executing this benchmark (RUNNING). The
+            # _active_benchmark_id check above already prevents starting
+            # a second benchmark while one is running.
+            if payload["status"] == STATUS_RUNNING:
                 raise AsrBenchmarkError(
-                    f"benchmark is already {payload['status']}"
+                    "benchmark is already RUNNING"
                 )
             if payload["status"] in TERMINAL_STATUSES:
                 # Re-run allowed from a terminal state: reset runs.

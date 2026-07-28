@@ -175,11 +175,15 @@ audio_extraction_service = AudioExtractionService(
     storage=media_job_storage,
     source_resolver=media_source_resolver,
 )
+# ASR default-preset store. Created early so the transcription service
+# can read the selected production preset when starting new jobs.
+asr_default_preset_store = AsrDefaultPresetStore(DATA_DIR)
 transcription_service = TranscriptionService(
     storage=media_job_storage,
     source_resolver=media_source_resolver,
     audio_service=audio_extraction_service,
     gpu_lock=gpu_lock,
+    default_preset_store=asr_default_preset_store,
 )
 # Wire the audio-ready callback after both services exist so dependent
 # TRANSCRIBE jobs are started immediately when audio extraction completes.
@@ -202,9 +206,8 @@ media_processing_router = build_media_processing_router(
 library_router = build_library_router(library_service)
 
 # ASR preset + benchmark system. Shares the same GPU lock and data root
-# as the transcription service. The default-preset store persists the
-# production default selection under the data directory.
-asr_default_preset_store = AsrDefaultPresetStore(DATA_DIR)
+# as the transcription service. The default-preset store was created
+# earlier so the transcription service can read the selected preset.
 asr_benchmark_service = AsrBenchmarkService(
     data_dir=DATA_DIR,
     source_resolver=media_source_resolver,
