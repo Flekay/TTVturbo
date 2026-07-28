@@ -122,8 +122,19 @@ export function useStartTranscriptionMutation() {
 export function useUploadTranscriptionMutation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ file, language, model }: { file: File; language?: string; model?: string }) =>
-      uploadAndTranscribe(file, language, model),
+    mutationFn: ({
+      file,
+      language,
+      model,
+      model_family,
+      hotwords,
+    }: {
+      file: File;
+      language?: string;
+      model?: string;
+      model_family?: string;
+      hotwords?: string;
+    }) => uploadAndTranscribe(file, language, model, model_family, hotwords),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: transcriptionsQueryKey() });
       queryClient.invalidateQueries({ queryKey: ["status"] });

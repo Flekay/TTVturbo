@@ -14,6 +14,7 @@ import { useLibraryItemsQuery } from "../library/hooks";
 import {
   useAsrPresetsQuery,
   useAsrStatusQuery,
+  useAsrModelsQuery,
   useCreateAsrBenchmarkMutation,
   useAsrBenchmarkQuery,
   useStartAsrBenchmarkMutation,
@@ -22,21 +23,34 @@ import {
   useSelectDefaultFromBenchmarkMutation,
   useAsrRunQuery,
 } from "./hooks";
-import type { AsrBenchmark, AsrRunDetail, AsrRunDetail as AsrRunDetailType } from "./types";
+import { AudioForensicsSection } from "./AudioForensicsSection";
+import type { AsrBenchmark, AsrRunDetail, AsrRunDetail as AsrRunDetailType, AudioVariant } from "./types";
 
-const ALL_PRESET_IDS = [
-  "legacy-current",
-  "multilingual-large-v3-quality",
-  "multilingual-large-v3-no-vad",
-  "multilingual-large-v3-turbo",
+const ALL_CANDIDATE_IDS = [
+  "whisper-legacy-current",
+  "whisper-large-v3-forced-de-no-vad",
+  "whisper-large-v3-forced-en-no-vad",
+  "parakeet-tdt-0.6b-v3-auto",
+  "canary-1b-v2-de",
+  "canary-1b-v2-en",
 ] as const;
 
-const PRESET_LABELS: Record<string, string> = {
-  "legacy-current": "Aktuelle Konfiguration",
-  "multilingual-large-v3-quality": "Large v3 Multilingual",
-  "multilingual-large-v3-no-vad": "Large v3 Multilingual ohne VAD – Diagnose",
-  "multilingual-large-v3-turbo": "Large v3 Turbo Multilingual",
+const CANDIDATE_LABELS: Record<string, string> = {
+  "whisper-legacy-current": "Whisper – bisherige Konfiguration",
+  "whisper-large-v3-forced-de-no-vad": "Whisper – Deutsch erzwungen, ohne VAD",
+  "whisper-large-v3-forced-en-no-vad": "Whisper – Englisch erzwungen, ohne VAD",
+  "parakeet-tdt-0.6b-v3-auto": "NVIDIA Parakeet TDT 0.6B v3 – Auto",
+  "canary-1b-v2-de": "NVIDIA Canary 1B v2 – Deutsch",
+  "canary-1b-v2-en": "NVIDIA Canary 1B v2 – Englisch",
 };
+
+const AUDIO_VARIANT_OPTIONS: { value: AudioVariant; label: string }[] = [
+  { value: "current-asr-input", label: "Current ASR Input" },
+  { value: "left-channel", label: "Left Channel" },
+  { value: "right-channel", label: "Right Channel" },
+  { value: "mono-current", label: "Current Mono" },
+  { value: "mono-average", label: "Average Mono" },
+];
 
 function benchmarkStatusBadge(status: string): { variant: BadgeVariant; label: string } {
   switch (status) {
@@ -50,6 +64,8 @@ function benchmarkStatusBadge(status: string): { variant: BadgeVariant; label: s
       return { variant: "warning", label: "Teilweise fehlgeschlagen" };
     case "FAILED":
       return { variant: "error", label: "Fehlgeschlagen" };
+    case "SKIPPED":
+      return { variant: "muted", label: "Nicht installiert" };
     case "CANCELED":
       return { variant: "muted", label: "Abgebrochen" };
     default:
@@ -85,7 +101,10 @@ function RunCard({ run, benchmarkId, defaultPresetId, onSeek }: RunCardProps) {
   const [confirmDefault, setConfirmDefault] = useState(false);
 
   const isDefault = run.preset_id === defaultPresetId;
-  const isEligible = run.preset_id !== "multilingual-large-v3-no-vad";
+  // All current candidates are production-eligible; the old no-VAD
+  // diagnostic preset is gone. If we add diagnostic candidates later,
+  // we can check run.production_eligible here.
+  const isEligible = true;
   const status = benchmarkStatusBadge(run.status);
 
   return (
@@ -93,7 +112,7 @@ function RunCard({ run, benchmarkId, defaultPresetId, onSeek }: RunCardProps) {
       <div className="asr-run-card__header">
         <div className="asr-run-card__title">
           <Badge variant={status.variant}>{status.label}</Badge>
-          <strong>{PRESET_LABELS[run.preset_id] ?? run.preset_id}</strong>
+          <strong>{CANDIDATE_LABELS[run.preset_id] ?? run.preset_id}</strong>
           {isDefault && <Badge variant="success">Standard</Badge>}
         </div>
         <Button variant="ghost" size="sm" onClick={() => setOpen((o) => !o)}>
@@ -105,7 +124,7 @@ function RunCard({ run, benchmarkId, defaultPresetId, onSeek }: RunCardProps) {
         <span>Modell: {run.model ?? "—"}</span>
         <span>Laufzeit: {run.runtime_seconds != null ? `${fmtNum(run.runtime_seconds, 1)}s` : "—"}</span>
         <span>Ladezeit: {run.model_load_seconds != null ? `${fmtNum(run.model_load_seconds, 1)}s` : "—"}</span>
-        <span>Peak-VRAM: {run.peak_vram_mb != null ? `${fmtNum(run.peak_vram_mb, 0)} MB` : "—"}</span>
+        <span>Peak-VRAM: {run.peak_vram_mb != null ? `${fmtNum(run.peak_vram_mb, 0)} MB` : "nicht verfügbar"}</span>
         <span>Sprache: {run.detected_language ?? "—"}</span>
         {run.language_probability != null && <span> ({fmtPct(run.language_probability)})</span>}
       </div>
@@ -129,6 +148,13 @@ function RunCard({ run, benchmarkId, defaultPresetId, onSeek }: RunCardProps) {
         <div className="asr-run-card__error">
           <AlertCircle size={14} />
           {run.error}
+        </div>
+      )}
+
+      {run.skip_reason && (
+        <div className="asr-run-card__error">
+          <AlertCircle size={14} />
+          {run.skip_reason}
         </div>
       )}
 
@@ -367,12 +393,14 @@ function Timeline({
 export function AsrComparisonPanel() {
   const presetsQuery = useAsrPresetsQuery();
   const statusQuery = useAsrStatusQuery();
+  const modelsQuery = useAsrModelsQuery();
   const libraryQuery = useLibraryItemsQuery();
 
   const [selectedItemId, setSelectedItemId] = useState<string>("");
   const [referenceText, setReferenceText] = useState<string>("");
   const [hotwords, setHotwords] = useState<string>("");
-  const [selectedPresets, setSelectedPresets] = useState<string[]>([...ALL_PRESET_IDS]);
+  const [selectedCandidates, setSelectedCandidates] = useState<string[]>([...ALL_CANDIDATE_IDS]);
+  const [audioVariant, setAudioVariant] = useState<AudioVariant>("current-asr-input");
   const [activeBenchmarkId, setActiveBenchmarkId] = useState<string | null>(null);
   const [seekSeconds, setSeekSeconds] = useState<number | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
@@ -423,12 +451,13 @@ export function AsrComparisonPanel() {
     activeBenchmark != null && isActiveBenchmark(activeBenchmark.status);
 
   const handleCreate = () => {
-    if (!selectedItemId || selectedPresets.length === 0) return;
+    if (!selectedItemId || selectedCandidates.length === 0) return;
     createMutation.mutate(
       {
         source_type: "file_upload",
         source_id: selectedItemId,
-        preset_ids: selectedPresets,
+        candidate_ids: selectedCandidates,
+        audio_variant: audioVariant,
         reference_text: referenceText.trim() || undefined,
         hotwords: hotwords.trim() || undefined,
       },
@@ -452,9 +481,9 @@ export function AsrComparisonPanel() {
     }
   };
 
-  const togglePreset = (pid: string) => {
-    setSelectedPresets((cur) =>
-      cur.includes(pid) ? cur.filter((p) => p !== pid) : [...cur, pid],
+  const toggleCandidate = (cid: string) => {
+    setSelectedCandidates((cur) =>
+      cur.includes(cid) ? cur.filter((c) => c !== cid) : [...cur, cid],
     );
   };
 
@@ -517,20 +546,43 @@ export function AsrComparisonPanel() {
           </div>
 
           <div className="asr-form__presets">
-            <span className="asr-form__label">Presets</span>
+            <span className="asr-form__label">Modellkandidaten</span>
             <div className="asr-form__preset-list">
-              {ALL_PRESET_IDS.map((pid) => (
-                <label key={pid} className="asr-form__preset">
-                  <input
-                    type="checkbox"
-                    checked={selectedPresets.includes(pid)}
-                    onChange={() => togglePreset(pid)}
-                    disabled={createMutation.isPending}
-                  />
-                  {PRESET_LABELS[pid] ?? pid}
-                </label>
-              ))}
+              {ALL_CANDIDATE_IDS.map((cid) => {
+                const candidate = modelsQuery.data?.candidates.find((c) => c.id === cid);
+                const available = candidate?.available ?? false;
+                return (
+                  <label key={cid} className="asr-form__preset">
+                    <input
+                      type="checkbox"
+                      checked={selectedCandidates.includes(cid)}
+                      onChange={() => toggleCandidate(cid)}
+                      disabled={createMutation.isPending}
+                    />
+                    {CANDIDATE_LABELS[cid] ?? cid}
+                    {available ? (
+                      <Badge variant="success">installiert</Badge>
+                    ) : (
+                      <Badge variant="muted">nicht installiert</Badge>
+                    )}
+                  </label>
+                );
+              })}
             </div>
+          </div>
+
+          <div className="asr-form__field">
+            <span className="asr-form__label">Audio-Variante</span>
+            <select
+              className="asr-form__select"
+              value={audioVariant}
+              onChange={(e) => setAudioVariant(e.target.value as AudioVariant)}
+              disabled={createMutation.isPending}
+            >
+              {AUDIO_VARIANT_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
           </div>
 
           {selectedItem && (
@@ -560,7 +612,7 @@ export function AsrComparisonPanel() {
               onClick={handleCreate}
               disabled={
                 !selectedItemId ||
-                selectedPresets.length === 0 ||
+                selectedCandidates.length === 0 ||
                 createMutation.isPending ||
                 startMutation.isPending ||
                 isBenchmarkActive
@@ -594,6 +646,15 @@ export function AsrComparisonPanel() {
           </div>
         </Card>
       </section>
+
+      {selectedItemId && (
+        <section className="page__section">
+          <AudioForensicsSection
+            sourceType="file_upload"
+            sourceId={selectedItemId}
+          />
+        </section>
+      )}
 
       <section className="page__section">
         <h2 className="page__section-title">Ergebnisvergleich</h2>

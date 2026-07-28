@@ -42,6 +42,7 @@ from .asr_benchmark import (
     STATUS_FAILED,
     STATUS_READY,
     STATUS_RUNNING,
+    STATUS_SKIPPED,
     _atomic_write_json,
     _read_json,
     finalise_run,
@@ -229,9 +230,9 @@ def run_worker(worker_job_path: str) -> int:
                         )
                         continue
 
-                    # Check availability.
+                    # Check availability — skipped, not failed, if not installed.
                     if not check_candidate_available(cid):
-                        _write_failed_run(
+                        _write_skipped_run(
                             runs_dir, benchmark_path, cid,
                             f"model family {candidate.model_family!r} not installed",
                             candidate=candidate,
@@ -423,6 +424,7 @@ def _summarise_run(run_payload: dict[str, Any]) -> dict[str, Any]:
         "missing_speech_flag_count": len(run_payload.get("missing_speech_flags") or []),
         "transcript_text": run_payload.get("transcript_text"),
         "error": run_payload.get("error"),
+        "skip_reason": run_payload.get("skip_reason"),
         "warnings": run_payload.get("warnings"),
     }
 
@@ -444,6 +446,64 @@ def _write_failed_run(
         "preset": cand_dict,  # backward compat
         "status": STATUS_FAILED,
         "error": error,
+        "framework": candidate.model_family if candidate else None,
+        "framework_version": None,
+        "model_family": candidate.model_family if candidate else None,
+        "model_id": candidate.model_id if candidate else None,
+        "model_reused": False,
+        "load_seconds": None,
+        "inference_seconds": None,
+        "total_seconds": None,
+        "runtime_seconds": None,
+        "model_load_seconds": None,
+        "peak_vram_bytes": None,
+        "peak_vram_mb": None,
+        "vram": None,
+        "peak_ram_bytes": None,
+        "audio_variant": None,
+        "audio_duration_seconds": None,
+        "detected_language": None,
+        "language_probability": None,
+        "all_language_probs": None,
+        "duration_after_vad_from_info": None,
+        "transcript_text": "",
+        "segments": [],
+        "words": [],
+        "effective_parameters": candidate.options if candidate else {},
+        "hotwords_used": None,
+        "warnings": [],
+        "metrics": {"available": False},
+        "hallucination_flags": [],
+        "missing_speech_flags": [],
+        "vad_diagnosis": None,
+        "created_at": _now_iso(),
+    }
+    _atomic_write_json(runs_dir / f"{candidate_id}.json", run_payload)
+    _update_benchmark(benchmark_path, _summarise_run(run_payload))
+
+
+def _write_skipped_run(
+    runs_dir: Path,
+    benchmark_path: Path,
+    candidate_id: str,
+    reason: str,
+    candidate: Optional[Any] = None,
+) -> None:
+    """Write a SKIPPED run — the model family is not installed.
+
+    Distinct from FAILED: the run was never attempted, so it should not
+    count against the benchmark's success/failure tally.
+    """
+    cand_dict = candidate.to_dict() if candidate is not None else None
+    run_payload = {
+        "schema_version": SCHEMA_VERSION,
+        "candidate_id": candidate_id,
+        "preset_id": candidate_id,  # backward compat
+        "candidate": cand_dict,
+        "preset": cand_dict,  # backward compat
+        "status": STATUS_SKIPPED,
+        "error": None,  # not an error — just unavailable
+        "skip_reason": reason,
         "framework": candidate.model_family if candidate else None,
         "framework_version": None,
         "model_family": candidate.model_family if candidate else None,

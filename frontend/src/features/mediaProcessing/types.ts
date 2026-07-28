@@ -24,6 +24,8 @@ export interface StartTranscriptionRequest {
   source_id: string;
   language?: string;
   model?: string;
+  model_family?: string; // "whisper" | "parakeet" | "canary"
+  hotwords?: string;
   force_audio_extraction?: boolean;
 }
 

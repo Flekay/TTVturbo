@@ -77,6 +77,82 @@ const statusResponse = {
   default_selected_at: "2026-07-28T00:00:00+00:00",
 };
 
+const modelsResponse = {
+  candidates: [
+    {
+      id: "whisper-legacy-current",
+      model_family: "whisper",
+      model_id: "large-v3",
+      name: "Whisper – bisherige Konfiguration",
+      description: "large-v3, int8_float16, language=de, VAD an, beam_size=1.",
+      options: { model: "large-v3", compute_type: "int8_float16", language: "de", vad_filter: true, beam_size: 1 },
+      production_eligible: true,
+      diagnostic: false,
+      available: true,
+    },
+    {
+      id: "whisper-large-v3-forced-de-no-vad",
+      model_family: "whisper",
+      model_id: "large-v3",
+      name: "Whisper – Deutsch erzwungen, ohne VAD",
+      description: "large-v3, float16, language=de, VAD aus.",
+      options: { model: "large-v3", compute_type: "float16", language: "de", vad_filter: false, beam_size: 5 },
+      production_eligible: true,
+      diagnostic: false,
+      available: true,
+    },
+    {
+      id: "whisper-large-v3-forced-en-no-vad",
+      model_family: "whisper",
+      model_id: "large-v3",
+      name: "Whisper – Englisch erzwungen, ohne VAD",
+      description: "large-v3, float16, language=en, VAD aus.",
+      options: { model: "large-v3", compute_type: "float16", language: "en", vad_filter: false, beam_size: 5 },
+      production_eligible: true,
+      diagnostic: false,
+      available: true,
+    },
+    {
+      id: "parakeet-tdt-0.6b-v3-auto",
+      model_family: "parakeet",
+      model_id: "nvidia/parakeet-tdt-0.6b-v3",
+      name: "NVIDIA Parakeet TDT 0.6B v3 – Auto",
+      description: "Parakeet TDT 0.6B v3 mit automatischer Spracherkennung.",
+      options: { language: null },
+      production_eligible: true,
+      diagnostic: false,
+      available: false,
+    },
+    {
+      id: "canary-1b-v2-de",
+      model_family: "canary",
+      model_id: "nvidia/canary-1b-v2",
+      name: "NVIDIA Canary 1B v2 – Deutsch",
+      description: "Canary 1B v2, source_lang=de, target_lang=de.",
+      options: { source_lang: "de", target_lang: "de" },
+      production_eligible: true,
+      diagnostic: false,
+      available: false,
+    },
+    {
+      id: "canary-1b-v2-en",
+      model_family: "canary",
+      model_id: "nvidia/canary-1b-v2",
+      name: "NVIDIA Canary 1B v2 – Englisch",
+      description: "Canary 1B v2, source_lang=en, target_lang=en.",
+      options: { source_lang: "en", target_lang: "en" },
+      production_eligible: true,
+      diagnostic: false,
+      available: false,
+    },
+  ],
+  faster_whisper_available: true,
+  parakeet_available: false,
+  canary_available: false,
+  nemo_installed: false,
+  cuda_available: true,
+};
+
 const libraryItems = {
   items: [
     {
@@ -104,11 +180,22 @@ const createdBenchmark = {
   reference_text: "ich ganken jetzt",
   hotwords: "Flash",
   selected_presets: [
-    "legacy-current",
-    "multilingual-large-v3-quality",
-    "multilingual-large-v3-no-vad",
-    "multilingual-large-v3-turbo",
+    "whisper-legacy-current",
+    "whisper-large-v3-forced-de-no-vad",
+    "whisper-large-v3-forced-en-no-vad",
+    "parakeet-tdt-0.6b-v3-auto",
+    "canary-1b-v2-de",
+    "canary-1b-v2-en",
   ],
+  candidate_ids: [
+    "whisper-legacy-current",
+    "whisper-large-v3-forced-de-no-vad",
+    "whisper-large-v3-forced-en-no-vad",
+    "parakeet-tdt-0.6b-v3-auto",
+    "canary-1b-v2-de",
+    "canary-1b-v2-en",
+  ],
+  audio_variant: "current-asr-input",
   status: "QUEUED",
   created_at: "2026-07-28T00:00:00+00:00",
   completed_at: null,
@@ -127,13 +214,22 @@ const completedBenchmark = {
   completed_at: "2026-07-28T00:01:00+00:00",
   runs: [
     {
-      preset_id: "legacy-current",
-      preset_name: "Aktuelle Konfiguration",
+      preset_id: "whisper-legacy-current",
+      candidate_id: "whisper-legacy-current",
+      preset_name: "Whisper – bisherige Konfiguration",
       model: "large-v3",
+      model_family: "whisper",
       status: "READY",
       runtime_seconds: 4.2,
       model_load_seconds: 2.1,
+      load_seconds: 2.1,
+      inference_seconds: 4.2,
+      total_seconds: 6.3,
+      model_reused: false,
       peak_vram_mb: 4096,
+      peak_vram_bytes: 4294967296,
+      peak_ram_bytes: 8000000000,
+      audio_variant: "current-asr-input",
       detected_language: "de",
       language_probability: 0.95,
       audio_duration_seconds: 12.0,
@@ -149,13 +245,22 @@ const completedBenchmark = {
       error: null,
     },
     {
-      preset_id: "multilingual-large-v3-quality",
-      preset_name: "Large v3 Multilingual",
+      preset_id: "whisper-large-v3-forced-de-no-vad",
+      candidate_id: "whisper-large-v3-forced-de-no-vad",
+      preset_name: "Whisper – Deutsch erzwungen, ohne VAD",
       model: "large-v3",
+      model_family: "whisper",
       status: "READY",
       runtime_seconds: 8.7,
-      model_load_seconds: 2.0,
+      model_load_seconds: 0.0,
+      load_seconds: 0.0,
+      inference_seconds: 8.7,
+      total_seconds: 8.7,
+      model_reused: true,
       peak_vram_mb: 5120,
+      peak_vram_bytes: 5368709120,
+      peak_ram_bytes: 8000000000,
+      audio_variant: "current-asr-input",
       detected_language: "de",
       language_probability: 0.97,
       audio_duration_seconds: 12.0,
@@ -171,14 +276,23 @@ const completedBenchmark = {
       error: null,
     },
     {
-      preset_id: "multilingual-large-v3-no-vad",
-      preset_name: "Large v3 Multilingual ohne VAD",
+      preset_id: "whisper-large-v3-forced-en-no-vad",
+      candidate_id: "whisper-large-v3-forced-en-no-vad",
+      preset_name: "Whisper – Englisch erzwungen, ohne VAD",
       model: "large-v3",
+      model_family: "whisper",
       status: "READY",
       runtime_seconds: 9.0,
       model_load_seconds: 0.0,
+      load_seconds: 0.0,
+      inference_seconds: 9.0,
+      total_seconds: 9.0,
+      model_reused: true,
       peak_vram_mb: 5120,
-      detected_language: "de",
+      peak_vram_bytes: 5368709120,
+      peak_ram_bytes: 8000000000,
+      audio_variant: "current-asr-input",
+      detected_language: "en",
       language_probability: 0.97,
       audio_duration_seconds: 12.0,
       wer: 0.12,
@@ -193,13 +307,22 @@ const completedBenchmark = {
       error: null,
     },
     {
-      preset_id: "multilingual-large-v3-turbo",
-      preset_name: "Large v3 Turbo Multilingual",
-      model: "large-v3-turbo",
+      preset_id: "parakeet-tdt-0.6b-v3-auto",
+      candidate_id: "parakeet-tdt-0.6b-v3-auto",
+      preset_name: "NVIDIA Parakeet TDT 0.6B v3 – Auto",
+      model: "nvidia/parakeet-tdt-0.6b-v3",
+      model_family: "parakeet",
       status: "FAILED",
       runtime_seconds: null,
       model_load_seconds: 1.0,
+      load_seconds: 1.0,
+      inference_seconds: null,
+      total_seconds: null,
+      model_reused: false,
       peak_vram_mb: null,
+      peak_vram_bytes: null,
+      peak_ram_bytes: null,
+      audio_variant: "current-asr-input",
       detected_language: null,
       language_probability: null,
       audio_duration_seconds: null,
@@ -219,19 +342,28 @@ const completedBenchmark = {
 
 const runDetailQuality = {
   schema_version: 1,
-  preset_id: "multilingual-large-v3-quality",
-  preset: presetsResponse.presets[1],
+  preset_id: "whisper-legacy-current",
+  candidate_id: "whisper-legacy-current",
+  preset: presetsResponse.presets[0],
+  candidate: modelsResponse.candidates[0],
   status: "READY",
   faster_whisper_version: "1.0.3",
-  model_load_seconds: 2.0,
-  runtime_seconds: 8.7,
-  peak_vram_mb: 5120,
+  model_load_seconds: 2.1,
+  load_seconds: 2.1,
+  runtime_seconds: 4.2,
+  inference_seconds: 4.2,
+  total_seconds: 6.3,
+  model_reused: false,
+  peak_vram_mb: 4096,
+  peak_vram_bytes: 4294967296,
+  peak_ram_bytes: 8000000000,
+  audio_variant: "current-asr-input",
   audio_duration_seconds: 12.0,
   detected_language: "de",
-  language_probability: 0.97,
+  language_probability: 0.95,
   all_language_probs: null,
   duration_after_vad_from_info: 9.5,
-  transcript_text: "ich ganken jetzt",
+  transcript_text: "ich ganken jetzt flash",
   segments: [
     {
       id: 0,
@@ -244,28 +376,28 @@ const runDetailQuality = {
       words: [],
     },
   ],
-  effective_parameters: { beam_size: 5 },
+  effective_parameters: { beam_size: 1 },
   hotwords_used: "Flash",
   metrics: {
     available: true,
     reference_original: "ich ganken jetzt",
-    hypothesis_original: "ich ganken jetzt",
+    hypothesis_original: "ich ganken jetzt flash",
     reference_normalised: "ich ganken jetzt",
-    hypothesis_normalised: "ich ganken jetzt",
-    wer: 0.0,
-    cer: 0.0,
-    mer: 0.0,
-    wil: 0.0,
-    wip: 1.0,
+    hypothesis_normalised: "ich ganken jetzt flash",
+    wer: 0.25,
+    cer: 0.1,
+    mer: 0.25,
+    wil: 0.5,
+    wip: 1.33,
     hits: 3,
     substitutions: 0,
     deletions: 0,
-    insertions: 0,
+    insertions: 1,
     char_hits: 16,
     char_substitutions: 0,
     char_deletions: 0,
-    char_insertions: 0,
-    word_diff: [{ type: "equal", ref: ["ich", "ganken", "jetzt"], hyp: ["ich", "ganken", "jetzt"] }],
+    char_insertions: 5,
+    word_diff: [{ type: "insert", hyp: ["flash"], ref: [] }],
     error: null,
   },
   vad_diagnosis: {
@@ -295,31 +427,33 @@ describe("AsrComparisonPanel", () => {
       selected_at: "2026-07-28T00:00:00+00:00",
     });
     mock.setResponse("GET /api/library/items", 200, libraryItems);
+    mock.setResponse("GET /api/asr/models", 200, modelsResponse);
+    mock.setResponse("GET /api/asr/audio-diagnostics/file_upload/lib-1", 200, { diagnostics: [] });
   });
 
   afterEach(() => {
     mock.restore();
   });
 
-  it("renders presets, library selector and the four preset checkboxes", async () => {
+  it("renders presets, library selector and the six candidate checkboxes", async () => {
     const { container } = renderWithProviders(<AsrComparisonPanel />);
     await waitFor(() => {
       expect(within(container).getByText("ASR Vergleich – Quelle")).toBeInTheDocument();
     });
-    let select: HTMLSelectElement | null = null;
+    // Wait for the library select (the one with "— Eintrag wählen —" option).
+    let sel: HTMLSelectElement | null = null;
     await waitFor(() => {
-      select = container.querySelector("select");
-      expect(select).not.toBeNull();
+      sel = container.querySelector("select.asr-form__select") as HTMLSelectElement;
+      expect(sel).not.toBeNull();
+      expect(within(sel).getByText(/Mein Twitch Clip/)).toBeInTheDocument();
     });
-    const sel = select as unknown as HTMLSelectElement;
-    await waitFor(() => {
-      expect(sel.querySelectorAll("option").length).toBeGreaterThanOrEqual(2);
-    });
-    expect(within(sel).getByText(/Mein Twitch Clip/)).toBeInTheDocument();
-    expect(within(container).getByLabelText("Aktuelle Konfiguration")).toBeInTheDocument();
-    expect(within(container).getByLabelText("Large v3 Multilingual")).toBeInTheDocument();
-    expect(within(container).getByLabelText("Large v3 Multilingual ohne VAD – Diagnose")).toBeInTheDocument();
-    expect(within(container).getByLabelText("Large v3 Turbo Multilingual")).toBeInTheDocument();
+    expect(sel!.querySelectorAll("option").length).toBeGreaterThanOrEqual(2);
+    expect(within(container).getByLabelText(/Whisper – bisherige Konfiguration/)).toBeInTheDocument();
+    expect(within(container).getByLabelText(/Whisper – Deutsch erzwungen, ohne VAD/)).toBeInTheDocument();
+    expect(within(container).getByLabelText(/Whisper – Englisch erzwungen, ohne VAD/)).toBeInTheDocument();
+    expect(within(container).getByLabelText(/NVIDIA Parakeet TDT 0.6B v3 – Auto/)).toBeInTheDocument();
+    expect(within(container).getByLabelText(/NVIDIA Canary 1B v2 – Deutsch/)).toBeInTheDocument();
+    expect(within(container).getByLabelText(/NVIDIA Canary 1B v2 – Englisch/)).toBeInTheDocument();
   });
 
   it("creates and starts a benchmark when a clip and presets are selected", async () => {
@@ -337,17 +471,14 @@ describe("AsrComparisonPanel", () => {
     );
 
     const { container } = renderWithProviders(<AsrComparisonPanel />);
-    let select: HTMLSelectElement | null = null;
+    let sel: HTMLSelectElement | null = null;
     await waitFor(() => {
-      select = container.querySelector("select");
-      expect(select).not.toBeNull();
-    });
-    const sel = select as unknown as HTMLSelectElement;
-    await waitFor(() => {
+      sel = container.querySelector("select.asr-form__select") as HTMLSelectElement;
+      expect(sel).not.toBeNull();
       expect(within(sel).getByText(/Mein Twitch Clip/)).toBeInTheDocument();
     });
 
-    await user.selectOptions(sel, "lib-1");
+    await user.selectOptions(sel!, "lib-1");
     await user.click(within(container).getByRole("button", { name: /Benchmark starten/ }));
 
     await waitFor(() => {
@@ -377,7 +508,7 @@ describe("AsrComparisonPanel", () => {
     });
   });
 
-  it("refuses to set the no-VAD diagnostic preset as default", async () => {
+  it("shows the 'Als Standard verwenden' button for completed eligible runs", async () => {
     const user = userEvent.setup();
     mock.setResponse(
       "GET /api/asr/benchmarks/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
@@ -385,19 +516,14 @@ describe("AsrComparisonPanel", () => {
       completedBenchmark,
     );
     mock.setResponse(
-      "GET /api/asr/benchmarks/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb/runs/multilingual-large-v3-no-vad",
+      "GET /api/asr/benchmarks/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb/runs/whisper-legacy-current",
       200,
       {
         ...runDetailQuality,
-        preset_id: "multilingual-large-v3-no-vad",
-        preset: presetsResponse.presets[2],
-        vad_diagnosis: {
-          computed: false,
-          audio_duration_seconds: 12.0,
-          duration_after_vad_seconds: null,
-          removed_by_vad_seconds: null,
-          speech_regions: [],
-        },
+        preset_id: "whisper-legacy-current",
+        candidate_id: "whisper-legacy-current",
+        preset: presetsResponse.presets[0],
+        candidate: modelsResponse.candidates[0],
       },
     );
 
@@ -410,39 +536,34 @@ describe("AsrComparisonPanel", () => {
     );
 
     const { container } = renderWithProviders(<AsrComparisonPanel />);
-    let select: HTMLSelectElement | null = null;
+    let sel: HTMLSelectElement | null = null;
     await waitFor(() => {
-      select = container.querySelector("select");
-      expect(select).not.toBeNull();
-    });
-    const sel = select as unknown as HTMLSelectElement;
-    await waitFor(() => {
+      sel = container.querySelector("select.asr-form__select") as HTMLSelectElement;
+      expect(sel).not.toBeNull();
       expect(within(sel).getByText(/Mein Twitch Clip/)).toBeInTheDocument();
     });
-    await user.selectOptions(sel, "lib-1");
+    await user.selectOptions(sel!, "lib-1");
     await user.click(within(container).getByRole("button", { name: /Benchmark starten/ }));
 
     await waitFor(() => {
-      // The run card for the no-VAD preset appears alongside the preset checkbox.
-      expect(within(container).getAllByText("Large v3 Multilingual ohne VAD – Diagnose").length).toBeGreaterThanOrEqual(2);
+      // The run card for the legacy preset appears.
+      expect(within(container).getAllByText(/Whisper – bisherige Konfiguration/).length).toBeGreaterThanOrEqual(1);
     });
 
-    // Find the no-VAD run card and expand its details.
+    // Find the legacy run card and expand its details.
     const runCards = container.querySelectorAll(".asr-run-card");
-    const diagnosticCard = Array.from(runCards).find((card) =>
-      within(card as HTMLElement).queryByText("Large v3 Multilingual ohne VAD – Diagnose") != null,
+    const legacyCard = Array.from(runCards).find((card) =>
+      within(card as HTMLElement).queryByText(/Whisper – bisherige Konfiguration/) != null,
     ) as HTMLElement;
-    expect(diagnosticCard).toBeTruthy();
+    expect(legacyCard).toBeTruthy();
 
     // Click "Details" to expand the run detail panel.
-    const detailsBtn = within(diagnosticCard).getByRole("button", { name: /Details/ });
+    const detailsBtn = within(legacyCard).getByRole("button", { name: /Details/ });
     await user.click(detailsBtn);
 
-    // The diagnostic preset must show the "not eligible" note and no
-    // "Als Standard verwenden" button.
+    // The eligible run must show the "Als Standard verwenden" button.
     await waitFor(() => {
-      expect(within(diagnosticCard).getByText(/diagnostische Preset darf nicht/)).toBeInTheDocument();
+      expect(within(legacyCard).getByRole("button", { name: /Als Standard verwenden/ })).toBeInTheDocument();
     });
-    expect(within(diagnosticCard).queryByRole("button", { name: /Als Standard verwenden/ })).toBeNull();
   });
 });

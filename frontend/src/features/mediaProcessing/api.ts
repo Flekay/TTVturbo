@@ -63,11 +63,15 @@ export function uploadAndTranscribe(
   file: File,
   language?: string,
   model?: string,
+  modelFamily?: string,
+  hotwords?: string,
 ): Promise<MediaJob> {
   const formData = new FormData();
   formData.append("file", file);
   if (language) formData.append("language", language);
   if (model) formData.append("model", model);
+  if (modelFamily) formData.append("model_family", modelFamily);
+  if (hotwords) formData.append("hotwords", hotwords);
   return apiClient.post(`${TRANSCRIPTIONS}/upload`, {
     body: formData,
     schema: mediaJobSchema,

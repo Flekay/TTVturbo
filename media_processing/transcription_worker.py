@@ -262,9 +262,11 @@ def run_worker(worker_job_path: str) -> int:
     audio_path = Path(wjob["audio_path"])
     transcript_dir = Path(wjob["transcript_dir"])
     model_name = wjob.get("model", "large-v3")
+    model_family = wjob.get("model_family") or "whisper"
     device = wjob.get("device", "cuda")
     compute_type = wjob.get("compute_type", "int8_float16")
     language = wjob.get("language") or None
+    hotwords = wjob.get("hotwords") or None
     gpu_lock_dir = Path(wjob["gpu_lock_dir"])
     # Preset parameters (when the job was started with a selected ASR
     # preset). When present, these override the worker's hardcoded
@@ -298,9 +300,7 @@ def run_worker(worker_job_path: str) -> int:
 
             try:
                 import torch  # type: ignore[import-not-found]
-                from faster_whisper import WhisperModel  # type: ignore[import-not-found]
             except Exception:
-                # On-demand install if the modules are missing.
                 install_err = _ensure_dependencies(device, job_path)
                 if install_err is not None:
                     _update_job(
@@ -310,7 +310,6 @@ def run_worker(worker_job_path: str) -> int:
                     )
                     return 1
                 import torch  # type: ignore[import-not-found]
-                from faster_whisper import WhisperModel  # type: ignore[import-not-found]
 
             if device.startswith("cuda"):
                 if not torch.cuda.is_available():
@@ -325,191 +324,322 @@ def run_worker(worker_job_path: str) -> int:
                     )
                     return 1
 
-            # Map device: faster-whisper expects "cuda" or "cpu", not "cuda:0".
-            fw_device = "cuda" if device.startswith("cuda") else "cpu"
-
-            # Pre-download the model with a DOWNLOADING_MODEL phase so the
-            # user sees that a multi-GB download is in progress (the
-            # WhisperModel constructor would otherwise download silently
-            # during "LOADING_MODEL").
-            _download_model_with_progress(model_name, job_path)
-
-            # Phase: LOADING_MODEL (model is now cached, this loads it into VRAM).
-            _update_job(
-                job_path,
-                status="RUNNING",
-                progress={"percent": None, "processed_seconds": None, "total_seconds": None, "phase": "LOADING_MODEL"},
-            )
-
-            try:
-                model = WhisperModel(
-                    model_name,
-                    device=fw_device,
-                    compute_type=compute_type,
+            # ---------------------------------------------------------------
+            # Model loading + transcription — branched by model_family.
+            # ---------------------------------------------------------------
+            if model_family in ("parakeet", "canary"):
+                # NeMo models (Parakeet, Canary) via the adapter system.
+                from media_processing.asr_models import (
+                    ParakeetAdapter,
+                    CanaryAdapter,
+                    VramTracker,
+                    check_parakeet_available,
+                    check_canary_available,
                 )
-            except Exception as exc:
-                _update_job(
-                    job_path,
-                    status="FAILED",
-                    error=f"could not load model {model_name}: {type(exc).__name__}: {exc}",
-                )
-                return 1
 
-            # Get audio duration for progress computation.
-            total_seconds: Optional[float] = None
-            try:
-                import soundfile as sf  # type: ignore[import-not-found]
-
-                info = sf.info(str(audio_path))
-                total_seconds = float(info.frames) / float(info.samplerate) if info.samplerate else None
-            except Exception:
-                pass
-            if total_seconds is None:
-                # Fall back to ffprobe.
-                try:
-                    import json as _json
-                    import subprocess as _sp
-
-                    proc = _sp.run(
-                        ["ffprobe", "-v", "error", "-print_format", "json", "-show_format", str(audio_path)],
-                        stdout=_sp.PIPE, stderr=_sp.PIPE, check=False,
+                if model_family == "parakeet" and not check_parakeet_available():
+                    _update_job(
+                        job_path,
+                        status="FAILED",
+                        error="Parakeet model family not installed (nemo_toolkit[asr] required).",
                     )
-                    if proc.returncode == 0:
-                        payload = _json.loads(proc.stdout.decode("utf-8", errors="replace"))
-                        total_seconds = float((payload.get("format") or {}).get("duration") or 0) or None
-                except Exception:
-                    pass
+                    return 1
+                if model_family == "canary" and not check_canary_available():
+                    _update_job(
+                        job_path,
+                        status="FAILED",
+                        error="Canary model family not installed (nemo_toolkit[asr] required).",
+                    )
+                    return 1
 
-            # Phase: TRANSCRIBING
-            _update_job(
-                job_path,
-                status="RUNNING",
-                progress={"percent": 0.0, "processed_seconds": 0.0, "total_seconds": total_seconds, "phase": "TRANSCRIBING"},
-            )
+                adapter = ParakeetAdapter() if model_family == "parakeet" else CanaryAdapter()
 
-            segments_list: list[dict] = []
-            language_probability: Optional[float] = None
-            detected_language: Optional[str] = None
-            last_progress_write = 0.0
-            used_vad = True
+                # Build options for the adapter.
+                adapter_options: dict = {"model_id": model_name}
+                if model_family == "canary":
+                    # Canary needs source_lang/target_lang.
+                    src = language or "de"
+                    adapter_options["source_lang"] = src
+                    adapter_options["target_lang"] = src
 
-            def _run_transcribe(vad: bool) -> None:
-                """Run the transcription and populate segments_list."""
-                nonlocal language_probability, detected_language, last_progress_write
-                segments_list.clear()
-                # Build transcribe kwargs. When preset_params is present
-                # (the job was started with a selected ASR preset), use
-                # the preset's parameters; otherwise fall back to the
-                # worker's original hardcoded defaults.
-                if preset_params:
-                    transcribe_kwargs: dict = dict(preset_params)
-                    # Force task to transcribe (presets don't carry it).
-                    transcribe_kwargs.pop("task", None)
-                    transcribe_kwargs["task"] = "transcribe"
-                    # The ``vad`` argument to this function overrides the
-                    # preset's vad_filter on retry (when the first pass
-                    # with VAD produced no segments, we retry without).
-                    transcribe_kwargs["vad_filter"] = vad
-                    # Use the resolved language (may be None for auto-detect).
-                    transcribe_kwargs["language"] = language
-                    # Remove non-transcribe fields the preset carries.
-                    for k in ("model", "device", "compute_type", "name", "description",
-                              "id", "production_eligible"):
-                        transcribe_kwargs.pop(k, None)
-                else:
-                    transcribe_kwargs = {
-                        "language": language,
-                        "task": "transcribe",
-                        "word_timestamps": True,
-                        "vad_filter": vad,
-                        "beam_size": 5,
-                        "condition_on_previous_text": True,
-                    }
-                segments_iter, info = model.transcribe(
-                    str(audio_path),
-                    **transcribe_kwargs,
-                )
-                language_probability = getattr(info, "language_probability", None)
-                detected_language = getattr(info, "language", None)
+                vram_tracker = VramTracker()
 
-                for seg in segments_iter:
-                    words: list[dict] = []
-                    for w in (getattr(seg, "words", None) or []):
-                        words.append({
-                            "start": float(getattr(w, "start", 0.0)),
-                            "end": float(getattr(w, "end", 0.0)),
-                            "text": str(getattr(w, "word", "")),
-                            "probability": float(getattr(w, "probability", 0.0)) or None,
-                        })
-                    segments_list.append({
-                        "id": int(getattr(seg, "id", len(segments_list))),
-                        "start": float(getattr(seg, "start", 0.0)),
-                        "end": float(getattr(seg, "end", 0.0)),
-                        "text": str(getattr(seg, "text", "")).strip(),
-                        "avg_logprob": float(getattr(seg, "avg_logprob", 0.0)) or None,
-                        "no_speech_probability": float(getattr(seg, "no_speech_probability", 0.0)) or None,
-                        "words": words,
-                    })
-                    # Update progress at most every 0.5s.
-                    now = time.monotonic()
-                    if now - last_progress_write >= 0.5:
-                        last_progress_write = now
-                        processed = float(getattr(seg, "end", 0.0))
-                        percent = None
-                        if total_seconds and total_seconds > 0:
-                            percent = min(100.0, max(0.0, processed / total_seconds * 100.0))
-                        _update_job(
-                            job_path,
-                            progress={
-                                "percent": percent,
-                                "processed_seconds": processed,
-                                "total_seconds": total_seconds,
-                                "phase": "TRANSCRIBING",
-                            },
-                        )
-
-            try:
-                _run_transcribe(vad=True)
-            except Exception as exc:
                 _update_job(
                     job_path,
-                    status="FAILED",
-                    error=f"transcription failed: {type(exc).__name__}: {exc}",
+                    status="RUNNING",
+                    progress={"percent": None, "processed_seconds": None, "total_seconds": None, "phase": "LOADING_MODEL"},
                 )
-                return 1
 
-            # If VAD filtered everything out, retry without VAD.
-            if not segments_list and used_vad:
-                logger.warning("VAD filter produced no segments for %s, retrying without VAD", audio_path.name)
-                _update_job(
-                    job_path,
-                    progress={"percent": 0.0, "processed_seconds": 0.0, "total_seconds": total_seconds, "phase": "TRANSCRIBING_NO_VAD"},
-                )
-                used_vad = False
                 try:
-                    _run_transcribe(vad=False)
+                    result = adapter.transcribe(
+                        str(audio_path), adapter_options, vram_tracker=vram_tracker,
+                    )
                 except Exception as exc:
                     _update_job(
                         job_path,
                         status="FAILED",
-                        error=f"transcription (no VAD) failed: {type(exc).__name__}: {exc}",
+                        error=f"{model_family} transcription failed: {type(exc).__name__}: {exc}",
+                    )
+                    return 1
+                finally:
+                    adapter.release()
+
+                # Convert NormalizedTranscriptionResult to segments_list.
+                segments_list: list[dict] = []
+                for i, seg in enumerate(result.segments or []):
+                    segments_list.append({
+                        "id": i,
+                        "start": float(seg.get("start", 0.0)),
+                        "end": float(seg.get("end", 0.0)),
+                        "text": str(seg.get("text", "")).strip(),
+                        "avg_logprob": None,
+                        "no_speech_probability": None,
+                        "words": [],
+                    })
+                if not segments_list and result.text:
+                    segments_list.append({
+                        "id": 0,
+                        "start": 0.0,
+                        "end": 0.0,
+                        "text": result.text,
+                        "avg_logprob": None,
+                        "no_speech_probability": None,
+                        "words": [],
+                    })
+
+                detected_language = result.language
+                language_probability = result.language_probability
+
+                # Get audio duration for progress/export.
+                total_seconds: Optional[float] = None
+                try:
+                    import soundfile as sf  # type: ignore[import-not-found]
+                    info = sf.info(str(audio_path))
+                    total_seconds = float(info.frames) / float(info.samplerate) if info.samplerate else None
+                except Exception:
+                    pass
+
+                used_vad = True  # NeMo models don't use Silero VAD separately.
+
+                if not segments_list:
+                    audio_size = audio_path.stat().st_size if audio_path.is_file() else 0
+                    _update_job(
+                        job_path,
+                        status="FAILED",
+                        error=(
+                            f"transcription produced no segments. "
+                            f"audio={audio_path.name} size={audio_size}B "
+                            f"model={model_name} family={model_family}. "
+                            f"The audio may be silent or corrupt."
+                        ),
                     )
                     return 1
 
-            if not segments_list:
-                audio_size = audio_path.stat().st_size if audio_path.is_file() else 0
+            else:
+                # Whisper (faster-whisper) — the original path.
+                try:
+                    from faster_whisper import WhisperModel  # type: ignore[import-not-found]
+                except Exception:
+                    install_err = _ensure_dependencies(device, job_path)
+                    if install_err is not None:
+                        _update_job(
+                            job_path,
+                            status="FAILED",
+                            error=install_err,
+                        )
+                        return 1
+                    from faster_whisper import WhisperModel  # type: ignore[import-not-found]
+
+                # Map device: faster-whisper expects "cuda" or "cpu", not "cuda:0".
+                fw_device = "cuda" if device.startswith("cuda") else "cpu"
+
+                # Pre-download the model with a DOWNLOADING_MODEL phase so the
+                # user sees that a multi-GB download is in progress (the
+                # WhisperModel constructor would otherwise download silently
+                # during "LOADING_MODEL").
+                _download_model_with_progress(model_name, job_path)
+
+                # Phase: LOADING_MODEL (model is now cached, this loads it into VRAM).
                 _update_job(
                     job_path,
-                    status="FAILED",
-                    error=(
-                        f"transcription produced no segments. "
-                        f"audio={audio_path.name} size={audio_size}B "
-                        f"duration={total_seconds}s lang={language or 'auto'} "
-                        f"detected={detected_language} model={model_name}. "
-                        f"The audio may be silent or corrupt."
-                    ),
+                    status="RUNNING",
+                    progress={"percent": None, "processed_seconds": None, "total_seconds": None, "phase": "LOADING_MODEL"},
                 )
-                return 1
+
+                try:
+                    model = WhisperModel(
+                        model_name,
+                        device=fw_device,
+                        compute_type=compute_type,
+                    )
+                except Exception as exc:
+                    _update_job(
+                        job_path,
+                        status="FAILED",
+                        error=f"could not load model {model_name}: {type(exc).__name__}: {exc}",
+                    )
+                    return 1
+
+                # Get audio duration for progress computation.
+                total_seconds: Optional[float] = None
+                try:
+                    import soundfile as sf  # type: ignore[import-not-found]
+
+                    info = sf.info(str(audio_path))
+                    total_seconds = float(info.frames) / float(info.samplerate) if info.samplerate else None
+                except Exception:
+                    pass
+                if total_seconds is None:
+                    # Fall back to ffprobe.
+                    try:
+                        import json as _json
+                        import subprocess as _sp
+
+                        proc = _sp.run(
+                            ["ffprobe", "-v", "error", "-print_format", "json", "-show_format", str(audio_path)],
+                            stdout=_sp.PIPE, stderr=_sp.PIPE, check=False,
+                        )
+                        if proc.returncode == 0:
+                            payload = _json.loads(proc.stdout.decode("utf-8", errors="replace"))
+                            total_seconds = float((payload.get("format") or {}).get("duration") or 0) or None
+                    except Exception:
+                        pass
+
+                # Phase: TRANSCRIBING
+                _update_job(
+                    job_path,
+                    status="RUNNING",
+                    progress={"percent": 0.0, "processed_seconds": 0.0, "total_seconds": total_seconds, "phase": "TRANSCRIBING"},
+                )
+
+                segments_list: list[dict] = []
+                language_probability: Optional[float] = None
+                detected_language: Optional[str] = None
+                last_progress_write = 0.0
+                used_vad = True
+
+                def _run_transcribe(vad: bool) -> None:
+                    """Run the transcription and populate segments_list."""
+                    nonlocal language_probability, detected_language, last_progress_write
+                    segments_list.clear()
+                    # Build transcribe kwargs. When preset_params is present
+                    # (the job was started with a selected ASR preset), use
+                    # the preset's parameters; otherwise fall back to the
+                    # worker's original hardcoded defaults.
+                    if preset_params:
+                        transcribe_kwargs: dict = dict(preset_params)
+                        # Force task to transcribe (presets don't carry it).
+                        transcribe_kwargs.pop("task", None)
+                        transcribe_kwargs["task"] = "transcribe"
+                        # The ``vad`` argument to this function overrides the
+                        # preset's vad_filter on retry (when the first pass
+                        # with VAD produced no segments, we retry without).
+                        transcribe_kwargs["vad_filter"] = vad
+                        # Use the resolved language (may be None for auto-detect).
+                        transcribe_kwargs["language"] = language
+                        # Pass hotwords if provided.
+                        if hotwords:
+                            transcribe_kwargs["hotwords"] = hotwords
+                        # Remove non-transcribe fields the preset carries.
+                        for k in ("model", "device", "compute_type", "name", "description",
+                                  "id", "production_eligible"):
+                            transcribe_kwargs.pop(k, None)
+                    else:
+                        transcribe_kwargs = {
+                            "language": language,
+                            "task": "transcribe",
+                            "word_timestamps": True,
+                            "vad_filter": vad,
+                            "beam_size": 5,
+                            "condition_on_previous_text": True,
+                        }
+                        if hotwords:
+                            transcribe_kwargs["hotwords"] = hotwords
+                    segments_iter, info = model.transcribe(
+                        str(audio_path),
+                        **transcribe_kwargs,
+                    )
+                    language_probability = getattr(info, "language_probability", None)
+                    detected_language = getattr(info, "language", None)
+
+                    for seg in segments_iter:
+                        words: list[dict] = []
+                        for w in (getattr(seg, "words", None) or []):
+                            words.append({
+                                "start": float(getattr(w, "start", 0.0)),
+                                "end": float(getattr(w, "end", 0.0)),
+                                "text": str(getattr(w, "word", "")),
+                                "probability": float(getattr(w, "probability", 0.0)) or None,
+                            })
+                        segments_list.append({
+                            "id": int(getattr(seg, "id", len(segments_list))),
+                            "start": float(getattr(seg, "start", 0.0)),
+                            "end": float(getattr(seg, "end", 0.0)),
+                            "text": str(getattr(seg, "text", "")).strip(),
+                            "avg_logprob": float(getattr(seg, "avg_logprob", 0.0)) or None,
+                            "no_speech_probability": float(getattr(seg, "no_speech_probability", 0.0)) or None,
+                            "words": words,
+                        })
+                        # Update progress at most every 0.5s.
+                        now = time.monotonic()
+                        if now - last_progress_write >= 0.5:
+                            last_progress_write = now
+                            processed = float(getattr(seg, "end", 0.0))
+                            percent = None
+                            if total_seconds and total_seconds > 0:
+                                percent = min(100.0, max(0.0, processed / total_seconds * 100.0))
+                            _update_job(
+                                job_path,
+                                progress={
+                                    "percent": percent,
+                                    "processed_seconds": processed,
+                                    "total_seconds": total_seconds,
+                                    "phase": "TRANSCRIBING",
+                                },
+                            )
+
+                try:
+                    _run_transcribe(vad=True)
+                except Exception as exc:
+                    _update_job(
+                        job_path,
+                        status="FAILED",
+                        error=f"transcription failed: {type(exc).__name__}: {exc}",
+                    )
+                    return 1
+
+                # If VAD filtered everything out, retry without VAD.
+                if not segments_list and used_vad:
+                    logger.warning("VAD filter produced no segments for %s, retrying without VAD", audio_path.name)
+                    _update_job(
+                        job_path,
+                        progress={"percent": 0.0, "processed_seconds": 0.0, "total_seconds": total_seconds, "phase": "TRANSCRIBING_NO_VAD"},
+                    )
+                    used_vad = False
+                    try:
+                        _run_transcribe(vad=False)
+                    except Exception as exc:
+                        _update_job(
+                            job_path,
+                            status="FAILED",
+                            error=f"transcription (no VAD) failed: {type(exc).__name__}: {exc}",
+                        )
+                        return 1
+
+                if not segments_list:
+                    audio_size = audio_path.stat().st_size if audio_path.is_file() else 0
+                    _update_job(
+                        job_path,
+                        status="FAILED",
+                        error=(
+                            f"transcription produced no segments. "
+                            f"audio={audio_path.name} size={audio_size}B "
+                            f"duration={total_seconds}s lang={language or 'auto'} "
+                            f"detected={detected_language} model={model_name}. "
+                            f"The audio may be silent or corrupt."
+                        ),
+                    )
+                    return 1
 
             # Phase: EXPORTING
             _update_job(

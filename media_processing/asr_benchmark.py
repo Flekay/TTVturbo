@@ -77,6 +77,7 @@ STATUS_RUNNING = "RUNNING"
 STATUS_READY = "READY"
 STATUS_PARTIALLY_FAILED = "PARTIALLY_FAILED"
 STATUS_FAILED = "FAILED"
+STATUS_SKIPPED = "SKIPPED"
 STATUS_CANCELED = "CANCELED"
 
 ALL_STATUSES = (
@@ -85,10 +86,11 @@ ALL_STATUSES = (
     STATUS_READY,
     STATUS_PARTIALLY_FAILED,
     STATUS_FAILED,
+    STATUS_SKIPPED,
     STATUS_CANCELED,
 )
 ACTIVE_STATUSES = frozenset({STATUS_QUEUED, STATUS_RUNNING})
-TERMINAL_STATUSES = frozenset({STATUS_READY, STATUS_PARTIALLY_FAILED, STATUS_FAILED, STATUS_CANCELED})
+TERMINAL_STATUSES = frozenset({STATUS_READY, STATUS_PARTIALLY_FAILED, STATUS_FAILED, STATUS_SKIPPED, STATUS_CANCELED})
 
 # Guardrails.
 MAX_HOTWORDS_LEN = 500
@@ -398,12 +400,16 @@ class AsrBenchmarkService:
         else:
             ok = [r for r in runs if r.get("status") == STATUS_READY]
             failed = [r for r in runs if r.get("status") == STATUS_FAILED]
+            skipped = [r for r in runs if r.get("status") == STATUS_SKIPPED]
             if not ok and failed:
                 payload["status"] = STATUS_FAILED
             elif failed and ok:
                 payload["status"] = STATUS_PARTIALLY_FAILED
             elif ok:
                 payload["status"] = STATUS_READY
+            elif skipped and not ok and not failed:
+                # All runs were skipped (models not installed).
+                payload["status"] = STATUS_FAILED
             else:
                 payload["status"] = STATUS_FAILED
             if exit_code != 0 and not runs:

@@ -61,3 +61,15 @@ safetensors>=0.4.0
 # any parameter the installed version does not understand.
 faster-whisper==1.2.1
 
+# nvidia-ml-py for backend-independent VRAM measurement via NVML.
+# Used by the ASR benchmark worker to measure actual GPU memory usage
+# regardless of whether the model uses CTranslate2 (Whisper) or PyTorch
+# (NeMo). If NVML is not available, VRAM values are reported as null,
+# never as 0. The package provides the `pynvml` module.
+nvidia-ml-py>=11.5.0
+
+# NeMo ASR toolkit for Parakeet TDT and Canary models.
+# Imported lazily by the benchmark worker only — the FastAPI app starts
+# without NeMo. Models are downloaded from HuggingFace on first use.
+nemo_toolkit[asr]>=2.7.0
+

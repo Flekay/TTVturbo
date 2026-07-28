@@ -445,6 +445,8 @@ class TranscriptionService:
         source_id: str,
         language: Optional[str] = None,
         model: Optional[str] = None,
+        model_family: Optional[str] = None,
+        hotwords: Optional[str] = None,
         force_audio_extraction: bool = False,
     ) -> dict:
         """Start a transcription for ``(source_type, source_id)``.
@@ -510,6 +512,8 @@ class TranscriptionService:
             "options": {
                 "language": effective_language,
                 "model": effective_model,
+                "model_family": model_family or "whisper",
+                "hotwords": (hotwords or "").strip() or None,
                 "force_audio_extraction": bool(force_audio_extraction),
                 "preset_id": preset.id if preset else None,
                 "preset_params": preset.to_dict() if preset else None,
@@ -650,9 +654,11 @@ class TranscriptionService:
                 "audio_path": str(audio_path),
                 "transcript_dir": str(transcript_dir),
                 "model": options.get("model") or self.model,
+                "model_family": options.get("model_family") or "whisper",
                 "device": preset_params.get("device") or self.device,
                 "compute_type": preset_params.get("compute_type") or self.compute_type,
                 "language": options.get("language") or self.language,
+                "hotwords": options.get("hotwords"),
                 "gpu_lock_dir": str(self.gpu_lock.data_dir),
                 "preset_params": preset_params,
             }
@@ -666,9 +672,11 @@ class TranscriptionService:
                 "audio_path": str(audio_path),
                 "transcript_dir": str(transcript_dir),
                 "model": options.get("model") or self.model,
+                "model_family": options.get("model_family") or "whisper",
                 "device": self.device,
                 "compute_type": self.compute_type,
                 "language": options.get("language") or self.language,
+                "hotwords": options.get("hotwords"),
                 "gpu_lock_dir": str(self.gpu_lock.data_dir),
             }
         worker_job_path = self.storage._job_dir(job_id) / "worker_job.json"  # noqa: SLF001

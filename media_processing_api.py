@@ -80,6 +80,8 @@ class StartTranscriptionRequest(BaseModel):
     source_id: str
     language: Optional[str] = None
     model: Optional[str] = None
+    model_family: Optional[str] = None  # "whisper", "parakeet", "canary"
+    hotwords: Optional[str] = None
     force_audio_extraction: bool = False
 
 
@@ -196,6 +198,8 @@ def build_media_processing_router(
                 source_id=request.source_id,
                 language=request.language,
                 model=request.model,
+                model_family=request.model_family,
+                hotwords=request.hotwords,
                 force_audio_extraction=request.force_audio_extraction,
             )
         except Exception as exc:
@@ -207,6 +211,8 @@ def build_media_processing_router(
         file: UploadFile = File(...),
         language: Optional[str] = None,
         model: Optional[str] = None,
+        model_family: Optional[str] = None,
+        hotwords: Optional[str] = None,
     ) -> JSONResponse:
         """Upload a media file and start a transcription for it.
 
@@ -256,6 +262,8 @@ def build_media_processing_router(
                 source_id=upload_id,
                 language=language,
                 model=model,
+                model_family=model_family,
+                hotwords=hotwords,
             )
         except Exception as exc:
             if library_service is not None:

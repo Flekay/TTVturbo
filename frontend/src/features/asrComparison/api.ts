@@ -7,9 +7,13 @@ import {
   asrBenchmarkSchema,
   asrRunDetailSchema,
   asrDefaultSelectionSchema,
+  asrModelsResponseSchema,
+  asrAudioDiagnosticListResponseSchema,
+  asrAudioDiagnosticSchema,
 } from "./schemas";
 import type {
   CreateBenchmarkRequest,
+  CreateAudioDiagnosticRequest,
   SelectDefaultRequest,
   AsrPresetListResponse,
   AsrStatus,
@@ -17,6 +21,9 @@ import type {
   AsrBenchmark,
   AsrRunDetail,
   AsrDefaultSelection,
+  AsrModelsResponse,
+  AsrAudioDiagnosticListResponse,
+  AsrAudioDiagnostic,
 } from "./types";
 
 const ASR = "/api/asr";
@@ -35,6 +42,34 @@ export function fetchAsrDefault(signal?: AbortSignal): Promise<AsrDefaultSelecti
 
 export function setAsrDefault(request: SelectDefaultRequest): Promise<AsrDefaultSelection> {
   return apiClient.post(`${ASR}/default`, { body: request, schema: asrDefaultSelectionSchema });
+}
+
+export function fetchAsrModels(signal?: AbortSignal): Promise<AsrModelsResponse> {
+  return apiClient.get(`${ASR}/models`, { schema: asrModelsResponseSchema, signal });
+}
+
+export function fetchAudioDiagnostics(
+  sourceType: string,
+  sourceId: string,
+  signal?: AbortSignal,
+): Promise<AsrAudioDiagnosticListResponse> {
+  return apiClient.get(
+    `${ASR}/audio-diagnostics/${encodeURIComponent(sourceType)}/${encodeURIComponent(sourceId)}`,
+    { schema: asrAudioDiagnosticListResponseSchema, signal },
+  );
+}
+
+export function createAudioDiagnostic(
+  request: CreateAudioDiagnosticRequest,
+): Promise<AsrAudioDiagnostic> {
+  return apiClient.post(`${ASR}/audio-diagnostics`, {
+    body: request,
+    schema: asrAudioDiagnosticSchema,
+  });
+}
+
+export function audioArtifactUrl(diagnosticId: string, variant: string): string {
+  return `${ASR}/audio-diagnostics/${encodeURIComponent(diagnosticId)}/artifacts/${encodeURIComponent(variant)}`;
 }
 
 export function createAsrBenchmark(request: CreateBenchmarkRequest): Promise<AsrBenchmark> {

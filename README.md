@@ -19,7 +19,7 @@ TTVturbo/
 ├── migrate_to_library.py # Migration: VOD-Downloads in die persistente Library übernehmen
 ├── voice_profiles/       # Voice-Profile-Kern (Library, Storage, Service, Schemas)
 ├── vod_pipeline/         # Twitch-VOD-Pipeline-Kern (Schemas, Storage, TwitchClient, Service, Downloader-Worker)
-├── media_processing/     # Shared Media-Processing-Kern (Schemas, Storage, GPU-Lock, Sources, Audio-Extraktion, Transkription, Pipeline, ASR-Presets, ASR-Metriken, ASR-Diagnose, ASR-Benchmark)
+├── media_processing/     # Shared Media-Processing-Kern (Schemas, Storage, GPU-Lock, Sources, Audio-Extraktion, Transkription, Pipeline, ASR-Presets, ASR-Metriken, ASR-Diagnose, ASR-Benchmark, ASR-Modelle, Audio-Forensik)
 ├── voice_clone/          # Qwen3-TTS Voice-Clone-Modul (Service, Runtime, Qualitätsanalyse, Diagnostics)
 ├── library/              # Persistente Video-Sammlung (Schemas, Storage, Service)
 ├── config/               # Voice-Pack-Skripte (config/voice_lab/scripts/de-DE/ttvturbo_voice_pack_v1.json)
@@ -191,8 +191,11 @@ curl http://127.0.0.1:8765/api/transcription/status
 
 ### ASR-Presets und Benchmark-Vergleich
 
-Das System verwaltet vier vordefinierte ASR-Presets in
-`media_processing/asr_presets.py`:
+Das System verwaltet vordefinierte ASR-Presets in
+`media_processing/asr_presets.py` sowie Multi-Modell-Kandidaten in
+`media_processing/asr_models.py`:
+
+**Presets** (Whisper / faster-whisper):
 
 | Preset-ID | Modell | Compute-Type | VAD | Beam | Spracherkennung | Produktions­tauglich |
 |-----------|--------|-------------|-----|------|-----------------|----------------------|
@@ -201,12 +204,57 @@ Das System verwaltet vier vordefinierte ASR-Presets in
 | `multilingual-large-v3-no-vad` | `large-v3` | `float16` | aus | 5 | auto | nein (Diagnose) |
 | `multilingual-large-v3-turbo` | `large-v3-turbo` | `int8_float16` | an | 1 | auto | ja |
 
+**Multi-Modell-Kandidaten** (Whisper, Parakeet, Canary):
+
+| Kandidaten-ID | Modell-Familie | Modell | Sprache | VAD |
+|---------------|---------------|--------|---------|-----|
+| `whisper-legacy-current` | Whisper | `large-v3` | `de` | an |
+| `whisper-large-v3-forced-de-no-vad` | Whisper | `large-v3` | `de` | aus |
+| `whisper-large-v3-forced-en-no-vad` | Whisper | `large-v3` | `en` | aus |
+| `parakeet-tdt-0.6b-v3-auto` | Parakeet | `nvidia/parakeet-tdt-0.6b-v3` | auto | — |
+| `canary-1b-v2-de` | Canary | `nvidia/canary-1b-v2` | `de`→`de` | — |
+| `canary-1b-v2-en` | Canary | `nvidia/canary-1b-v2` | `en`→`en` | — |
+
+NVIDIA NeMo (Parakeet, Canary) ist eine optionale Abhängigkeit. Die
+Anwendung startet auch ohne NeMo; nicht installierte Kandidaten werden
+im UI als „nicht installiert" markiert. Die Verfügbarkeit wird zur
+Laufzeit geprüft — es werden keine Modelle beim Serverstart geladen.
+
 Der Benchmark-Vergleich (`/transcription` → Tab *ASR-Vergleich*) transkribiert
-einen Clip nacheinander mit allen ausgewählten Presets, misst WER/CER gegen
+einen Clip nacheinander mit allen ausgewählten Kandidaten, misst WER/CER gegen
 eine optionale Ground Truth, markiert Halluzinations- und Auslassungs-Hinweise
 und zeigt eine VAD-Timeline pro Run. Der Sieger wird per transparenter
 Rangfolge (niedrigster WER → wenigste Insertionen → wenigste Deletionen →
 kürzeste Laufzeit) ermittelt; ohne Ground Truth wird kein Sieger deklariert.
+
+**VRAM-Messung:** Die VRAM-Auslastung wird über NVML (`pynvml`) gemessen,
+nicht über `torch.cuda.max_memory_allocated`. NVML ist backend-unabhängig
+und erfasst den tatsächlichen GPU-Speicher unabhängig davon, ob das Modell
+CTranslate2 (Whisper) oder PyTorch (NeMo) verwendet. Wenn NVML nicht
+verfügbar ist, wird `null` gemeldet — niemals `0 MB`.
+
+**Modell-Wiederverwendung:** Wenn zwei aufeinanderfolgende Runs dasselbe
+Modell verwenden (z. B. zwei Whisper-Large-v3-Runs mit unterschiedlichen
+Sprachen), wird das Modell nicht neu geladen. `model_reused=true` und
+`load_seconds=0.0` markieren dies im Run-Ergebnis.
+
+### Audio-Forensik
+
+Die Audio-Forensik (`media_processing/audio_forensics.py`) erzeugt
+diagnostische Audio-Varianten aus dem Original-Stream:
+
+| Variante | Beschreibung |
+|----------|-------------|
+| `current-asr-input` | Audio, das die ASR-Pipeline tatsächlich erhält |
+| `left-channel` | Nur linker Kanal |
+| `right-channel` | Nur rechter Kanal |
+| `mono-current` | Downmix auf Mono (aktueller Kanal-Modus) |
+| `mono-average` | Downmix auf Mono (Durchschnitt beider Kanäle) |
+
+Jede Variante enthält Metadaten (Peak/RMS dBFS, DC-Offset, Clipping-Ratio,
+Stille-Anteil, Sprache-Regionen, SHA-256, Codec, Sample-Rate). Die Varianten
+können im UI als Audio-Player abgespielt werden, um zu vergleichen, was das
+ASR-Modell tatsächlich hört.
 
 Das ausgewählte Produktions-Preset wird in `data/asr/default_preset.json`
 persistiert und steuert alle neuen Transkriptionen. Bestehende Transkripte
@@ -218,10 +266,14 @@ API-Endpunkte:
 | Methode | Pfad | Beschreibung |
 |---------|------|-------------|
 | GET | `/api/asr/presets` | alle Presets auflisten |
+| GET | `/api/asr/models` | Multi-Modell-Kandidaten + Verfügbarkeit |
 | GET | `/api/asr/status` | Lauf-Status + aktuelles Default-Preset |
 | GET | `/api/asr/default` | aktuelles Default-Preset |
 | POST | `/api/asr/default` | Default-Preset setzen |
-| POST | `/api/asr/benchmarks` | Benchmark erstellen |
+| GET | `/api/asr/audio-diagnostics/{source_type}/{source_id}` | Diagnosen auflisten |
+| POST | `/api/asr/audio-diagnostics` | Audio-Diagnose erstellen |
+| GET | `/api/asr/audio-diagnostics/{id}/artifacts/{variant}` | Audio-Variante herunterladen |
+| POST | `/api/asr/benchmarks` | Benchmark erstellen (mit `candidate_ids` und `audio_variant`) |
 | GET | `/api/asr/benchmarks` | Benchmarks auflisten |
 | GET | `/api/asr/benchmarks/{id}` | Benchmark-Detail |
 | POST | `/api/asr/benchmarks/{id}/start` | Benchmark ausführen |

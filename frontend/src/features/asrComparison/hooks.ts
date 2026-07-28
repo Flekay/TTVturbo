@@ -4,6 +4,9 @@ import {
   fetchAsrStatus,
   fetchAsrDefault,
   setAsrDefault,
+  fetchAsrModels,
+  fetchAudioDiagnostics,
+  createAudioDiagnostic,
   createAsrBenchmark,
   fetchAsrBenchmarks,
   fetchAsrBenchmark,
@@ -13,12 +16,15 @@ import {
   selectDefaultFromBenchmark,
   fetchAsrRun,
 } from "./api";
-import type { CreateBenchmarkRequest, SelectDefaultRequest } from "./types";
+import type { CreateBenchmarkRequest, CreateAudioDiagnosticRequest, SelectDefaultRequest } from "./types";
 
 export const asrQueryKey = ["asr"] as const;
 export const asrPresetsQueryKey = ["asr", "presets"] as const;
 export const asrStatusQueryKey = ["asr", "status"] as const;
 export const asrDefaultQueryKey = ["asr", "default"] as const;
+export const asrModelsQueryKey = ["asr", "models"] as const;
+export const asrAudioDiagnosticsQueryKey = (sourceType: string, sourceId: string) =>
+  ["asr", "audio-diagnostics", sourceType, sourceId] as const;
 export const asrBenchmarksQueryKey = ["asr", "benchmarks"] as const;
 export const asrBenchmarkQueryKey = (id: string) => ["asr", "benchmarks", id] as const;
 export const asrRunQueryKey = (benchmarkId: string, presetId: string) =>
@@ -144,5 +150,39 @@ export function useAsrRunQuery(benchmarkId: string | null, presetId: string | nu
     queryFn: ({ signal }) => fetchAsrRun(benchmarkId as string, presetId as string, signal),
     enabled: !!benchmarkId && !!presetId,
     retry: 1,
+  });
+}
+
+export function useAsrModelsQuery() {
+  return useQuery({
+    queryKey: asrModelsQueryKey,
+    queryFn: ({ signal }) => fetchAsrModels(signal),
+    staleTime: 30_000,
+    retry: 1,
+  });
+}
+
+export function useAudioDiagnosticsQuery(sourceType: string | null, sourceId: string | null) {
+  return useQuery({
+    queryKey:
+      sourceType && sourceId
+        ? asrAudioDiagnosticsQueryKey(sourceType, sourceId)
+        : ["asr", "audio-diagnostics", "__none__"],
+    queryFn: ({ signal }) => fetchAudioDiagnostics(sourceType as string, sourceId as string, signal),
+    enabled: !!sourceType && !!sourceId,
+    staleTime: 10_000,
+    retry: 1,
+  });
+}
+
+export function useCreateAudioDiagnosticMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (request: CreateAudioDiagnosticRequest) => createAudioDiagnostic(request),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({
+        queryKey: asrAudioDiagnosticsQueryKey(data.source_type, data.source_id),
+      });
+    },
   });
 }

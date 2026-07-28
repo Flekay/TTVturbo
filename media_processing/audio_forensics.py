@@ -227,10 +227,15 @@ def _build_ffmpeg_cmd(
     We use ``-af`` (not ``-filter_complex``) because ``-map`` already
     selects a single audio stream, and ``-af`` applies to that mapped
     stream directly without needing input labels.
+
+    ``stream_index`` is the **absolute** stream index as reported by
+    ffprobe (e.g. 1 for the first audio stream in a file with video at
+    index 0). We use ``-map 0:{index}`` (absolute) rather than
+    ``-map 0:a:{n}`` (relative to audio streams) to avoid ambiguity.
     """
     cmd = [_find_ffmpeg(), "-hide_banner", "-y"]
     if stream_index is not None:
-        cmd += ["-i", str(source), "-map", f"0:a:{stream_index}"]
+        cmd += ["-i", str(source), "-map", f"0:{stream_index}"]
     else:
         cmd += ["-i", str(source)]
     cmd += ["-vn"]

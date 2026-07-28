@@ -213,11 +213,16 @@ function TranscriptionJobCard({
 
       <div className="transcription-card__footer">
         <span className="transcription-card__meta">
-          Modell: {job.options?.model ?? "—"}
+          Modell: {job.options?.model ?? "—"} ({job.options?.model_family ?? "whisper"})
         </span>
         <span className="transcription-card__meta">
           Sprache: {job.options?.language ?? "—"}
         </span>
+        {job.options?.hotwords && (
+          <span className="transcription-card__meta">
+            Hotwords: {job.options.hotwords}
+          </span>
+        )}
         <span className="transcription-card__meta">
           Erstellt: {formatDateTime(job.created_at)}
         </span>
@@ -241,6 +246,8 @@ export function TranscriptionPage() {
   const [pageMode, setPageMode] = useState<"transcribe" | "asr-comparison">("transcribe");
   const [mode, setMode] = useState<SourceMode>("library");
   const [language, setLanguage] = useState<string>("de");
+  const [modelFamily, setModelFamily] = useState<string>("whisper");
+  const [hotwords, setHotwords] = useState<string>("");
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [selectedItemId, setSelectedItemId] = useState<string>("");
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
@@ -275,7 +282,12 @@ export function TranscriptionPage() {
   const handleUpload = () => {
     if (!uploadFile) return;
     uploadMutation.mutate(
-      { file: uploadFile, language: language || undefined },
+      {
+        file: uploadFile,
+        language: language || undefined,
+        model_family: modelFamily || undefined,
+        hotwords: hotwords.trim() || undefined,
+      },
       {
         onSuccess: () => setUploadFile(null),
       },
@@ -289,6 +301,8 @@ export function TranscriptionPage() {
         source_type: "file_upload",
         source_id: selectedItemId,
         language: language || undefined,
+        model_family: modelFamily || undefined,
+        hotwords: hotwords.trim() || undefined,
       },
       {
         onSuccess: () => setSelectedItemId(""),
@@ -399,6 +413,30 @@ export function TranscriptionPage() {
                 <option value="en">Englisch</option>
                 <option value="auto">Automatisch</option>
               </select>
+            </label>
+            <label className="transcription-form__field">
+              <span className="transcription-form__label">Modell</span>
+              <select
+                value={modelFamily}
+                onChange={(e) => setModelFamily(e.target.value)}
+                className="transcription-form__select"
+                disabled={startPending}
+              >
+                <option value="whisper">Whisper (large-v3)</option>
+                <option value="parakeet">NVIDIA Parakeet TDT 0.6B v3</option>
+                <option value="canary">NVIDIA Canary 1B v2</option>
+              </select>
+            </label>
+            <label className="transcription-form__field">
+              <span className="transcription-form__label">Hotwords (kontextbezogenes Wörterbuch)</span>
+              <input
+                type="text"
+                value={hotwords}
+                onChange={(e) => setHotwords(e.target.value)}
+                className="transcription-form__input"
+                disabled={startPending || modelFamily !== "whisper"}
+                placeholder={modelFamily !== "whisper" ? "Nur für Whisper verfügbar" : "z.B. Drake, Trick, Gott"}
+              />
             </label>
             {mode === "upload" ? (
               <Button

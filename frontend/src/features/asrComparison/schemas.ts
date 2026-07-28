@@ -75,6 +75,7 @@ export const asrRunSummarySchema = z.object({
   missing_speech_flag_count: z.number().nullable().optional(),
   transcript_text: z.string().nullable().optional(),
   error: z.string().nullable().optional(),
+  skip_reason: z.string().nullable().optional(),
 });
 
 export const asrBenchmarkSchema = z.object({
@@ -201,4 +202,137 @@ export const asrDefaultSelectionSchema = z.object({
   preset_id: z.string(),
   preset: asrPresetSchema,
   selected_at: z.string().nullable().optional(),
+});
+
+// ---------------------------------------------------------------------------
+// Model candidates (multi-model comparison)
+// ---------------------------------------------------------------------------
+
+export const asrModelCandidateSchema = z.object({
+  id: z.string(),
+  model_family: z.string(),
+  model_id: z.string(),
+  name: z.string(),
+  description: z.string(),
+  options: z.record(z.string(), z.any()).optional(),
+  production_eligible: z.boolean().optional(),
+  diagnostic: z.boolean().optional(),
+  available: z.boolean().optional(),
+});
+
+export const asrModelsResponseSchema = z.object({
+  candidates: z.array(asrModelCandidateSchema),
+  faster_whisper_available: z.boolean(),
+  parakeet_available: z.boolean(),
+  canary_available: z.boolean(),
+  nemo_installed: z.boolean(),
+  cuda_available: z.boolean(),
+});
+
+// ---------------------------------------------------------------------------
+// Audio diagnostics (forensics)
+// ---------------------------------------------------------------------------
+
+export const asrAudioMetricsSchema = z.object({
+  file_size_bytes: z.number().nullable().optional(),
+  sha256: z.string().nullable().optional(),
+  codec: z.string().nullable().optional(),
+  sample_rate: z.number().nullable().optional(),
+  channels: z.number().nullable().optional(),
+  duration_seconds: z.number().nullable().optional(),
+  peak_dbfs: z.number().nullable().optional(),
+  rms_dbfs: z.number().nullable().optional(),
+  dc_offset: z.number().nullable().optional(),
+  clipping_ratio: z.number().nullable().optional(),
+  silence_ratio: z.number().nullable().optional(),
+  speech_regions: z.array(z.object({ start: z.number(), end: z.number() })).optional(),
+  speech_duration_seconds: z.number().nullable().optional(),
+  quality_report: z.any().nullable().optional(),
+  warnings: z.array(z.string()).optional(),
+});
+
+export const asrAudioArtifactSchema = z.object({
+  filename: z.string(),
+  metrics: asrAudioMetricsSchema.nullable().optional(),
+  error: z.string().nullable().optional(),
+});
+
+export const asrAudioStreamSchema = z.object({
+  index: z.number(),
+  codec: z.string(),
+  channels: z.number(),
+  channel_layout: z.string().optional(),
+  sample_rate: z.number(),
+  bit_rate: z.number().nullable().optional(),
+  language: z.string().nullable().optional(),
+  title: z.string().nullable().optional(),
+  duration_seconds: z.number().nullable().optional(),
+});
+
+export const asrAudioDiagnosticSchema = z.object({
+  schema_version: z.number().optional(),
+  id: z.string(),
+  source_type: z.string(),
+  source_id: z.string(),
+  audio_stream_id: z.number().nullable().optional(),
+  audio_streams: z.array(asrAudioStreamSchema),
+  video_streams: z.array(z.any()).optional(),
+  format: z.any().optional(),
+  artifacts: z.record(z.string(), asrAudioArtifactSchema),
+  created_at: z.string(),
+});
+
+export const asrAudioDiagnosticListResponseSchema = z.object({
+  diagnostics: z.array(asrAudioDiagnosticSchema),
+});
+
+// ---------------------------------------------------------------------------
+// Updated run summary with multi-model fields
+// ---------------------------------------------------------------------------
+
+export const asrRunSummaryV2Schema = asrRunSummarySchema.extend({
+  candidate_id: z.string().nullable().optional(),
+  model_family: z.string().nullable().optional(),
+  model_reused: z.boolean().nullable().optional(),
+  load_seconds: z.number().nullable().optional(),
+  inference_seconds: z.number().nullable().optional(),
+  total_seconds: z.number().nullable().optional(),
+  peak_vram_bytes: z.number().nullable().optional(),
+  peak_ram_bytes: z.number().nullable().optional(),
+  audio_variant: z.string().nullable().optional(),
+  warnings: z.array(z.string()).nullable().optional(),
+  skip_reason: z.string().nullable().optional(),
+});
+
+// ---------------------------------------------------------------------------
+// Updated benchmark with candidate_ids and audio_variant
+// ---------------------------------------------------------------------------
+
+export const asrBenchmarkV2Schema = asrBenchmarkSchema.extend({
+  candidate_ids: z.array(z.string()).nullable().optional(),
+  audio_variant: z.string().nullable().optional(),
+});
+
+// ---------------------------------------------------------------------------
+// Create benchmark request (extended)
+// ---------------------------------------------------------------------------
+
+export const createBenchmarkRequestSchema = z.object({
+  source_type: z.string(),
+  source_id: z.string(),
+  candidate_ids: z.array(z.string()).optional(),
+  audio_variant: z.string().optional(),
+  preset_ids: z.array(z.string()).optional(),
+  reference_text: z.string().optional(),
+  hotwords: z.string().optional(),
+});
+
+// ---------------------------------------------------------------------------
+// Create audio diagnostic request
+// ---------------------------------------------------------------------------
+
+export const createAudioDiagnosticRequestSchema = z.object({
+  source_type: z.string(),
+  source_id: z.string(),
+  audio_stream_id: z.number().nullable().optional(),
 });

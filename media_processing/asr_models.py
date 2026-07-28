@@ -526,20 +526,18 @@ class ParakeetAdapter:
             raise AsrAdapterError(f"Parakeet transcription failed: {exc}") from exc
         inference_seconds = time.monotonic() - t1
 
-        # NeMo returns a list of results. Extract text and timestamps.
+        # NeMo returns a list of Hypothesis objects (or strings).
         text = ""
         segments: list[dict[str, Any]] = []
         words: list[dict[str, Any]] = []
         if isinstance(result, list) and len(result) > 0:
             entry = result[0]
-            if isinstance(entry, dict):
-                text = str(entry.get("text", "")).strip()
-            elif isinstance(entry, str):
-                text = entry.strip()
-            # NeMo may provide timestamps in some models.
-            if isinstance(entry, dict) and "timestamp" in entry:
-                ts = entry["timestamp"]
-                if isinstance(ts, list):
+            # Hypothesis objects have a .text attribute.
+            if hasattr(entry, "text"):
+                text = str(getattr(entry, "text", "")).strip()
+                # Hypothesis may have .timestamp (list of [start, end, token]).
+                ts = getattr(entry, "timestamp", None)
+                if ts and isinstance(ts, list):
                     for t in ts:
                         if isinstance(t, (list, tuple)) and len(t) >= 2:
                             segments.append({
@@ -547,6 +545,10 @@ class ParakeetAdapter:
                                 "end": float(t[1]),
                                 "text": str(t[2]) if len(t) > 2 else "",
                             })
+            elif isinstance(entry, dict):
+                text = str(entry.get("text", "")).strip()
+            elif isinstance(entry, str):
+                text = entry.strip()
 
         peak_ram = measure_peak_ram()
         peak_vram = vram_tracker.peak_vram_bytes if vram_tracker else None
@@ -627,7 +629,10 @@ class CanaryAdapter:
         words: list[dict[str, Any]] = []
         if isinstance(result, list) and len(result) > 0:
             entry = result[0]
-            if isinstance(entry, dict):
+            # Hypothesis objects have a .text attribute.
+            if hasattr(entry, "text"):
+                text = str(getattr(entry, "text", "")).strip()
+            elif isinstance(entry, dict):
                 text = str(entry.get("text", "")).strip()
             elif isinstance(entry, str):
                 text = entry.strip()

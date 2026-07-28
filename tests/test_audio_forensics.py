@@ -135,6 +135,32 @@ def _make_multi_stream_mp4(path: Path, duration: float = 3.0, sr: int = 48000) -
     subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
 
 
+def _make_video_audio_mp4(path: Path, duration: float = 3.0, sr: int = 48000) -> None:
+    """Create an MP4 with video at stream index 0 and stereo audio at index 1.
+
+    This is the common real-world layout (e.g. Twitch clips, uploaded MP4s)
+    where the audio stream's absolute index is 1, not 0. The FFmpeg map
+    command must use the absolute index, not the relative audio index.
+    """
+    cmd = [
+        "ffmpeg", "-hide_banner", "-y",
+        "-f", "lavfi", "-i",
+        f"color=c=black:s=320x240:d={duration}",
+        "-f", "lavfi", "-i",
+        f"sine=frequency=440:duration={duration}:sample_rate={sr}",
+        "-f", "lavfi", "-i",
+        f"sine=frequency=880:duration={duration}:sample_rate={sr}",
+        "-filter_complex",
+        "[1:a][2:a]amerge=inputs=2,aformat=channel_layouts=stereo[a]",
+        "-map", "0:v", "-map", "[a]",
+        "-c:v", "libx264", "-preset", "ultrafast",
+        "-c:a", "aac", "-b:a", "128k",
+        "-shortest",
+        str(path),
+    ]
+    subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -201,6 +227,37 @@ def test_mono_source_generates_all_variants(forensics_service):
     artifacts = diag["artifacts"]
     for variant in AUDIO_VARIANTS:
         assert artifacts[variant].get("error") is None, f"{variant} failed"
+
+
+def test_video_then_audio_source_generates_all_variants(forensics_service):
+    """Video at index 0, audio at index 1 — the common real-world case.
+
+    Regression test: the FFmpeg command must use absolute stream index
+    ``-map 0:1`` (not ``-map 0:a:1`` which means "second audio stream"
+    and fails when there's only one audio stream).
+    """
+    svc, resolver = forensics_service
+    src_id = "src-video-audio"
+    src_dir = svc.data_dir.parent / "sources" / src_id
+    src_dir.mkdir(parents=True, exist_ok=True)
+    src_file = src_dir / "video_audio.mp4"
+    _make_video_audio_mp4(src_file)
+    resolver.sources[src_id] = _FakeSource(src_id, src_file)
+
+    diag = svc.create_diagnostic("file_upload", src_id)
+    # Verify the audio stream is at absolute index 1 (after video).
+    audio_streams = diag["audio_streams"]
+    assert len(audio_streams) == 1
+    assert audio_streams[0]["index"] == 1  # video is at 0, audio at 1
+
+    # All variants must succeed — no FFmpeg map errors.
+    artifacts = diag["artifacts"]
+    for variant in AUDIO_VARIANTS:
+        art = artifacts[variant]
+        assert art.get("error") is None, f"{variant} failed: {art.get('error')}"
+        assert art["metrics"] is not None
+        flac_path = svc.artifact_path(diag["id"], variant)
+        assert flac_path.is_file(), f"{variant}.flac missing"
 
 
 def test_multi_stream_source_lists_all_streams(forensics_service):
