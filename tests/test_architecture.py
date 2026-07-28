@@ -52,6 +52,8 @@ DOMAIN_PACKAGES = {
     "media_processing",
     "library",
     "system",
+    "visual_analysis",
+    "ideas_research",
 }
 
 # Modules allowed to import app_factory (the top-level wiring layer).
@@ -144,6 +146,8 @@ def test_no_app_factory_import_outside_allowed_files() -> None:
         "ttvturbo/media_processing/audio_extraction.py",
         "ttvturbo/media_processing/pipeline.py",
         "ttvturbo/media_processing/conversation_mining.py",
+        "ttvturbo/visual_analysis/service.py",
+        "ttvturbo/ideas_research/service.py",
     ],
 )
 def test_services_do_not_read_env_vars(module_path: str) -> None:
@@ -238,6 +242,19 @@ def test_settings_has_tool_paths() -> None:
     assert hasattr(s, "ffprobe_path")
     assert hasattr(s, "yt_dlp")
     assert hasattr(s, "worker_python")
+
+
+def test_settings_has_ideas_research_fields() -> None:
+    from ttvturbo.settings import DataPaths, Settings
+
+    s = Settings()
+    assert hasattr(s, "ideas_research_model_id")
+    assert hasattr(s, "ideas_research_max_concurrent")
+    assert hasattr(s, "ideas_research_default_time_range")
+    assert hasattr(s, "ideas_research_default_max_topics")
+    # DataPaths must expose the ideas_research directory.
+    p = s.paths()
+    assert hasattr(p, "ideas_research")
 
 
 # ---------------------------------------------------------------------------

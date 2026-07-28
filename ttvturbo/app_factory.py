@@ -58,6 +58,7 @@ from ttvturbo.media_processing_api import build_media_processing_router
 from ttvturbo.conversation_mining_api import build_conversation_mining_router
 from ttvturbo.asr_api import build_asr_router
 from ttvturbo.visual_analysis_api import build_visual_analysis_router
+from ttvturbo.ideas_research_api import build_ideas_research_router
 
 from ttvturbo.library import LibraryService, LibraryStorage
 from ttvturbo.library_api import build_library_router
@@ -98,6 +99,7 @@ class ServiceContainer:
         self.asr_benchmark_service: Any = None
         self.audio_forensics_service: Any = None
         self.visual_analysis_service: Any = None
+        self.ideas_research_service: Any = None
         # Router references (for tests that need to swap router.state).
         self.voice_profiles_router: Any = None
         self.vod_pipeline_router: Any = None
@@ -107,6 +109,7 @@ class ServiceContainer:
         self.library_router: Any = None
         self.asr_router: Any = None
         self.visual_analysis_router: Any = None
+        self.ideas_research_router: Any = None
         self.app_router: Any = None
         self.start_time_monotonic: float = 0.0
 
@@ -158,6 +161,7 @@ class ServiceOverrides:
     asr_benchmark_service: Any = None
     audio_forensics_service: Any = None
     visual_analysis_service: Any = None
+    ideas_research_service: Any = None
 
 
 # ---------------------------------------------------------------------------
@@ -348,6 +352,24 @@ def _init_services(
             ffprobe_path=tools.ffprobe,
         )
 
+    # --- Ideas research ---------------------------------------------------
+    if ov and ov.ideas_research_service is not None:
+        container.ideas_research_service = ov.ideas_research_service
+    else:
+        from ttvturbo.ideas_research import (
+            IdeasResearchService,
+            IdeasResearchStorage,
+            UnavailableLLMAdapter,
+            UnavailableResearchProvider,
+        )
+        ir_storage = IdeasResearchStorage(paths.ideas_research)
+        container.ideas_research_service = IdeasResearchService(
+            storage=ir_storage,
+            settings=settings,
+            research_provider=UnavailableResearchProvider(),
+            llm_adapter=UnavailableLLMAdapter(),
+        )
+
     # --- Profile reference resolver --------------------------------------
     def _resolve_profile_reference(profile_id: str, script_id: str) -> dict:
         from ttvturbo.voice_clone.service import ValidationError as _VCValidationError
@@ -459,6 +481,7 @@ def create_app(
     preset_store_proxy = _ServiceProxy(container, "asr_default_preset_store")
     forensics_proxy = _ServiceProxy(container, "audio_forensics_service")
     visual_analysis_proxy = _ServiceProxy(container, "visual_analysis_service")
+    ideas_research_proxy = _ServiceProxy(container, "ideas_research_service")
 
     quality_analyzer = make_voice_profile_quality_analyzer(voice_clone_proxy)
 
@@ -483,6 +506,7 @@ def create_app(
     )
     conversation_mining_router = build_conversation_mining_router(mining_proxy)
     visual_analysis_router = build_visual_analysis_router(visual_analysis_proxy)
+    ideas_research_router = build_ideas_research_router(ideas_research_proxy)
     app_router = build_app_router(container)
 
     @asynccontextmanager
@@ -500,6 +524,7 @@ def create_app(
             shutdown_service(container.audio_forensics_service)
             shutdown_service(container.asr_benchmark_service)
             shutdown_service(container.visual_analysis_service)
+            shutdown_service(container.ideas_research_service)
             shutdown_service(container.pipeline_service)
             shutdown_service(container.mining_service)
             shutdown_service(container.transcription_service)
@@ -522,6 +547,7 @@ def create_app(
     container.library_router = library_router
     container.asr_router = asr_router
     container.visual_analysis_router = visual_analysis_router
+    container.ideas_research_router = ideas_research_router
     container.app_router = app_router
 
     # Register routers.  The app-level router (which includes the SPA
@@ -538,6 +564,7 @@ def create_app(
     app.include_router(library_router)
     app.include_router(asr_router)
     app.include_router(visual_analysis_router)
+    app.include_router(ideas_research_router)
     # App-level routes (status, recordings, voice-clone, SPA fallback).
     # Registered last so the SPA catch-all does not shadow /api/* routes
     # from the feature routers above.

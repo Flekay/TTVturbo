@@ -77,6 +77,7 @@ class DataPaths:
     asr_diagnostics: Path
     asr_default_preset: Path
     visual_analysis: Path
+    ideas_research: Path
 
     @classmethod
     def from_root(cls, data_root: Path) -> "DataPaths":
@@ -97,6 +98,7 @@ class DataPaths:
             asr_diagnostics=root / "audio_diagnostics",
             asr_default_preset=root,
             visual_analysis=root / "visual_analysis",
+            ideas_research=root / "ideas_research",
         )
 
     def ensure_dirs(self) -> None:
@@ -119,6 +121,7 @@ class DataPaths:
             self.asr_benchmarks,
             self.asr_diagnostics,
             self.visual_analysis,
+            self.ideas_research,
         ):
             p.mkdir(parents=True, exist_ok=True)
 
@@ -240,6 +243,21 @@ class Settings:
     visual_analysis_layout_change_threshold: float = field(default_factory=lambda: _env_float("TTVTURBO_VISUAL_ANALYSIS_LAYOUT_CHANGE_THRESHOLD", 0.3))
     visual_analysis_template_validation_keyframes: int = field(default_factory=lambda: _env_int("TTVTURBO_VISUAL_ANALYSIS_TEMPLATE_VALIDATION_KEYFRAMES", 3))
     visual_analysis_max_concurrent: int = field(default_factory=lambda: _env_int("TTVTURBO_MAX_CONCURRENT_VISUAL_ANALYSIS", 1))
+
+    # --- ideas research (trend research -> video ideas -> scripts) --------
+    # The research provider and the LLM are pluggable adapters (see
+    # ttvturbo.ideas_research.providers).  An operator can pin a model id via
+    # the env var; free-form model names from the frontend are never accepted.
+    ideas_research_model_id: str = field(default_factory=lambda: _env_optional_str("TTVTURBO_IDEAS_RESEARCH_MODEL_ID") or "")
+    ideas_research_thinking_model_id: str = field(default_factory=lambda: _env_optional_str("TTVTURBO_IDEAS_RESEARCH_THINKING_MODEL_ID") or "")
+    ideas_research_max_concurrent: int = field(default_factory=lambda: _env_int("TTVTURBO_MAX_CONCURRENT_IDEAS_RESEARCH", 1))
+    # Default time range for a research run when the request omits it.
+    ideas_research_default_time_range: str = field(default_factory=lambda: _env_str("TTVTURBO_IDEAS_RESEARCH_DEFAULT_TIME_RANGE", "7d"))
+    # Maximum number of topics kept after clustering/scoring.
+    ideas_research_default_max_topics: int = field(default_factory=lambda: _env_int("TTVTURBO_IDEAS_RESEARCH_DEFAULT_MAX_TOPICS", 20))
+    # Reliability band thresholds (0..1) for source_confidence mapping.
+    ideas_research_source_confidence_high: float = field(default_factory=lambda: _env_float("TTVTURBO_IDEAS_RESEARCH_SOURCE_CONFIDENCE_HIGH", 0.8))
+    ideas_research_source_confidence_low: float = field(default_factory=lambda: _env_float("TTVTURBO_IDEAS_RESEARCH_SOURCE_CONFIDENCE_LOW", 0.4))
 
     # --- server ------------------------------------------------------------
     host: str = "127.0.0.1"
