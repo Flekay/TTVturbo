@@ -15,6 +15,10 @@
   grid-template-columns: var(--sidebar-collapsed-width) 1fr;
 }
 
+.app-layout.is-topbar-hidden {
+  grid-template-rows: 0 1fr;
+}
+
 .app-layout__topbar {
   grid-area: topbar;
   background-color: var(--color-bg-panel);

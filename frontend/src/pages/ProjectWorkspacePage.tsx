@@ -14,6 +14,7 @@ import { promoteLibraryItem } from "../features/capabilities/api";
 import { libraryItemFileUrl } from "../features/library/api";
 import { useLibraryItemsQuery } from "../features/library/hooks";
 import type { LibraryItem } from "../features/library/schemas";
+import { useUIStore } from "../stores/uiStore";
 import { parseEditorCommand, startRender, type EditCommit, type EditorCommandContext, type EditorCommandIntent, type EditSequence, type TimelineClip, type TimelineTrack } from "../features/projects/api";
 import {
   useAddProjectSource,
@@ -111,6 +112,9 @@ export function ProjectWorkspacePage() {
   const checkoutCommit = useCheckoutCommit(projectId!);
   const createBranch = useCreateBranch(projectId!);
 
+  const setSidebarCollapsed = useUIStore((s) => s.setSidebarCollapsed);
+  const setTopbarHidden = useUIStore((s) => s.setTopbarHidden);
+
   const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null);
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [playheadUs, setPlayheadUs] = useState(0);
@@ -140,7 +144,6 @@ export function ProjectWorkspacePage() {
   const stateSources = commitState.data?.state?.sources ?? project.data?.sources ?? [];
   const activeBranch = project.data?.branches.find((branch) => branch.id === project.data?.active_branch_id);
   const mediaTitles = useMemo(() => Object.fromEntries((library.data?.items ?? []).map((item) => [item.id, item.title])), [library.data?.items]);
-  const selectedLabel = selectedClip ? mediaTitles[selectedClip.source_media_item_id] ?? selectedClip.id : null;
 
   const timelineEndUs = useMemo(() => {
     let end = 0;
@@ -157,6 +160,16 @@ export function ProjectWorkspacePage() {
 
   useEffect(() => { playheadRef.current = playheadUs; }, [playheadUs]);
   useEffect(() => { sourceIdsRef.current = new Set(stateSources.filter((source) => !source.asset_id).map((source) => source.media_item_id)); }, [stateSources]);
+
+  useEffect(() => {
+    const { sidebarCollapsed, topbarHidden } = useUIStore.getState();
+    setSidebarCollapsed(true);
+    setTopbarHidden(true);
+    return () => {
+      setSidebarCollapsed(sidebarCollapsed);
+      setTopbarHidden(topbarHidden);
+    };
+  }, [setSidebarCollapsed, setTopbarHidden]);
   useEffect(() => {
     if (activeBranch) {
       headRef.current = activeBranch.head_commit_id;
@@ -450,6 +463,13 @@ export function ProjectWorkspacePage() {
         source_end_us: selectedClip.source_end_us,
         timeline_start_us: selectedClip.timeline_start_us,
       } : null,
+      tracks: tracks.map((track) => ({
+        id: track.id,
+        type: track.type ?? null,
+        name: track.name ?? null,
+        clip_count: Object.keys(track.clips ?? {}).length,
+        selected: track.id === selectedTrackId,
+      })),
     };
 
     const intent = await parseEditorCommand(command, context);
@@ -576,6 +596,57 @@ export function ProjectWorkspacePage() {
         await moveClip(track.id, clip, track.id, seconds * 1_000_000);
         return "Clip auf der Timeline verschoben.";
       }
+      case "delete_track": {
+        const trackType = String(intent.track_type ?? "").toLowerCase();
+        const emptyOnly = Boolean(intent.empty_only);
+        let target = tracks.find((track) => track.id === selectedTrackId) ?? null;
+        if (trackType) {
+          const candidates = tracks.filter((track) => (track.type ?? "").toLowerCase() === trackType);
+          if (emptyOnly) {
+            target = candidates.find((track) => Object.keys(track.clips ?? {}).length === 0) ?? null;
+          } else {
+            target = candidates[0] ?? target;
+          }
+        }
+        if (!target) {
+          if (trackType && emptyOnly) throw new Error(`Keine leere ${trackType}-Spur gefunden.`);
+          if (trackType) throw new Error(`Keine ${trackType}-Spur gefunden.`);
+          throw new Error("Keine Spur ausgewählt.");
+        }
+        if (emptyOnly && Object.keys(target.clips ?? {}).length > 0) {
+          throw new Error("Die Spur ist nicht leer.");
+        }
+        await deleteTrack(target);
+        return "Spur entfernt.";
+      }
+      case "add_track": {
+        const trackType = (String(intent.track_type ?? "audio").toLowerCase() || "audio") as "audio" | "video";
+        const newTrack = { id: safeId(trackType), type: trackType.toUpperCase(), name: trackType === "audio" ? "Audio" : "Video", clips: {} };
+        await commitOperations("Spur angelegt", [{ type: "ADD_TRACK", sequence_id: readySequence.id, payload: { track: newTrack } }]);
+        setSelectedTrackId(newTrack.id);
+        setSelectedClipId(null);
+        return "Spur hinzugefügt.";
+      }
+      case "undo": {
+        const currentId = readyProject.checkout_commit_id;
+        const current = (commits.data ?? []).find((commit) => commit.id === currentId);
+        const parentId = current?.parent_ids?.[0];
+        if (!parentId) throw new Error("Keine vorherige Version vorhanden.");
+        await checkoutCommit.mutateAsync(parentId);
+        detachedRef.current = parentId;
+        setPlaying(false);
+        return "Letzte Änderung rückgängig gemacht.";
+      }
+      case "redo": {
+        const currentId = readyProject.checkout_commit_id;
+        const current = (commits.data ?? []).find((commit) => commit.id === currentId);
+        const childId = current?.child_ids?.[0];
+        if (!childId) throw new Error("Keine neuere Version vorhanden.");
+        await checkoutCommit.mutateAsync(childId);
+        detachedRef.current = childId;
+        setPlaying(false);
+        return "Änderung wiederhergestellt.";
+      }
       case "unknown":
         throw new Error(String(intent.reason ?? "Befehl nicht erkannt."));
       default:
@@ -680,7 +751,6 @@ export function ProjectWorkspacePage() {
         </main>
 
         <EditorSidePanel
-          selectedLabel={selectedLabel}
           branches={readyProject.branches}
           activeBranchId={readyProject.active_branch_id}
           checkoutCommitId={readyProject.checkout_commit_id}

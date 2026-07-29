@@ -9,8 +9,10 @@ export interface UISettings {
 }
 
 interface UIState extends UISettings {
+  topbarHidden: boolean;
   setSidebarCollapsed: (collapsed: boolean) => void;
   toggleSidebar: () => void;
+  setTopbarHidden: (hidden: boolean) => void;
   setUse24HourFormat: (value: boolean) => void;
   setAutoplayAfterRecord: (value: boolean) => void;
   setConfirmDelete: (value: boolean) => void;
@@ -28,9 +30,11 @@ export const useUIStore = create<UIState>()(
   persist(
     (set) => ({
       ...DEFAULT_SETTINGS,
+      topbarHidden: false,
       setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
       toggleSidebar: () =>
         set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
+      setTopbarHidden: (hidden) => set({ topbarHidden: hidden }),
       setUse24HourFormat: (value) => set({ use24HourFormat: value }),
       setAutoplayAfterRecord: (value) => set({ autoplayAfterRecord: value }),
       setConfirmDelete: (value) => set({ confirmDelete: value }),
@@ -39,6 +43,12 @@ export const useUIStore = create<UIState>()(
     {
       name: "ttvturbo-ui",
       version: 1,
+      partialize: (state) => ({
+        sidebarCollapsed: state.sidebarCollapsed,
+        use24HourFormat: state.use24HourFormat,
+        autoplayAfterRecord: state.autoplayAfterRecord,
+        confirmDelete: state.confirmDelete,
+      }),
     },
   ),
 );

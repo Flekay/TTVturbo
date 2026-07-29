@@ -541,6 +541,16 @@ kein ```-Codezaun). Das JSON hat immer ein Feld "action" mit einem der folgenden
 - "opacity"             -> Pflichtfeld "value" (float, 0..100 Prozent).
 - "speed"               -> Pflichtfeld "value" (float, z. B. 1.5 für 1.5×).
 - "timeline_move"       -> Clip auf der Timeline verschieben. Pflichtfeld "seconds" (float).
+- "delete_track"        -> Eine ganze Spur entfernen. Optional "track_type" ("audio"|"video"),
+                           um eine Spur dieses Typs zu zielen (das Frontend wählt dann die
+                           passende Spur, bevorzugt eine leere). Optional "empty_only"
+                           (bool, default false) — nur entfernen, wenn die Spur leer ist.
+                           Ohne "track_type" wird die aktuell ausgewählte Spur entfernt.
+- "add_track"           -> Neue Spur anlegen. Optional "track_type" ("audio"|"video",
+                           default "audio").
+- "undo"                -> Letzte Änderung rückgängig machen (vorherige Version
+                           wiederherstellen). Keine weiteren Felder.
+- "redo"                -> Rückgängig gemachte Änderung wiederherstellen. Keine weiteren Felder.
 - "unknown"             -> Befehl nicht verstanden. Pflichtfeld "reason" (kurzer deutscher Text).
 
 Beispiele:
@@ -549,16 +559,37 @@ Beispiele:
 {"action":"rotate","degrees":15}
 {"action":"opacity","value":80}
 {"action":"split"}
+{"action":"delete_track","track_type":"audio","empty_only":true}
+{"action":"add_track","track_type":"audio"}
+{"action":"undo"}
 {"action":"unknown","reason":"Befehl nicht erkannt."}
 
 Wenn der Kontext keinen ausgewählten Clip enthält, Befehle die einen Clip brauchen
 trotzdem parsen (z. B. {"action":"split"}); das Frontend prüft die Auswahl.
+
+Der Kontext enthält eine Liste "tracks" mit jeder Spur (id, type, name, clip_count,
+selected). Nutze sie, um Spur-bezogene Befehle wie "delete_track" oder "add_track"
+zielsicher zu übersetzen. "undo"/"redo" brauchen keine Auswahl.
 """
 
 
 def _build_editor_user_prompt(command: str, context: dict) -> str:
     """Build the user prompt for an editor-command inference."""
     import json as _json
+    raw_tracks = context.get("tracks")
+    tracks_summary = None
+    if isinstance(raw_tracks, list):
+        tracks_summary = [
+            {
+                "id": t.get("id"),
+                "type": t.get("type"),
+                "name": t.get("name"),
+                "clip_count": t.get("clip_count"),
+                "selected": bool(t.get("selected")),
+            }
+            for t in raw_tracks
+            if isinstance(t, dict)
+        ]
     ctx = {
         "sequence": {
             "width": context.get("sequence", {}).get("width"),
@@ -567,6 +598,7 @@ def _build_editor_user_prompt(command: str, context: dict) -> str:
         "playhead_seconds": context.get("playhead_seconds"),
         "has_selection": bool(context.get("selected_clip")),
         "selected_clip": context.get("selected_clip") or None,
+        "tracks": tracks_summary,
     }
     return (
         f"Kontext (JSON):\n{_json.dumps(ctx, ensure_ascii=False)}\n\n"

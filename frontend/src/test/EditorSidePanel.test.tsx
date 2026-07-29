@@ -5,7 +5,6 @@ import { EditorSidePanel } from "../components/projects/EditorSidePanel";
 import { renderWithProviders } from "./test-utils";
 
 const baseProps = {
-  selectedLabel: "Clip A",
   branches: [],
   activeBranchId: undefined,
   checkoutCommitId: "commit-1",
@@ -24,7 +23,7 @@ describe("EditorSidePanel", () => {
 
     const textarea = screen.getByPlaceholderText(/Verschiebe den Clip/);
     await user.type(textarea, "Zentriere den Clip");
-    await user.click(screen.getByRole("button", { name: "Anwenden" }));
+    await user.click(screen.getByRole("button", { name: "Befehl anwenden" }));
 
     expect(onExecuteCommand).toHaveBeenCalledWith("Zentriere den Clip");
     expect(await screen.findByText("Clip zentriert.")).toBeInTheDocument();
@@ -37,7 +36,7 @@ describe("EditorSidePanel", () => {
 
     const textarea = screen.getByPlaceholderText(/Verschiebe den Clip/);
     await user.type(textarea, "mach was sinnloses");
-    await user.click(screen.getByRole("button", { name: "Anwenden" }));
+    await user.click(screen.getByRole("button", { name: "Befehl anwenden" }));
 
     expect(await screen.findByText("Befehl nicht erkannt.")).toBeInTheDocument();
   });
@@ -48,7 +47,7 @@ describe("EditorSidePanel", () => {
     renderWithProviders(<EditorSidePanel {...baseProps} onExecuteCommand={onExecuteCommand} />);
 
     await user.click(screen.getByRole("button", { name: "Stummschalten" }));
-    await user.click(screen.getByRole("button", { name: "Anwenden" }));
+    await user.click(screen.getByRole("button", { name: "Befehl anwenden" }));
 
     expect(onExecuteCommand).toHaveBeenCalledWith("Stummschalten");
   });

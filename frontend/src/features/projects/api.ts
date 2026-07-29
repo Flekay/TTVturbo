@@ -213,6 +213,13 @@ export interface EditorCommandContext {
     source_end_us?: number;
     timeline_start_us?: number;
   } | null;
+  tracks?: Array<{
+    id: string;
+    type?: string | null;
+    name?: string | null;
+    clip_count: number;
+    selected?: boolean;
+  }> | null;
 }
 
 export interface EditorCommandIntent {

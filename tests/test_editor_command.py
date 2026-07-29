@@ -23,7 +23,7 @@ from ttvturbo.media_processing import (
     EditorCommandValidationError,
     EditorCommandWorkerError,
 )
-from ttvturbo.media_processing.conversation_mining_worker import _parse_editor_intent_json
+from ttvturbo.media_processing.conversation_mining_worker import _parse_editor_intent_json, _build_editor_user_prompt
 from ttvturbo.settings import Settings
 
 
@@ -112,6 +112,28 @@ class TestIntentExtraction:
     def test_empty_returns_none(self):
         assert _parse_editor_intent_json("") is None
         assert _parse_editor_intent_json("   ") is None
+
+
+class TestEditorUserPrompt:
+    def test_tracks_summary_is_included(self):
+        ctx = {
+            "sequence": {"width": 1920, "height": 1080},
+            "playhead_seconds": 4.0,
+            "selected_clip": None,
+            "tracks": [
+                {"id": "t1", "type": "VIDEO", "name": "Video", "clip_count": 2, "selected": False},
+                {"id": "t2", "type": "AUDIO", "name": "Audio", "clip_count": 0, "selected": True},
+            ],
+        }
+        prompt = _build_editor_user_prompt("entferne die leere audio spur", ctx)
+        assert "tracks" in prompt
+        assert '"clip_count": 0' in prompt
+        assert '"type": "AUDIO"' in prompt
+        assert "entferne die leere audio spur" in prompt
+
+    def test_tracks_omitted_when_absent(self):
+        prompt = _build_editor_user_prompt("Abspielen", {"sequence": {"width": 1920, "height": 1080}})
+        assert '"tracks": null' in prompt
 
 
 # ---------------------------------------------------------------------------

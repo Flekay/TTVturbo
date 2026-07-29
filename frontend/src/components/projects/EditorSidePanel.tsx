@@ -1,10 +1,9 @@
-import { Bot, Check, GitBranch, GitCommitHorizontal, History, Loader2, Send, Sparkles } from "lucide-react";
+import { Check, GitBranch, GitCommitHorizontal, History, Loader2, Send, Sparkles } from "lucide-react";
 import { useState } from "react";
 import type { EditBranch, EditCommit } from "../../features/projects/api";
 import { Button } from "../ui/Button";
 
 interface EditorSidePanelProps {
-  selectedLabel: string | null;
   branches: EditBranch[];
   activeBranchId?: string | null;
   checkoutCommitId: string;
@@ -35,7 +34,6 @@ const EXAMPLES = [
 ];
 
 export function EditorSidePanel({
-  selectedLabel,
   branches,
   activeBranchId,
   checkoutCommitId,
@@ -80,11 +78,6 @@ export function EditorSidePanel({
 
       {tab === "language" ? (
         <div className="editor-language-panel">
-          <div className="editor-language-context">
-            <Bot size={17} />
-            <div><strong>Editor-Befehl</strong><span>{selectedLabel ? `Ausgewählt: ${selectedLabel}` : "Clip auswählen oder einen allgemeinen Timeline-Befehl eingeben."}</span></div>
-          </div>
-
           <div className="editor-language-log">
             {entries.length === 0 ? (
               <div className="editor-language-empty">
@@ -105,20 +98,30 @@ export function EditorSidePanel({
           </div>
 
           <div className="editor-language-input">
-            <textarea
-              className="input"
-              rows={4}
-              value={command}
-              onChange={(event) => setCommand(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
-                  event.preventDefault();
-                  void submit();
-                }
-              }}
-              placeholder="z. B. Verschiebe den Clip 10% nach links …"
-            />
-            <Button variant="primary" onClick={() => void submit()} loading={busy} disabled={!command.trim()}><Send size={15} /> Anwenden</Button>
+            <div className="editor-language-input__field">
+              <textarea
+                className="input"
+                rows={4}
+                value={command}
+                onChange={(event) => setCommand(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    void submit();
+                  }
+                }}
+                placeholder="z. B. Verschiebe den Clip 10% nach links …"
+              />
+              <button
+                type="button"
+                className="editor-language-input__send"
+                onClick={() => void submit()}
+                disabled={busy || !command.trim()}
+                aria-label="Befehl anwenden"
+              >
+                {busy ? <Loader2 size={15} className="spin" /> : <Send size={15} />}
+              </button>
+            </div>
           </div>
         </div>
       ) : (
