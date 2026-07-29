@@ -21,10 +21,10 @@ import {
   useCheckoutBranch,
   useCheckoutCommit,
   useCommitState,
-  useCreateBranch,
   useCreateCommit,
   useProject,
   useProjectCommits,
+  useResetBranch,
 } from "../features/projects/hooks";
 
 interface RenderJob {
@@ -110,7 +110,7 @@ export function ProjectWorkspacePage() {
   const addProjectSource = useAddProjectSource(projectId!);
   const checkoutBranch = useCheckoutBranch(projectId!);
   const checkoutCommit = useCheckoutCommit(projectId!);
-  const createBranch = useCreateBranch(projectId!);
+  const resetBranch = useResetBranch(projectId!);
 
   const setSidebarCollapsed = useUIStore((s) => s.setSidebarCollapsed);
   const setTopbarHidden = useUIStore((s) => s.setTopbarHidden);
@@ -143,6 +143,8 @@ export function ProjectWorkspacePage() {
   const selectedClip = selectedTrack?.clips?.[selectedClipId ?? ""] ?? null;
   const stateSources = commitState.data?.state?.sources ?? project.data?.sources ?? [];
   const activeBranch = project.data?.branches.find((branch) => branch.id === project.data?.active_branch_id);
+  const commitItems = useMemo(() => commits.data?.pages.flatMap((page) => page.commits) ?? [], [commits.data]);
+  const commitTotal = commits.data?.pages[0]?.total ?? commitItems.length;
   const mediaTitles = useMemo(() => Object.fromEntries((library.data?.items ?? []).map((item) => [item.id, item.title])), [library.data?.items]);
 
   const timelineEndUs = useMemo(() => {
@@ -162,11 +164,11 @@ export function ProjectWorkspacePage() {
   useEffect(() => { sourceIdsRef.current = new Set(stateSources.filter((source) => !source.asset_id).map((source) => source.media_item_id)); }, [stateSources]);
 
   useEffect(() => {
-    const { topbarHidden } = useUIStore.getState();
+    const { sidebarCollapsed, topbarHidden } = useUIStore.getState();
     setSidebarCollapsed(true);
     setTopbarHidden(true);
     return () => {
-      setSidebarCollapsed(false);
+      setSidebarCollapsed(sidebarCollapsed);
       setTopbarHidden(topbarHidden);
     };
   }, [setSidebarCollapsed, setTopbarHidden]);
@@ -253,17 +255,18 @@ export function ProjectWorkspacePage() {
 
   async function ensureWritableBranchNow(): Promise<{ id: string; head: string }> {
     if (detachedRef.current) {
-      const branch = await createBranch.mutateAsync({
-        name: `Variante ${new Date().toLocaleString("de-DE")}`,
-        from_commit_id: detachedRef.current,
+      if (!branchRef.current || !headRef.current) throw new Error("Aktiver Bearbeitungsverlauf konnte nicht ermittelt werden.");
+      const targetCommitId = detachedRef.current;
+      await resetBranch.mutateAsync({
+        branch_id: branchRef.current,
+        expected_head_commit_id: headRef.current,
+        target_commit_id: targetCommitId,
       });
-      await checkoutBranch.mutateAsync(branch.id);
-      branchRef.current = branch.id;
-      headRef.current = branch.head_commit_id;
+      headRef.current = targetCommitId;
       detachedRef.current = null;
-      toast.show({ title: "Neue Variante erstellt", variant: "success" });
+      toast.show({ title: "Historische Version als neuer Bearbeitungsstand übernommen", variant: "success" });
     }
-    if (!branchRef.current || !headRef.current) throw new Error("Aktive Variante konnte nicht ermittelt werden.");
+    if (!branchRef.current || !headRef.current) throw new Error("Aktiver Bearbeitungsverlauf konnte nicht ermittelt werden.");
     return { id: branchRef.current, head: headRef.current };
   }
 
@@ -629,7 +632,9 @@ export function ProjectWorkspacePage() {
       }
       case "undo": {
         const currentId = readyProject.checkout_commit_id;
-        const current = (commits.data ?? []).find((commit) => commit.id === currentId);
+        const current = commitState.data?.id === currentId
+          ? commitState.data
+          : commitItems.find((commit) => commit.id === currentId);
         const parentId = current?.parent_ids?.[0];
         if (!parentId) throw new Error("Keine vorherige Version vorhanden.");
         await checkoutCommit.mutateAsync(parentId);
@@ -639,7 +644,9 @@ export function ProjectWorkspacePage() {
       }
       case "redo": {
         const currentId = readyProject.checkout_commit_id;
-        const current = (commits.data ?? []).find((commit) => commit.id === currentId);
+        const current = commitState.data?.id === currentId
+          ? commitState.data
+          : commitItems.find((commit) => commit.id === currentId);
         const childId = current?.child_ids?.[0];
         if (!childId) throw new Error("Keine neuere Version vorhanden.");
         await checkoutCommit.mutateAsync(childId);
@@ -671,34 +678,20 @@ export function ProjectWorkspacePage() {
     }
   }
 
-  async function makeVariant(commitId: string) {
-    try {
-      const branch = await createBranch.mutateAsync({ name: `Variante ${new Date().toLocaleString("de-DE")}`, from_commit_id: commitId });
-      await checkoutBranch.mutateAsync(branch.id);
-      branchRef.current = branch.id;
-      headRef.current = branch.head_commit_id;
-      detachedRef.current = null;
-    } catch (error) {
-      toast.show({ title: "Variante konnte nicht erstellt werden", description: errorMessage(error), variant: "error" });
-    }
-  }
-
-  async function selectBranch(branchId: string) {
-    try {
-      const result = await checkoutBranch.mutateAsync(branchId);
-      const branch = result.branches.find((item) => item.id === branchId);
-      if (branch) { branchRef.current = branch.id; headRef.current = branch.head_commit_id; }
-      detachedRef.current = null;
-      setPlaying(false);
-    } catch (error) {
-      toast.show({ title: "Variante konnte nicht geöffnet werden", description: errorMessage(error), variant: "error" });
-    }
-  }
-
   async function selectCommit(commitId: string) {
     try {
-      await checkoutCommit.mutateAsync(commitId);
-      detachedRef.current = commitId;
+      if (activeBranch && commitId === activeBranch.head_commit_id) {
+        const result = await checkoutBranch.mutateAsync(activeBranch.id);
+        const branch = result.branches.find((item) => item.id === activeBranch.id);
+        if (branch) {
+          branchRef.current = branch.id;
+          headRef.current = branch.head_commit_id;
+        }
+        detachedRef.current = null;
+      } else {
+        await checkoutCommit.mutateAsync(commitId);
+        detachedRef.current = commitId;
+      }
       setPlaying(false);
     } catch (error) {
       toast.show({ title: "Version konnte nicht geöffnet werden", description: errorMessage(error), variant: "error" });
@@ -751,15 +744,15 @@ export function ProjectWorkspacePage() {
         </main>
 
         <EditorSidePanel
-          branches={readyProject.branches}
-          activeBranchId={readyProject.active_branch_id}
           checkoutCommitId={readyProject.checkout_commit_id}
-          detachedCommitId={readyProject.detached_commit_id}
-          commits={commits.data ?? []}
+          commits={commitItems}
+          totalCommits={commitTotal}
+          commitsLoading={commits.isLoading}
+          hasMoreCommits={Boolean(commits.hasNextPage)}
+          loadingMoreCommits={commits.isFetchingNextPage}
           onExecuteCommand={executeNaturalLanguage}
-          onCheckoutBranch={selectBranch}
           onCheckoutCommit={selectCommit}
-          onCreateVariant={makeVariant}
+          onLoadMoreCommits={() => commits.fetchNextPage()}
         />
 
         <EditorTimeline

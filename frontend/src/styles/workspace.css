@@ -374,25 +374,101 @@
 }
 .editor-language-input__send:hover:not(:disabled) { color: var(--color-accent); border-color: var(--color-accent); }
 .editor-language-input__send:disabled { opacity: .5; cursor: default; }
-.editor-history-panel { min-height: 0; overflow: auto; padding: 12px; }
-.editor-history-branches { display: grid; gap: 9px; padding-bottom: 12px; border-bottom: 1px solid var(--color-border); }
-.editor-history-branches header { display: flex; align-items: center; gap: 6px; color: var(--color-text-secondary); font-size: 12px; }
-.editor-history-branches > div { display: flex; flex-wrap: wrap; gap: 6px; }
-.editor-history-branches button { padding: 5px 8px; border: 1px solid var(--color-border); border-radius: 999px; background: transparent; color: var(--color-text-muted); font-size: 11px; cursor: pointer; }
-.editor-history-branches button.is-active { border-color: var(--color-accent); background: rgba(109,124,255,.12); color: var(--color-text-primary); }
-.editor-history-detached { display: grid; grid-template-columns: auto 1fr; gap: 4px 8px; align-items: start; margin: 12px 0; padding: 10px; border: 1px solid rgba(229,172,69,.35); border-radius: var(--radius-sm); background: rgba(229,172,69,.07); }
-.editor-history-detached > div { display: grid; }
-.editor-history-detached span { color: var(--color-text-muted); font-size: 10px; }
-.editor-history-detached .btn { grid-column: 1 / -1; }
-.editor-history-list { display: grid; margin-top: 10px; }
-.editor-history-list article { position: relative; display: grid; grid-template-columns: 24px minmax(0,1fr) auto; min-height: 62px; align-items: center; gap: 4px; }
-.editor-history-list article > button:not(.btn) { display: grid; gap: 2px; min-width: 0; padding: 7px; border: 0; background: transparent; color: var(--color-text-primary); text-align: left; cursor: pointer; }
-.editor-history-list article > button strong { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; }
-.editor-history-list article > button small { color: var(--color-text-muted); font-size: 9px; }
-.editor-history-list article.is-current > button:not(.btn) { border-radius: var(--radius-sm); background: rgba(109,124,255,.08); }
-.editor-history-node { align-self: stretch; display: grid; grid-template-rows: 24px 1fr; place-items: center; padding-top: 8px; color: var(--color-accent); }
-.editor-history-node span { width: 1px; height: 100%; background: var(--color-border); }
-.editor-history-current { color: var(--color-accent); font-size: 10px; }
+.editor-history-panel {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  background: #0f131a;
+}
+.editor-history-header {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--color-border);
+  background: rgba(15,19,26,.96);
+  backdrop-filter: blur(8px);
+}
+.editor-history-header > div { display: inline-flex; align-items: center; gap: 7px; color: var(--color-text-secondary); }
+.editor-history-header strong { color: var(--color-text-primary); font-size: 11px; }
+.editor-history-header span { color: var(--color-text-muted); font-size: 9px; font-variant-numeric: tabular-nums; }
+.editor-history-list { display: grid; min-width: 0; }
+.editor-history-list article {
+  --history-color: var(--color-accent);
+  position: relative;
+  min-width: 0;
+  min-height: 58px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: stretch;
+  border-bottom: 1px solid rgba(255,255,255,.035);
+}
+.editor-history-list article::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  inset: 6px 0 6px 34px;
+  border-right: 2px solid color-mix(in srgb, var(--history-color) 70%, transparent);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--history-color) 18%, transparent), transparent 78%);
+  opacity: .48;
+  pointer-events: none;
+}
+.editor-history-list article:hover::after { opacity: .75; }
+.editor-history-list article.is-current::after {
+  opacity: 1;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--history-color) 25%, transparent), rgba(109,124,255,.035) 82%);
+}
+.editor-history-graph { position: relative; z-index: 2; display: block; overflow: visible; }
+.editor-history-entry {
+  position: relative;
+  z-index: 2;
+  min-width: 0;
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  padding: 8px 8px 8px 3px;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+.editor-history-entry strong { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; font-weight: 600; }
+.editor-history-entry > span { display: flex; align-items: center; gap: 7px; min-width: 0; color: var(--color-text-muted); font-size: 9px; }
+.editor-history-entry code { overflow: hidden; color: color-mix(in srgb, var(--history-color) 78%, white); font: inherit; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.editor-history-current {
+  position: relative;
+  z-index: 2;
+  align-self: center;
+  margin-right: 9px;
+  padding: 3px 5px;
+  border: 1px solid color-mix(in srgb, var(--history-color) 55%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--history-color) 13%, #11151d);
+  color: color-mix(in srgb, var(--history-color) 75%, white);
+  font-size: 8px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.editor-history-status,
+.editor-history-pagination {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 12px;
+  color: var(--color-text-muted);
+  font-size: 9px;
+  text-align: center;
+}
+.editor-history-pagination { border-top: 1px solid rgba(255,255,255,.04); }
 
 /* Timeline and transport */
 .editor-timeline-shell { grid-area: timeline; min-width: 0; min-height: 0; display: grid; grid-template-rows: 46px minmax(0,1fr); border-top: 1px solid var(--color-border); background: var(--color-bg-sidebar); }

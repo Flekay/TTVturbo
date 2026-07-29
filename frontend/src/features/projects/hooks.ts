@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   checkoutBranch,
   checkoutCommit,
@@ -12,6 +12,8 @@ import {
   fetchCommitState,
   fetchProject,
   fetchProjects,
+  resetBranch,
+  type EditCommitPage,
 } from "./api";
 
 export function useProjects() {
@@ -27,9 +29,14 @@ export function useProject(projectId: string | undefined) {
 }
 
 export function useProjectCommits(projectId: string | undefined) {
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: ["projects", projectId, "commits"],
-    queryFn: () => fetchCommits(projectId!),
+    queryFn: ({ pageParam }: { pageParam: number }) => fetchCommits(projectId!, { limit: 10, offset: pageParam }),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage: EditCommitPage) => {
+      const nextOffset = lastPage.offset + lastPage.commits.length;
+      return nextOffset < lastPage.total ? nextOffset : undefined;
+    },
     enabled: Boolean(projectId),
   });
 }
@@ -81,6 +88,13 @@ export function useCreateCommit(projectId: string) {
 
 export function useCheckoutBranch(projectId: string) {
   return useProjectMutation((branchId: string) => checkoutBranch(projectId, branchId), projectId);
+}
+
+export function useResetBranch(projectId: string) {
+  return useProjectMutation(
+    (payload: Parameters<typeof resetBranch>[1]) => resetBranch(projectId, payload),
+    projectId,
+  );
 }
 
 export function useCheckoutSequence(projectId: string) {

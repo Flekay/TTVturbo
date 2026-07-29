@@ -136,6 +136,26 @@ def test_detached_checkout_requires_branch_for_further_editing(edit_service: Edi
     assert created["parent_ids"] == [main["head_commit_id"]]
 
 
+def test_active_history_can_continue_from_an_older_commit_without_creating_a_variant(edit_service: EditProjectService):
+    project = _project(edit_service); main = _main(project); seq = project["sequences"][0]
+    first = edit_service.create_commit(project["id"], branch_id=main["id"], expected_head_commit_id=main["head_commit_id"], message="one", operations=[{"type":"SET_LAYOUT","sequence_id":seq["id"],"payload":{"layout":"A"}}])
+    second = edit_service.create_commit(project["id"], branch_id=main["id"], expected_head_commit_id=first["id"], message="two", operations=[{"type":"SET_LAYOUT","sequence_id":seq["id"],"payload":{"layout":"B"}}])
+
+    edit_service.checkout_commit(project["id"], first["id"])
+    reset = edit_service.reset_branch(
+        project["id"],
+        main["id"],
+        expected_head_commit_id=second["id"],
+        target_commit_id=first["id"],
+        confirmed=True,
+    )
+    continued = edit_service.create_commit(project["id"], branch_id=main["id"], expected_head_commit_id=reset["head_commit_id"], message="continue", operations=[{"type":"SET_LAYOUT","sequence_id":seq["id"],"payload":{"layout":"C"}}])
+
+    assert continued["parent_ids"] == [first["id"]]
+    assert edit_service.get_project(project["id"])["detached_commit_id"] is None
+    assert edit_service.list_commits(project["id"])["total"] == 4
+
+
 def test_three_way_merge_of_independent_sequence_changes(edit_service: EditProjectService):
     project = _project(edit_service); main = _main(project)
     desktop, mobile = project["sequences"]

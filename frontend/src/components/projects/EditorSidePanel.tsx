@@ -1,18 +1,17 @@
-import { Check, GitBranch, GitCommitHorizontal, History, Loader2, Send, Sparkles } from "lucide-react";
-import { useState } from "react";
-import type { EditBranch, EditCommit } from "../../features/projects/api";
-import { Button } from "../ui/Button";
+import { Check, GitCommitHorizontal, History, Loader2, Send, Sparkles } from "lucide-react";
+import { useMemo, useRef, useState, type CSSProperties, type WheelEvent } from "react";
+import type { EditCommit } from "../../features/projects/api";
 
 interface EditorSidePanelProps {
-  branches: EditBranch[];
-  activeBranchId?: string | null;
   checkoutCommitId: string;
-  detachedCommitId?: string | null;
   commits: EditCommit[];
+  totalCommits: number;
+  commitsLoading: boolean;
+  hasMoreCommits: boolean;
+  loadingMoreCommits: boolean;
   onExecuteCommand: (command: string) => Promise<string>;
-  onCheckoutBranch: (branchId: string) => Promise<void> | void;
   onCheckoutCommit: (commitId: string) => Promise<void> | void;
-  onCreateVariant: (commitId: string) => Promise<void> | void;
+  onLoadMoreCommits: () => Promise<unknown> | void;
 }
 
 type Tab = "language" | "history";
@@ -24,6 +23,27 @@ interface CommandEntry {
   error?: boolean;
 }
 
+interface GraphSegment {
+  fromLane: number;
+  toLane: number;
+  fromY: number;
+  toY: number;
+  color: string;
+  dashed?: boolean;
+}
+
+interface CommitGraphRow {
+  commit: EditCommit;
+  lane: number;
+  color: string;
+  segments: GraphSegment[];
+}
+
+interface CommitGraphLayout {
+  rows: CommitGraphRow[];
+  width: number;
+}
+
 const EXAMPLES = [
   "Zentriere den ausgewählten Clip",
   "Mach den Clip 20% kleiner",
@@ -33,21 +53,137 @@ const EXAMPLES = [
   "Stummschalten",
 ];
 
+const GRAPH_COLORS = ["#7b61ff", "#c4609e", "#b59a39", "#69ad67", "#4da5a8", "#5686d8"];
+const GRAPH_ROW_HEIGHT = 58;
+const GRAPH_CENTER_Y = GRAPH_ROW_HEIGHT / 2;
+const GRAPH_LANE_GAP = 14;
+const GRAPH_PADDING_X = 10;
+
+function laneColor(lane: number): string {
+  return GRAPH_COLORS[lane % GRAPH_COLORS.length];
+}
+
+function graphX(lane: number): number {
+  return GRAPH_PADDING_X + lane * GRAPH_LANE_GAP;
+}
+
+/**
+ * Builds a compact Git-style lane projection from the paginated commit list.
+ * Parent IDs are enough to retain branch and merge paths without exposing the
+ * editor's internal branch/variant model in the UI.
+ */
+export function buildCommitGraph(commits: EditCommit[]): CommitGraphLayout {
+  let lanes: string[] = [];
+  let maxLaneCount = 1;
+
+  const rows = commits.map((commit): CommitGraphRow => {
+    let before = [...lanes];
+    let lane = before.indexOf(commit.id);
+    const startsNewLane = lane < 0;
+
+    if (startsNewLane) {
+      lane = before.length;
+      before.push(commit.id);
+    }
+
+    const parents = [...new Set(commit.parent_ids ?? [])];
+    let after = [...before];
+
+    if (parents.length === 0) {
+      after.splice(lane, 1);
+    } else {
+      const firstParent = parents[0];
+      const existingFirstParentLane = after.findIndex((id, index) => index !== lane && id === firstParent);
+
+      if (existingFirstParentLane >= 0) {
+        after.splice(lane, 1);
+      } else {
+        after[lane] = firstParent;
+      }
+
+      let insertAt = Math.min(lane + 1, after.length);
+      for (const parentId of parents.slice(1)) {
+        if (after.includes(parentId)) continue;
+        after.splice(insertAt, 0, parentId);
+        insertAt += 1;
+      }
+    }
+
+    const segments: GraphSegment[] = [];
+
+    before.forEach((targetId, beforeLane) => {
+      if (targetId === commit.id) return;
+      const afterLane = after.indexOf(targetId);
+      if (afterLane < 0) return;
+      segments.push({
+        fromLane: beforeLane,
+        toLane: afterLane,
+        fromY: 0,
+        toY: GRAPH_ROW_HEIGHT,
+        color: laneColor(beforeLane),
+      });
+    });
+
+    segments.push({
+      fromLane: lane,
+      toLane: lane,
+      fromY: 0,
+      toY: GRAPH_CENTER_Y,
+      color: laneColor(lane),
+      dashed: startsNewLane,
+    });
+
+    parents.forEach((parentId, parentIndex) => {
+      const parentLane = after.indexOf(parentId);
+      if (parentLane < 0) return;
+      segments.push({
+        fromLane: lane,
+        toLane: parentLane,
+        fromY: GRAPH_CENTER_Y,
+        toY: GRAPH_ROW_HEIGHT,
+        color: parentIndex === 0 ? laneColor(lane) : laneColor(parentLane),
+      });
+    });
+
+    lanes = after;
+    maxLaneCount = Math.max(maxLaneCount, before.length, after.length, lane + 1);
+
+    return { commit, lane, color: laneColor(lane), segments };
+  });
+
+  return {
+    rows,
+    width: Math.max(42, GRAPH_PADDING_X * 2 + (maxLaneCount - 1) * GRAPH_LANE_GAP + 8),
+  };
+}
+
+function formatCommitDate(value: string): string {
+  return new Intl.DateTimeFormat("de-DE", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
 export function EditorSidePanel({
-  branches,
-  activeBranchId,
   checkoutCommitId,
-  detachedCommitId,
   commits,
+  totalCommits,
+  commitsLoading,
+  hasMoreCommits,
+  loadingMoreCommits,
   onExecuteCommand,
-  onCheckoutBranch,
   onCheckoutCommit,
-  onCreateVariant,
+  onLoadMoreCommits,
 }: EditorSidePanelProps) {
   const [tab, setTab] = useState<Tab>("language");
   const [command, setCommand] = useState("");
   const [busy, setBusy] = useState(false);
   const [entries, setEntries] = useState<CommandEntry[]>([]);
+  const loadMoreRequestedRef = useRef(false);
+  const graph = useMemo(() => buildCommitGraph(commits), [commits]);
 
   async function submit(value = command) {
     const normalized = value.trim();
@@ -67,6 +203,23 @@ export function EditorSidePanel({
     } finally {
       setBusy(false);
     }
+  }
+
+  function loadMoreWhenNearBottom(element: HTMLElement) {
+    if (!hasMoreCommits || loadingMoreCommits || loadMoreRequestedRef.current) return;
+    const remaining = element.scrollHeight - element.scrollTop - element.clientHeight;
+    if (remaining > 96) return;
+    loadMoreRequestedRef.current = true;
+    void Promise.resolve(onLoadMoreCommits())
+      .catch(() => undefined)
+      .finally(() => {
+        loadMoreRequestedRef.current = false;
+      });
+  }
+
+  function handleHistoryWheel(event: WheelEvent<HTMLDivElement>) {
+    if (event.deltaY <= 0) return;
+    loadMoreWhenNearBottom(event.currentTarget);
   }
 
   return (
@@ -125,38 +278,77 @@ export function EditorSidePanel({
           </div>
         </div>
       ) : (
-        <div className="editor-history-panel">
-          <div className="editor-history-branches">
-            <header><GitBranch size={15} /><strong>Varianten</strong></header>
-            <div>
-              {branches.map((branch) => (
-                <button type="button" key={branch.id} className={branch.id === activeBranchId && !detachedCommitId ? "is-active" : ""} onClick={() => void onCheckoutBranch(branch.id)}>{branch.name}</button>
-              ))}
-            </div>
-          </div>
-
-          {detachedCommitId ? (
-            <div className="editor-history-detached">
-              <History size={15} />
-              <div><strong>Historische Version</strong><span>Zum Bearbeiten zuerst eine neue Variante erstellen.</span></div>
-              <Button size="sm" variant="primary" onClick={() => void onCreateVariant(detachedCommitId)}>Von hier weiterarbeiten</Button>
-            </div>
-          ) : null}
+        <div
+          className="editor-history-panel"
+          aria-label="Versionsverlauf"
+          onScroll={(event) => loadMoreWhenNearBottom(event.currentTarget)}
+          onWheel={handleHistoryWheel}
+        >
+          <header className="editor-history-header">
+            <div><GitCommitHorizontal size={15} /><strong>Änderungsverlauf</strong></div>
+            <span>{commits.length} / {totalCommits}</span>
+          </header>
 
           <div className="editor-history-list">
-            {commits.map((commit, index) => (
-              <article key={commit.id} className={commit.id === checkoutCommitId ? "is-current" : ""}>
-                <div className="editor-history-node"><GitCommitHorizontal size={14} /><span /></div>
-                <button type="button" onClick={() => void onCheckoutCommit(commit.id)}>
-                  <strong>{commit.message}</strong>
-                  <small>{new Date(commit.created_at).toLocaleString("de-DE")}</small>
-                </button>
-                {commit.id === checkoutCommitId ? <span className="editor-history-current">Aktuell</span> : <Button variant="ghost" size="sm" onClick={() => void onCreateVariant(commit.id)}>Variante</Button>}
-                {index === commits.length - 1 ? <i /> : null}
-              </article>
-            ))}
+            {graph.rows.map(({ commit, lane, color, segments }) => {
+              const isCurrent = commit.id === checkoutCommitId;
+              const style = { "--history-color": color } as CSSProperties;
+              return (
+                <article key={commit.id} className={isCurrent ? "is-current" : ""} style={style}>
+                  <svg
+                    className="editor-history-graph"
+                    width={graph.width}
+                    height={GRAPH_ROW_HEIGHT}
+                    viewBox={`0 0 ${graph.width} ${GRAPH_ROW_HEIGHT}`}
+                    aria-hidden="true"
+                  >
+                    {segments.map((segment, index) => (
+                      <path
+                        key={`${commit.id}-${index}`}
+                        d={`M ${graphX(segment.fromLane)} ${segment.fromY} L ${graphX(segment.toLane)} ${segment.toY}`}
+                        stroke={segment.color}
+                        strokeWidth="2"
+                        strokeDasharray={segment.dashed ? "3 4" : undefined}
+                        fill="none"
+                        vectorEffect="non-scaling-stroke"
+                      />
+                    ))}
+                    <circle cx={graphX(lane)} cy={GRAPH_CENTER_Y} r={isCurrent ? 6 : 5} fill="#11151d" stroke={color} strokeWidth={isCurrent ? 3 : 2} />
+                    {isCurrent ? <circle cx={graphX(lane)} cy={GRAPH_CENTER_Y} r="2" fill={color} /> : null}
+                  </svg>
+
+                  <button
+                    type="button"
+                    className="editor-history-entry"
+                    aria-current={isCurrent ? "true" : undefined}
+                    onClick={() => void onCheckoutCommit(commit.id)}
+                  >
+                    <strong>{commit.message}</strong>
+                    <span>
+                      <time dateTime={commit.created_at}>{formatCommitDate(commit.created_at)}</time>
+                      <code>{commit.id.slice(0, 7)}</code>
+                    </span>
+                  </button>
+
+                  {isCurrent ? <span className="editor-history-current">Aktuell</span> : null}
+                </article>
+              );
+            })}
           </div>
-          {commits.length === 0 ? <div className="editor-language-empty"><Loader2 className="spin" /> Versionen werden geladen …</div> : null}
+
+          {commitsLoading && commits.length === 0 ? (
+            <div className="editor-history-status"><Loader2 size={15} className="spin" /> Änderungen werden geladen …</div>
+          ) : null}
+
+          {!commitsLoading && commits.length === 0 ? (
+            <div className="editor-history-status">Noch keine Änderungen vorhanden.</div>
+          ) : null}
+
+          {commits.length > 0 ? (
+            <div className="editor-history-pagination" aria-live="polite">
+              {loadingMoreCommits ? <><Loader2 size={13} className="spin" /> Ältere Änderungen werden geladen …</> : hasMoreCommits ? "Weiter nach unten scrollen, um 10 ältere Änderungen zu laden." : "Ende des Verlaufs"}
+            </div>
+          ) : null}
         </div>
       )}
     </aside>

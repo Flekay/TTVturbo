@@ -96,6 +96,13 @@ export interface EditCommit {
   };
 }
 
+export interface EditCommitPage {
+  commits: EditCommit[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 export async function fetchProjects(): Promise<EditProjectSummary[]> {
   const response = await apiClient.get<{ projects: EditProjectSummary[] }>("/api/edit-projects");
   return response.projects;
@@ -130,11 +137,15 @@ export async function deleteProject(projectId: string): Promise<void> {
   await apiClient.delete(`/api/edit-projects/${encodeURIComponent(projectId)}`);
 }
 
-export async function fetchCommits(projectId: string): Promise<EditCommit[]> {
-  const response = await apiClient.get<{ commits: EditCommit[] }>(
-    `/api/edit-projects/${encodeURIComponent(projectId)}/commits?limit=200`,
+export async function fetchCommits(
+  projectId: string,
+  options: { limit?: number; offset?: number } = {},
+): Promise<EditCommitPage> {
+  const limit = options.limit ?? 10;
+  const offset = options.offset ?? 0;
+  return apiClient.get<EditCommitPage>(
+    `/api/edit-projects/${encodeURIComponent(projectId)}/commits?limit=${limit}&offset=${offset}`,
   );
-  return response.commits;
 }
 
 export async function fetchCommitState(projectId: string, commitId: string): Promise<EditCommit> {
@@ -176,6 +187,26 @@ export async function createCommit(
 export async function checkoutBranch(projectId: string, branchId: string): Promise<EditProject> {
   return apiClient.post<EditProject>(
     `/api/edit-projects/${encodeURIComponent(projectId)}/branches/${encodeURIComponent(branchId)}/checkout`,
+  );
+}
+
+export async function resetBranch(
+  projectId: string,
+  payload: {
+    branch_id: string;
+    expected_head_commit_id: string;
+    target_commit_id: string;
+  },
+): Promise<EditBranch> {
+  return apiClient.post<EditBranch>(
+    `/api/edit-projects/${encodeURIComponent(projectId)}/branches/${encodeURIComponent(payload.branch_id)}/reset`,
+    {
+      body: {
+        expected_head_commit_id: payload.expected_head_commit_id,
+        target_commit_id: payload.target_commit_id,
+        confirmed: true,
+      },
+    },
   );
 }
 
