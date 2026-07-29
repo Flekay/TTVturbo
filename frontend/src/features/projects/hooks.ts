@@ -3,6 +3,7 @@ import {
   checkoutBranch,
   checkoutCommit,
   checkoutSequence,
+  addProjectSource,
   createBranch,
   createCommit,
   createProject,
@@ -61,6 +62,14 @@ export function useCreateProject() {
 
 export function useDeleteProject() {
   return useProjectMutation(deleteProject);
+}
+
+
+export function useAddProjectSource(projectId: string) {
+  return useProjectMutation(
+    (payload: Parameters<typeof addProjectSource>[1]) => addProjectSource(projectId, payload),
+    projectId,
+  );
 }
 
 export function useCreateCommit(projectId: string) {

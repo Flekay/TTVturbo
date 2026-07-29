@@ -84,6 +84,7 @@ class DataPaths:
     video_background_removal: Path
     video_text_edit: Path
     rendering: Path
+    editor_commands: Path
 
     @classmethod
     def from_root(cls, data_root: Path) -> "DataPaths":
@@ -111,6 +112,7 @@ class DataPaths:
             video_background_removal=root / "video_background_removal",
             video_text_edit=root / "video_text_edit",
             rendering=root / "rendering",
+            editor_commands=root / "editor_commands",
         )
 
     def ensure_dirs(self) -> None:
@@ -140,6 +142,7 @@ class DataPaths:
             self.video_background_removal,
             self.video_text_edit,
             self.rendering,
+            self.editor_commands,
         ):
             p.mkdir(parents=True, exist_ok=True)
 

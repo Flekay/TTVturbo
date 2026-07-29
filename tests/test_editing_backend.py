@@ -332,3 +332,132 @@ def test_create_project_api_defaults_to_no_sources(tmp_path: Path):
     payload = response.json()
     assert payload["sources"] == []
     assert len(payload["sequences"]) == 1
+
+
+def test_media_can_be_attached_after_empty_project_creation(edit_service: EditProjectService):
+    project = edit_service.create_project(
+        name="Empty editor project",
+        sources=[],
+        sequences=[{
+            "name": "Mobile",
+            "width": 1080,
+            "height": 1920,
+            "fps_numerator": 60,
+            "fps_denominator": 1,
+            "format_profile": "MOBILE_9_16",
+        }],
+    )
+    main = _main(project)
+    sequence = project["sequences"][0]
+    attached = edit_service.add_source(
+        project["id"],
+        branch_id=main["id"],
+        expected_head_commit_id=main["head_commit_id"],
+        source={"media_item_id": "later-media", "sha256": "b" * 64},
+    )
+    assert attached["source"]["media_item_id"] == "later-media"
+    state = edit_service.reconstruct_state(project["id"], attached["commit"]["id"])
+    assert [source["media_item_id"] for source in state["sources"]] == ["later-media"]
+
+    clip_commit = edit_service.create_commit(
+        project["id"],
+        branch_id=main["id"],
+        expected_head_commit_id=attached["commit"]["id"],
+        message="Add timeline clip",
+        operations=[
+            {"type": "ADD_TRACK", "sequence_id": sequence["id"], "payload": {"track": {"id": "video", "type": "VIDEO", "name": "Video"}}},
+            {"type": "ADD_CLIP", "sequence_id": sequence["id"], "payload": {"track_id": "video", "clip": {"id": "clip", "source_media_item_id": "later-media", "source_start_us": 0, "source_end_us": 1_000_000, "timeline_start_us": 0}}},
+        ],
+    )
+    final_state = edit_service.reconstruct_state(project["id"], clip_commit["id"])
+    assert final_state["sequences"][sequence["id"]]["tracks"]["video"]["clips"]["clip"]["source_media_item_id"] == "later-media"
+
+    with pytest.raises(EditConflictError):
+        edit_service.add_source(
+            project["id"],
+            branch_id=main["id"],
+            expected_head_commit_id=clip_commit["id"],
+            source={"media_item_id": "later-media", "sha256": "b" * 64},
+        )
+
+
+def test_add_source_api_attaches_uploaded_media_to_empty_project(tmp_path: Path):
+    app = create_app(Settings(data_root=tmp_path / "data"))
+    with TestClient(app) as client:
+        uploaded = client.post(
+            "/api/library/uploads",
+            files={"file": ("timeline-source.mp4", b"editor source", "video/mp4")},
+        )
+        assert uploaded.status_code == 201, uploaded.text
+        item = uploaded.json()
+
+        created = client.post("/api/edit-projects", json={
+            "name": "Empty editor API project",
+            "sequences": [{
+                "name": "Desktop",
+                "width": 1920,
+                "height": 1080,
+                "fps_numerator": 30,
+                "fps_denominator": 1,
+                "format_profile": "DESKTOP_16_9",
+            }],
+        })
+        assert created.status_code == 201, created.text
+        project = created.json()
+        branch = project["branches"][0]
+
+        attached = client.post(
+            f"/api/edit-projects/{project['id']}/sources",
+            json={
+                "branch_id": branch["id"],
+                "expected_head_commit_id": branch["head_commit_id"],
+                "source": {"media_item_id": item["id"]},
+                "message": "Attach timeline source",
+            },
+        )
+        assert attached.status_code == 201, attached.text
+        payload = attached.json()
+        assert payload["source"]["media_item_id"] == item["id"]
+
+        state = client.get(
+            f"/api/edit-projects/{project['id']}/commits/{payload['commit']['id']}/state"
+        )
+        assert state.status_code == 200, state.text
+        assert state.json()["state"]["sources"][0]["media_item_id"] == item["id"]
+
+
+def test_existing_project_source_is_reused_when_added_on_historical_branch(edit_service: EditProjectService):
+    project = edit_service.create_project(
+        name="Branch source project",
+        sources=[],
+        sequences=[{
+            "name": "Desktop",
+            "width": 1920,
+            "height": 1080,
+            "fps_numerator": 30,
+            "fps_denominator": 1,
+            "format_profile": "DESKTOP_16_9",
+        }],
+    )
+    main = _main(project)
+    root_commit_id = main["head_commit_id"]
+    first = edit_service.add_source(
+        project["id"],
+        branch_id=main["id"],
+        expected_head_commit_id=root_commit_id,
+        source={"media_item_id": "shared-media", "sha256": "c" * 64},
+    )
+    branch = edit_service.create_branch(project["id"], name="older", from_commit_id=root_commit_id)
+    second = edit_service.add_source(
+        project["id"],
+        branch_id=branch["id"],
+        expected_head_commit_id=root_commit_id,
+        source={"media_item_id": "shared-media", "sha256": "c" * 64},
+    )
+    assert second["source"]["id"] == first["source"]["id"]
+    with edit_service.db.read() as conn:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM edit_project_sources WHERE project_id=? AND media_item_id=?",
+            (project["id"], "shared-media"),
+        ).fetchone()[0]
+    assert count == 1

@@ -52,6 +52,14 @@ class CreateCommitRequest(BaseModel):
     operations: list[dict[str, Any]] = Field(min_length=1)
 
 
+class AddProjectSourceRequest(BaseModel):
+    branch_id: str
+    expected_head_commit_id: str
+    source: SourceRequest
+    message: Optional[str] = None
+    author: Optional[str] = None
+
+
 class CheckoutCommitRequest(BaseModel):
     commit_id: str
 
@@ -167,6 +175,21 @@ def build_editing_router(service: EditProjectService) -> APIRouter:
         try:
             service.delete_project(project_id)
             return JSONResponse(content={"id": project_id, "deleted": True})
+        except Exception as exc:
+            return _map_error(exc)
+
+    @router.post("/{project_id}/sources")
+    def add_project_source(project_id: str, req: AddProjectSourceRequest) -> JSONResponse:
+        try:
+            result = service.add_source(
+                project_id,
+                branch_id=req.branch_id,
+                expected_head_commit_id=req.expected_head_commit_id,
+                source=req.source.model_dump(exclude_none=True),
+                message=req.message,
+                author=req.author,
+            )
+            return JSONResponse(status_code=201, content=result)
         except Exception as exc:
             return _map_error(exc)
 

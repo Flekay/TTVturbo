@@ -157,17 +157,27 @@ class EditProjectService:
             ),
         )
 
-    def _sync_sequence_catalog(self, conn: sqlite3.Connection, project_id: str, records: list[dict[str, Any]]) -> None:
+    def _sync_catalogs(self, conn: sqlite3.Connection, project_id: str, records: list[dict[str, Any]]) -> None:
         for record in records:
-            if record["operation_type"] != "CREATE_SEQUENCE":
-                continue
-            seq = record["up_payload"]["sequence"]
-            conn.execute(
-                """INSERT OR IGNORE INTO edit_sequences(
-                    id,project_id,name,initial_width,initial_height,fps_numerator,fps_denominator,format_profile,created_at
-                ) VALUES(?,?,?,?,?,?,?,?,?)""",
-                (seq["id"], project_id, seq["name"], seq["width"], seq["height"], seq["fps_numerator"], seq["fps_denominator"], seq["format_profile"], now_iso()),
-            )
+            if record["operation_type"] == "CREATE_SEQUENCE":
+                seq = record["up_payload"]["sequence"]
+                conn.execute(
+                    """INSERT OR IGNORE INTO edit_sequences(
+                        id,project_id,name,initial_width,initial_height,fps_numerator,fps_denominator,format_profile,created_at
+                    ) VALUES(?,?,?,?,?,?,?,?,?)""",
+                    (seq["id"], project_id, seq["name"], seq["width"], seq["height"], seq["fps_numerator"], seq["fps_denominator"], seq["format_profile"], now_iso()),
+                )
+            elif record["operation_type"] == "ADD_SOURCE":
+                source = record["up_payload"]["source"]
+                conn.execute(
+                    """INSERT OR IGNORE INTO edit_project_sources(
+                        id,project_id,media_item_id,asset_id,sha256,source_revision,created_at
+                    ) VALUES(?,?,?,?,?,?,?)""",
+                    (
+                        source["id"], project_id, source["media_item_id"], source.get("asset_id"),
+                        source["sha256"], source.get("source_revision"), source["created_at"],
+                    ),
+                )
 
     def _create_commit_conn(
         self,
@@ -181,6 +191,7 @@ class EditProjectService:
         author: Optional[str] = None,
         second_parent_id: Optional[str] = None,
         force_snapshot: bool = False,
+        allow_internal_operations: bool = False,
     ) -> dict[str, Any]:
         project = self._require_project(conn, project_id)
         branch = self._require_branch(conn, project_id, branch_id)
@@ -193,7 +204,7 @@ class EditProjectService:
         state = self._reconstruct_conn(conn, project_id, branch["head_commit_id"])
         records: list[dict[str, Any]] = []
         for operation in operations:
-            records.append(self.engine.apply(state, operation, allow_internal=False))
+            records.append(self.engine.apply(state, operation, allow_internal=allow_internal_operations))
         if not records:
             raise EditValidationError("a commit must contain at least one operation")
         commit_id = _uuid(); created_at = now_iso(); digest = state_hash(state)
@@ -213,7 +224,7 @@ class EditProjectService:
             )
         for index, record in enumerate(records):
             self._insert_operation(conn, commit_id, index, record)
-        self._sync_sequence_catalog(conn, project_id, records)
+        self._sync_catalogs(conn, project_id, records)
         conn.execute("UPDATE edit_branches SET head_commit_id=?,updated_at=? WHERE id=?", (commit_id, created_at, branch_id))
         active_sequence_id = project.get("active_sequence_id")
         if active_sequence_id not in state["sequences"]:
@@ -315,7 +326,7 @@ class EditProjectService:
                 conn.execute("INSERT INTO edit_project_sources(id,project_id,media_item_id,asset_id,sha256,source_revision,created_at) VALUES(?,?,?,?,?,?,?)", (source["id"],project_id,source["media_item_id"],source.get("asset_id"),source["sha256"],source.get("source_revision"),source["created_at"]))
             conn.execute("INSERT INTO edit_commits(id,project_id,author,message,state_hash,created_at) VALUES(?,?,?,?,?,?)", (commit_id,project_id,author,"Initial project",digest,ts))
             for index, record in enumerate(records): self._insert_operation(conn, commit_id, index, record)
-            self._sync_sequence_catalog(conn, project_id, records)
+            self._sync_catalogs(conn, project_id, records)
             conn.execute("INSERT INTO edit_branches(id,project_id,name,head_commit_id,created_from_commit_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?)", (branch_id,project_id,"main",commit_id,commit_id,ts,ts))
             conn.execute("UPDATE edit_projects SET active_branch_id=? WHERE id=?", (branch_id, project_id))
             self._insert_snapshot(conn, commit_id, state)
@@ -426,6 +437,46 @@ class EditProjectService:
         conn.execute("UPDATE edit_projects SET active_sequence_id=?,updated_at=? WHERE id=?", (active_sequence_id,ts,project_id))
         self._insert_snapshot(conn, commit_id, final_state)
         return self._commit_payload(conn, commit_id, include_operations=True)
+
+    def add_source(
+        self,
+        project_id: str,
+        *,
+        branch_id: str,
+        expected_head_commit_id: str,
+        source: dict[str, Any],
+        message: Optional[str] = None,
+        author: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Attach an immutable persistent Library item to an existing project."""
+        resolved = self._resolve_source(source)
+        with self.db.transaction() as conn:
+            existing = conn.execute(
+                """SELECT id,media_item_id,asset_id,sha256,source_revision,created_at
+                   FROM edit_project_sources
+                   WHERE project_id=? AND media_item_id=?
+                     AND ((asset_id=? ) OR (asset_id IS NULL AND ? IS NULL))
+                   ORDER BY created_at,id LIMIT 1""",
+                (project_id, resolved["media_item_id"], resolved.get("asset_id"), resolved.get("asset_id")),
+            ).fetchone()
+            if existing is not None:
+                resolved = dict(existing)
+            state = self._reconstruct_conn(conn, project_id, expected_head_commit_id)
+            key = (resolved["media_item_id"], resolved.get("asset_id"))
+            keys = {(str(item.get("media_item_id")), item.get("asset_id")) for item in state.get("sources", [])}
+            if key in keys or (key[0], None) in keys:
+                raise EditConflictError("project source already exists")
+            commit = self._create_commit_conn(
+                conn,
+                project_id=project_id,
+                branch_id=branch_id,
+                expected_head_commit_id=expected_head_commit_id,
+                message=message or "Add media source",
+                operations=[{"type": "ADD_SOURCE", "payload": {"source": resolved}}],
+                author=author,
+                allow_internal_operations=True,
+            )
+            return {"source": resolved, "commit": commit}
 
     # ------------------------------------------------------------------ sequences
     def list_sequences(self, project_id: str, *, commit_id: Optional[str] = None) -> list[dict[str, Any]]:

@@ -186,6 +186,25 @@ class OperationEngine:
             down = {"state": before}
             return self._record(op_type, sequence_id, entity_id, up, down, "$", None, None)
 
+        if op_type == "ADD_SOURCE":
+            source = copy.deepcopy(payload.get("source") or payload)
+            for field in ("id", "media_item_id", "sha256", "created_at"):
+                if not source.get(field):
+                    raise EditValidationError(f"source missing {field}")
+            source["id"] = _identifier(source["id"], "source id")
+            source["media_item_id"] = str(source["media_item_id"])
+            source["asset_id"] = source.get("asset_id")
+            source["source_revision"] = source.get("source_revision")
+            source_key = (source["media_item_id"], source.get("asset_id"))
+            existing_keys = {(str(item.get("media_item_id")), item.get("asset_id")) for item in state.get("sources", [])}
+            if source_key in existing_keys or (source_key[0], None) in existing_keys:
+                raise EditValidationError("project source already exists")
+            state.setdefault("sources", []).append(source)
+            return self._record(
+                op_type, None, source["id"], {"source": source}, {"source_id": source["id"]},
+                f"sources.{source['id']}",
+            )
+
         if op_type == "CREATE_SEQUENCE":
             seq = validate_sequence(payload.get("sequence") or payload)
             if seq["id"] in state["sequences"]:

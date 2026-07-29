@@ -507,10 +507,211 @@ def _empty_metrics() -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# Editor-command worker (one-shot, reuses the mining model loader)
+# ---------------------------------------------------------------------------
+
+EDITOR_SYSTEM_PROMPT = """\
+Du bist der Parser für Natural-Language-Editor-Befehle eines Videoschnittsystems.
+Du erhältst einen deutschen Freitextbefehl und den aktuellen Editor-Kontext.
+Deine Aufgabe ist es, den Befehl in genau ein strukturiertes JSON-Intent zu übersetzen.
+
+Antworte AUSSCHLIESSLICH mit einem einzelnen JSON-Objekt (kein Markdown, kein Kommentar,
+kein ```-Codezaun). Das JSON hat immer ein Feld "action" mit einem der folgenden Werte:
+
+- "play"                -> Wiedergabe starten. Keine weiteren Felder.
+- "pause"               -> Wiedergabe pausieren. Keine weiteren Felder.
+- "seek"                -> Abspielkopf setzen. Pflichtfeld "seconds" (float, Sekunden).
+- "split"               -> Clip am Abspielkopf teilen. Keine weiteren Felder.
+- "separate_audio"      -> Video und Audio trennen. Keine weiteren Felder.
+- "delete"              -> ausgewählten Clip entfernen. Keine weiteren Felder.
+- "duplicate"           -> ausgewählten Clip duplizieren. Keine weiteren Felder.
+- "mute"                -> Clip stumm schalten. Keine weiteren Felder.
+- "unmute"              -> Ton einschalten. Keine weiteren Felder.
+- "center"              -> Clip auf der Arbeitsfläche zentrieren. Keine weiteren Felder.
+- "fit"                 -> Clip auf volle Arbeitsfläche skalieren. Keine weiteren Felder.
+- "move"                -> Clip verschieben. Pflichtfelder "axis" ("x"|"y") und
+                           "direction" ("left"|"right"|"up"|"down"). Optional "amount"
+                           (float) und "unit" ("percent"|"pixels"). Fehlt amount, nutzt
+                           das Frontend 10 %.
+- "scale"               -> Größe ändern. Pflichtfeld "mode" ("set"|"larger"|"smaller").
+                           "set" braucht "value" (float, Prozent 0..200). "larger"/"smaller"
+                           nutzen optional "value" (float, Prozentänderung, default 10).
+- "rotate"              -> Pflichtfeld "degrees" (float).
+- "opacity"             -> Pflichtfeld "value" (float, 0..100 Prozent).
+- "speed"               -> Pflichtfeld "value" (float, z. B. 1.5 für 1.5×).
+- "timeline_move"       -> Clip auf der Timeline verschieben. Pflichtfeld "seconds" (float).
+- "unknown"             -> Befehl nicht verstanden. Pflichtfeld "reason" (kurzer deutscher Text).
+
+Beispiele:
+{"action":"move","axis":"x","direction":"right","amount":10,"unit":"percent"}
+{"action":"scale","mode":"smaller","value":20}
+{"action":"rotate","degrees":15}
+{"action":"opacity","value":80}
+{"action":"split"}
+{"action":"unknown","reason":"Befehl nicht erkannt."}
+
+Wenn der Kontext keinen ausgewählten Clip enthält, Befehle die einen Clip brauchen
+trotzdem parsen (z. B. {"action":"split"}); das Frontend prüft die Auswahl.
+"""
+
+
+def _build_editor_user_prompt(command: str, context: dict) -> str:
+    """Build the user prompt for an editor-command inference."""
+    import json as _json
+    ctx = {
+        "sequence": {
+            "width": context.get("sequence", {}).get("width"),
+            "height": context.get("sequence", {}).get("height"),
+        },
+        "playhead_seconds": context.get("playhead_seconds"),
+        "has_selection": bool(context.get("selected_clip")),
+        "selected_clip": context.get("selected_clip") or None,
+    }
+    return (
+        f"Kontext (JSON):\n{_json.dumps(ctx, ensure_ascii=False)}\n\n"
+        f"Befehl:\n{command}\n\n"
+        f"JSON:"
+    )
+
+
+def _write_editor_result(output_path: Path, payload: dict) -> None:
+    from ttvturbo.storage_utils import atomic_write_json
+    atomic_write_json(output_path, payload, Exception, kind="editor-command-result")
+
+
+def run_editor_command_worker(job_path: str) -> int:
+    """One-shot editor-command worker.
+
+    Reads a job JSON, loads the configured text model (reusing the mining
+    loader / generator), runs a single inference, parses the intent JSON
+    and writes the result to ``output_path``. Never imports torch /
+    transformers at module level so the module stays importable without
+    GPU deps.
+    """
+    wjob = _load_worker_job(job_path)
+    output_path = Path(wjob["output_path"])
+    command = str(wjob.get("command") or "").strip()
+    context = wjob.get("context") or {}
+    model_id = str(wjob.get("model_id") or "").strip()
+    device = wjob.get("device") or "cuda"
+    dtype = wjob.get("dtype") or "auto"
+    max_new_tokens = int(wjob.get("max_new_tokens") or 512)
+    max_input_tokens = int(wjob.get("max_input_tokens") or 4096)
+    thinking_enabled = bool(wjob.get("thinking_enabled") or False)
+    cache_dir = wjob.get("model_cache_dir")
+    gpu_lock_data_dir = wjob.get("gpu_lock_data_dir")
+    gpu_lock_stale = float(wjob.get("gpu_lock_stale_seconds") or 3600.0)
+
+    def _fail(reason: str, *, raw: Optional[str] = None) -> int:
+        _write_editor_result(output_path, {
+            "ok": False,
+            "error": reason,
+            "raw": raw,
+        })
+        print(f"FAIL: {reason}", file=sys.stderr)
+        return 1
+
+    if not command:
+        return _fail("empty command")
+    if not model_id:
+        return _fail("conversation mining model is not configured")
+
+    dep_error = _check_dependencies()
+    if dep_error is not None:
+        return _fail(dep_error)
+
+    # Acquire the shared GPU lock (reuses the transcription owner type,
+    # same as mining — the editor shares the text-LLM GPU).
+    from ttvturbo.media_processing.gpu_lock import GpuLock, GpuLockOwner, OWNER_TRANSCRIPTION
+
+    lock = GpuLock(Path(gpu_lock_data_dir), stale_seconds=gpu_lock_stale)
+    try:
+        lock_ctx = GpuLockOwner(lock, owner_type=OWNER_TRANSCRIPTION, job_id="editor-command")
+        lock_ctx.__enter__()
+    except Exception as exc:
+        return _fail(f"could not acquire GPU lock: {exc}")
+
+    try:
+        try:
+            model, tokenizer = _load_model(model_id, device, dtype, cache_dir)
+        except Exception as exc:
+            return _fail(f"could not load model: {exc}")
+        try:
+            raw = _generate(
+                model, tokenizer, EDITOR_SYSTEM_PROMPT,
+                _build_editor_user_prompt(command, context),
+                max_new_tokens, device, max_input_tokens, thinking_enabled,
+            )
+        except Exception as exc:
+            return _fail(f"generation error: {exc}")
+    finally:
+        try:
+            lock_ctx.__exit__(None, None, None)
+        except Exception:
+            pass
+        try:
+            import torch as _torch  # noqa: F401
+            import gc
+            gc.collect()
+            if _torch.cuda.is_available():
+                _torch.cuda.empty_cache()
+        except Exception:
+            pass
+
+    # Parse the intent JSON. Tolerate a leading/trailing code fence and
+    # surrounding prose by extracting the first balanced {...} block.
+    intent = _parse_editor_intent_json(raw)
+    if intent is None:
+        return _fail("model output was not valid intent JSON", raw=raw)
+    _write_editor_result(output_path, {"ok": True, "intent": intent, "raw": raw})
+    return 0
+
+
+def _parse_editor_intent_json(raw: str) -> Optional[dict]:
+    """Extract the first JSON object from *raw* and validate the action key."""
+    import json as _json
+    text = (raw or "").strip()
+    if not text:
+        return None
+    # Strip a markdown code fence if present.
+    if text.startswith("```"):
+        text = text.strip("`")
+        # Drop an optional leading language tag line.
+        nl = text.find("\n")
+        if nl != -1:
+            first = text[:nl].strip()
+            if first and not first.startswith("{"):
+                text = text[nl + 1:]
+        text = text.strip()
+    # Try direct parse first.
+    candidates = [text]
+    # Otherwise extract the first {...} slice.
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        candidates.append(text[start:end + 1])
+    for cand in candidates:
+        try:
+            obj = _json.loads(cand)
+        except Exception:
+            continue
+        if isinstance(obj, dict) and "action" in obj:
+            return obj
+    return None
+
+
 def main() -> int:
     if len(sys.argv) < 2:
         print("usage: conversation_mining_worker <worker_job.json>", file=sys.stderr)
         return 2
+    # Dispatch: ``--editor-command`` runs a single-shot editor-command
+    # inference that reuses the same model loader / generator as mining.
+    if sys.argv[1] == "--editor-command":
+        if len(sys.argv) < 3:
+            print("usage: conversation_mining_worker --editor-command <job.json>", file=sys.stderr)
+            return 2
+        return run_editor_command_worker(sys.argv[2])
     return run_worker(sys.argv[1])
 
 

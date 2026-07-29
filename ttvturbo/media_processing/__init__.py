@@ -67,6 +67,14 @@ from .transcript_corrections import (
     effective_contract as transcript_effective_contract,
 )
 from .pipeline import PipelineService, PipelineError, DEFAULT_VOD_PIPELINE
+from .editor_command import (
+    EditorCommandService,
+    EditorCommandError,
+    EditorCommandUnavailableError,
+    EditorCommandTimeoutError,
+    EditorCommandValidationError,
+    EditorCommandWorkerError,
+)
 from .conversation_mining import (
     ConversationMiningService,
     ConversationMiningError,
@@ -191,6 +199,12 @@ __all__ = [
     "PipelineStepStatus",
     "PipelineStepType",
     "ResolvedMediaSource",
+    "EditorCommandService",
+    "EditorCommandError",
+    "EditorCommandUnavailableError",
+    "EditorCommandTimeoutError",
+    "EditorCommandValidationError",
+    "EditorCommandWorkerError",
     "TranscriptionError",
     "TranscriptionMetadata",
     "TranscriptionSegment",

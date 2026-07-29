@@ -47,6 +47,7 @@ from ttvturbo.media_processing import (
     AudioExtractionService,
     AudioForensicsService,
     ConversationMiningService,
+    EditorCommandService,
     GpuLock,
     MediaJobStorage,
     MediaSourceResolver,
@@ -56,6 +57,7 @@ from ttvturbo.media_processing import (
 )
 from ttvturbo.media_processing_api import build_media_processing_router
 from ttvturbo.conversation_mining_api import build_conversation_mining_router
+from ttvturbo.editor_command_api import build_editor_command_router
 from ttvturbo.asr_api import build_asr_router
 from ttvturbo.visual_analysis_api import build_visual_analysis_router
 from ttvturbo.video_generation_api import build_video_generation_router
@@ -103,6 +105,7 @@ class ServiceContainer:
         self.transcription_service: Any = None
         self.pipeline_service: Any = None
         self.mining_service: Any = None
+        self.editor_command_service: Any = None
         self.asr_benchmark_service: Any = None
         self.audio_forensics_service: Any = None
         self.visual_analysis_service: Any = None
@@ -119,6 +122,7 @@ class ServiceContainer:
         self.twitch_status_router: Any = None
         self.media_processing_router: Any = None
         self.conversation_mining_router: Any = None
+        self.editor_command_router: Any = None
         self.library_router: Any = None
         self.asr_router: Any = None
         self.visual_analysis_router: Any = None
@@ -177,6 +181,7 @@ class ServiceOverrides:
     transcription_service: Any = None
     pipeline_service: Any = None
     mining_service: Any = None
+    editor_command_service: Any = None
     asr_benchmark_service: Any = None
     audio_forensics_service: Any = None
     visual_analysis_service: Any = None
@@ -336,6 +341,16 @@ def _init_services(
     else:
         container.mining_service = ConversationMiningService(
             transcription_service=container.transcription_service,
+            gpu_lock=container.gpu_lock,
+            settings=settings,
+            worker_python=tools.python,
+        )
+
+    # --- Editor command parser (local text LLM, reuses mining model) ------
+    if ov and ov.editor_command_service is not None:
+        container.editor_command_service = ov.editor_command_service
+    else:
+        container.editor_command_service = EditorCommandService(
             gpu_lock=container.gpu_lock,
             settings=settings,
             worker_python=tools.python,
@@ -649,6 +664,7 @@ def create_app(
     transcription_proxy = _ServiceProxy(container, "transcription_service")
     pipeline_proxy = _ServiceProxy(container, "pipeline_service")
     mining_proxy = _ServiceProxy(container, "mining_service")
+    editor_command_proxy = _ServiceProxy(container, "editor_command_service")
     upload_proxy = _ServiceProxy(container, "upload_storage")
     benchmark_proxy = _ServiceProxy(container, "asr_benchmark_service")
     preset_store_proxy = _ServiceProxy(container, "asr_default_preset_store")
@@ -684,6 +700,7 @@ def create_app(
         forensics_service=forensics_proxy,
     )
     conversation_mining_router = build_conversation_mining_router(mining_proxy)
+    editor_command_router = build_editor_command_router(editor_command_proxy)
     visual_analysis_router = build_visual_analysis_router(visual_analysis_proxy)
     video_generation_router = build_video_generation_router(video_generation_proxy)
     ideas_research_router = build_ideas_research_router(ideas_research_proxy)
@@ -717,6 +734,7 @@ def create_app(
             shutdown_service(container.ideas_research_service)
             shutdown_service(container.pipeline_service)
             shutdown_service(container.mining_service)
+            shutdown_service(container.editor_command_service)
             shutdown_service(container.transcription_service)
             shutdown_service(container.audio_extraction_service)
             shutdown_service(container.vod_pipeline_service)
@@ -734,6 +752,7 @@ def create_app(
     container.twitch_status_router = twitch_status_router
     container.media_processing_router = media_processing_router
     container.conversation_mining_router = conversation_mining_router
+    container.editor_command_router = editor_command_router
     container.library_router = library_router
     container.asr_router = asr_router
     container.visual_analysis_router = visual_analysis_router
@@ -757,6 +776,7 @@ def create_app(
     app.include_router(twitch_status_router)
     app.include_router(media_processing_router)
     app.include_router(conversation_mining_router)
+    app.include_router(editor_command_router)
     app.include_router(library_router)
     app.include_router(asr_router)
     app.include_router(visual_analysis_router)

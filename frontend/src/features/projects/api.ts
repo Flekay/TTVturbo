@@ -17,12 +17,14 @@ export interface EditSequence {
   fps_denominator: number;
   format_profile: string;
   tracks?: Record<string, TimelineTrack>;
+  track_order?: string[];
   layout?: unknown;
 }
 
 export interface TimelineClip {
   id: string;
   source_media_item_id: string;
+  source_asset_id?: string | null;
   source_start_us: number;
   source_end_us: number;
   timeline_start_us: number;
@@ -131,6 +133,22 @@ export async function fetchCommitState(projectId: string, commitId: string): Pro
   );
 }
 
+
+export async function addProjectSource(
+  projectId: string,
+  payload: {
+    branch_id: string;
+    expected_head_commit_id: string;
+    source: { media_item_id: string; asset_id?: string };
+    message?: string;
+  },
+): Promise<{ source: EditSource; commit: EditCommit }> {
+  return apiClient.post<{ source: EditSource; commit: EditCommit }>(
+    `/api/edit-projects/${encodeURIComponent(projectId)}/sources`,
+    { body: payload },
+  );
+}
+
 export async function createCommit(
   projectId: string,
   payload: {
@@ -180,4 +198,35 @@ export async function startRender(payload: {
   output_lifecycle?: "TEMPORARY" | "PERSISTENT";
 }): Promise<Record<string, unknown>> {
   return apiClient.post<Record<string, unknown>>("/api/rendering/jobs", { body: payload });
+}
+
+export interface EditorCommandContext {
+  sequence?: { width?: number; height?: number } | null;
+  playhead_seconds?: number | null;
+  selected_clip?: {
+    id?: string;
+    transform?: { x?: number; y?: number; scale_x?: number; scale_y?: number; rotation?: number } | null;
+    opacity?: number | null;
+    speed?: number | null;
+    audio_muted?: boolean | null;
+    source_start_us?: number;
+    source_end_us?: number;
+    timeline_start_us?: number;
+  } | null;
+}
+
+export interface EditorCommandIntent {
+  action: string;
+  [key: string]: unknown;
+}
+
+export async function parseEditorCommand(
+  command: string,
+  context: EditorCommandContext,
+): Promise<EditorCommandIntent> {
+  const response = await apiClient.post<{ intent: EditorCommandIntent }>(
+    "/api/editor-command/parse",
+    { body: { command, context }, timeoutMs: 200_000 },
+  );
+  return response.intent;
 }
