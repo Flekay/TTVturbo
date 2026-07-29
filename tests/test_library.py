@@ -227,3 +227,35 @@ def test_item_file_path_missing(library_service):
     )
     with pytest.raises(LibraryNotFoundError):
         library_service.item_file_path(item["id"])
+
+
+def test_temporary_item_is_hidden_until_promoted(library_service):
+    item = library_service.create_upload_item(
+        file_name="quick-tool.mp4",
+        lifecycle="TEMPORARY",
+    )
+    assert item["lifecycle"] == "TEMPORARY"
+    assert item["expires_at"]
+    assert library_service.list_items() == []
+    assert [entry["id"] for entry in library_service.list_items(include_temporary=True)] == [item["id"]]
+
+    promoted = library_service.promote_item(item["id"])
+    assert promoted["lifecycle"] == "PERSISTENT"
+    assert promoted["expires_at"] is None
+    assert [entry["id"] for entry in library_service.list_items()] == [item["id"]]
+
+
+def test_expired_temporary_item_is_removed(library_service):
+    item = library_service.create_upload_item(
+        file_name="expired.mp4",
+        lifecycle="TEMPORARY",
+        expires_at="2000-01-01T00:00:00Z",
+    )
+    assert library_service.list_items(include_temporary=True) == []
+    with pytest.raises(LibraryNotFoundError):
+        library_service.get_item(item["id"])
+
+
+def test_invalid_lifecycle_is_rejected(library_service):
+    with pytest.raises(LibraryValidationError):
+        library_service.create_upload_item(file_name="bad.mp4", lifecycle="FOREVER")

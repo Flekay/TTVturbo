@@ -6,6 +6,7 @@ import "./styles/global.css";
 import "./styles/layout.css";
 import "./styles/components.css";
 import "./styles/dashboard.css";
+import "./styles/workspace.css";
 
 const container = document.getElementById("root");
 if (!container) {

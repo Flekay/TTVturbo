@@ -240,3 +240,40 @@ def test_library_upload_endpoint_partial_cleanup(tmp_path: Path):
         for item in library_dir.iterdir():
             if item.is_dir():
                 assert list(item.glob("*.tmp")) == []
+
+
+def test_temporary_library_upload_is_hidden_until_promoted(tmp_path: Path):
+    """Quick-tool uploads stay out of the Library until explicitly promoted."""
+    from fastapi.testclient import TestClient
+
+    from ttvturbo.app_factory import create_app
+    from ttvturbo.settings import Settings
+
+    app = create_app(Settings(data_root=tmp_path))
+    with TestClient(app) as client:
+        uploaded = client.post(
+            "/api/library/uploads",
+            files={"file": ("temporary.mp4", b"temporary video", "video/mp4")},
+            data={"lifecycle": "TEMPORARY"},
+        )
+        assert uploaded.status_code == 201
+        item = uploaded.json()
+        assert item["lifecycle"] == "TEMPORARY"
+        assert item["expires_at"]
+
+        persistent_list = client.get("/api/library/items")
+        assert persistent_list.status_code == 200
+        assert persistent_list.json()["items"] == []
+
+        all_items = client.get("/api/library/items?include_temporary=true")
+        assert all_items.status_code == 200
+        assert [entry["id"] for entry in all_items.json()["items"]] == [item["id"]]
+
+        promoted = client.post(f"/api/library/items/{item['id']}/promote")
+        assert promoted.status_code == 200
+        assert promoted.json()["lifecycle"] == "PERSISTENT"
+        assert promoted.json()["expires_at"] is None
+
+        visible = client.get("/api/library/items")
+        assert visible.status_code == 200
+        assert [entry["id"] for entry in visible.json()["items"]] == [item["id"]]

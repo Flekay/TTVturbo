@@ -103,6 +103,7 @@ def register_derived_library_item(
     artifact_id: str,
     container: str,
     metadata: dict[str, Any],
+    lifecycle: str = "PERSISTENT",
 ) -> tuple[str, Path]:
     if library_service is None:
         raise RuntimeError("library service is not configured")
@@ -112,6 +113,7 @@ def register_derived_library_item(
         file_name=canonical_name,
         title=title,
         duration_seconds=duration_seconds,
+        lifecycle=lifecycle,
     )
     item_id = item["id"]
     dest = library_service.storage.source_file_path(item_id, container)
@@ -129,6 +131,7 @@ def register_derived_library_item(
     item["file_size_bytes"] = dest.stat().st_size
     item["duration_seconds"] = duration_seconds
     item["derived"] = True
+    item["lifecycle"] = lifecycle
     item["derived_from_item_id"] = source_media_item_id
     item["derivation"] = {
         "operation": operation,

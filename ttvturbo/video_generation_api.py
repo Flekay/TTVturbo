@@ -50,6 +50,7 @@ class StartJobRequest(BaseModel):
     aspect_ratio: str = "16:9"
     seed: Optional[int] = None
     options: dict[str, Any] = Field(default_factory=dict)
+    output_lifecycle: str = Field(default="PERSISTENT", pattern=r"^(TEMPORARY|PERSISTENT)$")
 
 
 # ---------------------------------------------------------------------------
@@ -103,6 +104,7 @@ def build_video_generation_router(
                 aspect_ratio=request.aspect_ratio,
                 seed=request.seed,
                 options=request.options,
+                output_lifecycle=request.output_lifecycle,
             )
             return JSONResponse(status_code=201, content=job)
         except Exception as exc:

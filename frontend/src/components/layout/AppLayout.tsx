@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { useUIStore } from "../../stores/uiStore";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
+import { GlobalJobDock } from "./GlobalJobDock";
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -17,6 +18,7 @@ export function AppLayout({ children, primaryAction }: AppLayoutProps) {
       <main className="app-layout__main" id="main-content">
         {children}
       </main>
+      <GlobalJobDock />
     </div>
   );
 }

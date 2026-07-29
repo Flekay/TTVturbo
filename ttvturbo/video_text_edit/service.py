@@ -177,6 +177,7 @@ class VideoTextEditService(SubprocessCapabilityService):
             "model_id": model_id,
             "seed": seed,
             "options": options,
+            "output_lifecycle": request.output_lifecycle,
             "attempt": 1,
             "output_artifact_id": None,
             "library_item_id": None,
@@ -235,6 +236,7 @@ class VideoTextEditService(SubprocessCapabilityService):
             artifact_id=artifact_id,
             container="mp4",
             metadata={"job_id": job_id, "mode": result.mode, "model_id": result.model_id, "prompt": job["prompt"]},
+            lifecycle=job.get("output_lifecycle", "PERSISTENT"),
         )
         artifact = {
             "schema_version": 1,
@@ -259,6 +261,7 @@ class VideoTextEditService(SubprocessCapabilityService):
             "file_name": dest.name,
             "file_size_bytes": dest.stat().st_size,
             "container": "mp4",
+            "lifecycle": job.get("output_lifecycle", "PERSISTENT"),
             "created_at": now_iso(),
             "revision": 1,
         }

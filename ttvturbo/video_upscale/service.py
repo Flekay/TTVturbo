@@ -165,6 +165,7 @@ class VideoUpscaleService(SubprocessCapabilityService):
             "region": request.region.model_dump() if request.region else None,
             "region_track_artifact_id": request.region_track_artifact_id,
             "region_track_id": request.region_track_id,
+            "output_lifecycle": request.output_lifecycle,
             "options": options,
             "attempt": 1,
             "output_artifact_id": None,
@@ -235,8 +236,14 @@ class VideoUpscaleService(SubprocessCapabilityService):
             artifact_id=artifact_id,
             container="mp4",
             metadata={"job_id": job_id, "engine": result.engine, "options": result.effective_options},
+            lifecycle=job.get("output_lifecycle", "PERSISTENT"),
         )
-        artifact.update({"library_item_id": item_id, "file_name": dest.name, "file_size_bytes": dest.stat().st_size})
+        artifact.update({
+            "library_item_id": item_id,
+            "file_name": dest.name,
+            "file_size_bytes": dest.stat().st_size,
+            "lifecycle": job.get("output_lifecycle", "PERSISTENT"),
+        })
         self.storage.save_artifact(artifact)
         job["output_artifact_id"] = artifact_id
         job["library_item_id"] = item_id

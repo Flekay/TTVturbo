@@ -258,7 +258,15 @@ class EditProjectService:
         supplied_hash = str(source.get("sha256") or "").lower()
         if self.library_service is not None:
             try:
+                if hasattr(self.library_service, "get_item"):
+                    item = self.library_service.get_item(media_item_id)
+                    if item.get("lifecycle", "PERSISTENT") != "PERSISTENT":
+                        raise EditValidationError(
+                            "temporary media must be promoted before it can be used in an edit project"
+                        )
                 path = self._library_path(media_item_id, asset_id)
+            except EditValidationError:
+                raise
             except Exception as exc:
                 raise EditValidationError(f"source media item is unavailable: {media_item_id}") from exc
             actual_hash = _sha256_file(path)

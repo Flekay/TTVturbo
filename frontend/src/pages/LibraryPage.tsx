@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { Download, Upload, Trash2, AlertCircle, Loader2, Film, FileVideo, Search, MoreVertical } from "lucide-react";
+import { Download, Upload, Trash2, AlertCircle, Loader2, Film, FileVideo, Search, MoreVertical, Sparkles, ImageOff, WandSparkles, FolderKanban } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "../components/ui/Button";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog";
@@ -205,7 +205,7 @@ export function LibraryPage() {
     <div className="library-page">
       <div className="library-page__header">
         <p className="page__description">
-          Alle Videos an einem Ort — heruntergeladene VODs und hochgeladene Dateien.
+          Dauerhaft gespeicherte Medien. Temporäre Schnellwerkzeug-Dateien erscheinen hier erst nach „In Library speichern“.
         </p>
         <div className="library-page__upload">
           <input
@@ -432,9 +432,24 @@ function LibraryCard({
             }
           >
             {item.fileUrl && (
-              <MenuItem onSelect={() => window.open(item.fileUrl!, "_blank")}>
-                <Download size={14} /> Herunterladen
-              </MenuItem>
+              <>
+                <MenuItem onSelect={() => { window.location.href = `/projects?source=${encodeURIComponent(item.id)}`; }}>
+                  <FolderKanban size={14} /> Im Editor öffnen
+                </MenuItem>
+                <MenuItem onSelect={() => { window.location.href = `/create/video-upscale?source=${encodeURIComponent(item.id)}&persist=1`; }}>
+                  <Sparkles size={14} /> Hochskalieren
+                </MenuItem>
+                <MenuItem onSelect={() => { window.location.href = `/create/background-removal?source=${encodeURIComponent(item.id)}&persist=1`; }}>
+                  <ImageOff size={14} /> Hintergrund entfernen
+                </MenuItem>
+                <MenuItem onSelect={() => { window.location.href = `/create/text-edit?source=${encodeURIComponent(item.id)}&persist=1`; }}>
+                  <WandSparkles size={14} /> Per Text bearbeiten
+                </MenuItem>
+                <MenuSeparator />
+                <MenuItem onSelect={() => window.open(item.fileUrl!, "_blank")}>
+                  <Download size={14} /> Herunterladen
+                </MenuItem>
+              </>
             )}
             {item.fileUrl && <MenuSeparator />}
             {isDownloading && (

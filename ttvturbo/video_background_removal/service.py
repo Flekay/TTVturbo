@@ -163,6 +163,7 @@ class VideoBackgroundRemovalService(SubprocessCapabilityService):
             "temporal_smoothing": request.temporal_smoothing,
             "edge_refinement": request.edge_refinement,
             "preserve_audio": request.preserve_audio,
+            "output_lifecycle": request.output_lifecycle,
             "attempt": 1,
             "output_artifact_id": None,
             "output_artifact_ids": [],
@@ -229,6 +230,7 @@ class VideoBackgroundRemovalService(SubprocessCapabilityService):
                 artifact_id=artifact_id,
                 container=container,
                 metadata={"job_id": job_id, "output_type": output["type"], "model_id": result.model_id},
+                lifecycle=job.get("output_lifecycle", "PERSISTENT"),
             )
             artifact = {
                 "schema_version": 1,
@@ -248,6 +250,7 @@ class VideoBackgroundRemovalService(SubprocessCapabilityService):
                 "file_name": dest.name,
                 "file_size_bytes": dest.stat().st_size,
                 "container": container,
+                "lifecycle": job.get("output_lifecycle", "PERSISTENT"),
                 "created_at": now_iso(),
                 "revision": 1,
             }

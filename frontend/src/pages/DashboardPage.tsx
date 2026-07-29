@@ -1,422 +1,150 @@
-import { useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import {
-  Activity,
   ArrowRight,
-  Clock,
-  Database,
-  Film,
-  HardDrive,
-  Mic2,
-  RefreshCw,
-  Tv,
-  Video,
-  Wand2,
+  FolderKanban,
+  ImageOff,
+  Library,
+  ListChecks,
+  Loader2,
+  Play,
+  Plus,
+  Scissors,
+  Sparkles,
+  WandSparkles,
 } from "lucide-react";
-import { useStatusQuery } from "../hooks/useQueries";
-import { Badge, type BadgeVariant } from "../components/ui/Badge";
-import { LoadingState } from "../components/ui/LoadingState";
-import { ErrorState } from "../components/ui/ErrorState";
-import { AreaChart } from "../components/charts/AreaChart";
-import { DonutChart, type DonutSegment } from "../components/charts/DonutChart";
-import { BarChart, type BarItem } from "../components/charts/BarChart";
-import { formatBytes, formatDateTime, formatDuration, formatUptime } from "../utils/format";
+import { EmptyState } from "../components/ui/EmptyState";
+import { ACTIVE_JOB_STATUSES } from "../features/jobs/api";
+import { useAllJobs } from "../features/jobs/hooks";
+import { useProjects } from "../features/projects/hooks";
+import { useLibraryItemsQuery } from "../features/library/hooks";
+import { useBackendStatus } from "../hooks/useBackendStatus";
+import { formatDateTime } from "../utils/format";
 import { useUIStore } from "../stores/uiStore";
-import { useStatusHistoryStore } from "../stores/statusHistoryStore";
-import type { BackendStatus, FeatureStatus } from "../types/status";
 
-function featureBadge(status: FeatureStatus): { variant: BadgeVariant; label: string } {
-  switch (status) {
-    case "available":
-      return { variant: "success", label: "Verfügbar" };
-    case "unavailable":
-      return { variant: "error", label: "Nicht verfügbar" };
-    case "not_implemented":
-      return { variant: "muted", label: "Geplant" };
-  }
-}
-
-interface ModuleDef {
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-  status: FeatureStatus;
-  to: string;
-}
-
-function modulesFromStatus(data: BackendStatus): ModuleDef[] {
-  return [
-    {
-      icon: <Mic2 size={18} />,
-      title: "Voice Recording",
-      description: "Mikrofonaufnahmen und WAV-Konvertierung.",
-      status: data.features.recording,
-      to: "/voice-profiles",
-    },
-    {
-      icon: <Wand2 size={18} />,
-      title: "Voice Cloning",
-      description: "Voice-Clone aus Referenzaufnahmen erzeugen.",
-      status: data.features.voice_cloning,
-      to: "/voice-clone",
-    },
-    {
-      icon: <Film size={18} />,
-      title: "VOD Downloader",
-      description: "Twitch-VODs synchronisieren und herunterladen.",
-      status: data.features.vod_downloader ?? data.features.vod_pipeline ?? "not_implemented",
-      to: "/vod-downloader",
-    },
-    {
-      icon: <Tv size={18} />,
-      title: "Twitch-Profile",
-      description: "Twitch-Channel-Profile verwalten.",
-      status: data.features.twitch_profiles ?? "not_implemented",
-      to: "/twitch-profiles",
-    },
-    {
-      icon: <Video size={18} />,
-      title: "Video Editor",
-      description: "Videos zuschneiden und bearbeiten.",
-      status: data.features.video_editor,
-      to: "/library",
-    },
-    {
-      icon: <Activity size={18} />,
-      title: "Transkription",
-      description: "Audio transkribieren und analysieren.",
-      status: data.features.transcription ?? data.features.vod_analysis ?? "not_implemented",
-      to: "/transcription",
-    },
-  ];
-}
+const QUICK_ACTIONS = [
+  { to: "/vod-pipeline", title: "Clip erstellen", description: "Stream oder VOD verarbeiten", icon: Scissors },
+  { to: "/projects", title: "Video bearbeiten", description: "Timeline-Projekt öffnen", icon: Play },
+  { to: "/create/video-upscale", title: "Video hochskalieren", description: "Einzelne Datei, kein Projekt", icon: Sparkles },
+  { to: "/create/background-removal", title: "Hintergrund entfernen", description: "Temporäres Schnellwerkzeug", icon: ImageOff },
+  { to: "/create/text-edit", title: "Video per Text ändern", description: "Bereich oder Vollbild bearbeiten", icon: WandSparkles },
+  { to: "/create/video-generation", title: "Video generieren", description: "Text- oder Bildvorlage", icon: Plus },
+];
 
 export function DashboardPage() {
-  const status = useStatusQuery();
-  const use24h = useUIStore((s) => s.use24HourFormat);
-  const samples = useStatusHistoryStore((s) => s.samples);
-  const pushSample = useStatusHistoryStore((s) => s.push);
+  const projects = useProjects();
+  const jobs = useAllJobs();
+  const library = useLibraryItemsQuery();
+  const backend = useBackendStatus();
+  const use24h = useUIStore((state) => state.use24HourFormat);
 
-  const data = status.data;
-
-  useEffect(() => {
-    if (!data) return;
-    pushSample({
-      ts: Date.now(),
-      uptime_seconds: data.uptime_seconds,
-      recordings_count: data.recordings.count,
-      recordings_total_size_bytes: data.recordings.total_size_bytes,
-      recordings_total_duration_seconds: data.recordings.total_duration_seconds,
-      storage_free_bytes: data.storage.free_bytes,
-    });
-  }, [data, pushSample]);
-
-  const series = useMemo(
-    () => ({
-      uptime: samples.map((s) => s.uptime_seconds),
-      count: samples.map((s) => s.recordings_count),
-      size: samples.map((s) => s.recordings_total_size_bytes),
-      free: samples.map((s) => s.storage_free_bytes),
-    }),
-    [samples],
-  );
-
-  if (status.isLoading) {
-    return <LoadingState message="Lade Systemstatus …" />;
-  }
-  if (status.isError || !data) {
-    return (
-      <ErrorState
-        title="Systemstatus nicht verfügbar"
-        message={
-          status.error instanceof Error ? status.error.message : "Backend nicht erreichbar."
-        }
-        onRetry={() => void status.refetch()}
-      />
-    );
-  }
-
-  const isOnline = data.status === "online";
-  const modules = modulesFromStatus(data);
-
-  const usedBytes = Math.max(0, data.recordings.total_size_bytes);
-  const freeBytes = Math.max(0, data.storage.free_bytes);
-  const totalBytes = usedBytes + freeBytes;
-  const usedPct = totalBytes > 0 ? Math.round((usedBytes / totalBytes) * 100) : 0;
-
-  const storageSegments: DonutSegment[] = [
-    { label: "Belegt", value: usedBytes, color: "var(--color-accent)" },
-    { label: "Frei", value: freeBytes, color: "var(--color-success)" },
-  ];
-
-  const pipelineBars: BarItem[] = [];
-  if (data.vod_pipeline) {
-    const vp = data.vod_pipeline;
-    pipelineBars.push(
-      { label: "Profile", value: vp.profiles, color: "var(--color-info)", hint: "Twitch-Channel" },
-      { label: "VODs", value: vp.vods, color: "var(--color-accent)", hint: "importiert" },
-      { label: "Bereit", value: vp.ready, color: "var(--color-success)", hint: "heruntergeladen" },
-    );
-    if (vp.active > 0)
-      pipelineBars.push({ label: "Aktiv", value: vp.active, color: "var(--color-warning)", hint: "in Arbeit" });
-    if (vp.failed > 0)
-      pipelineBars.push({ label: "Fehlgeschlagen", value: vp.failed, color: "var(--color-error)" });
-  }
-
-  const mediaBars: BarItem[] = [];
-  if (data.media_processing) {
-    const mp = data.media_processing;
-    mediaBars.push(
-      { label: "Audio-Artefakte", value: mp.audio_artifacts, color: "var(--color-accent)" },
-      { label: "Transkripte", value: mp.transcripts, color: "var(--color-info)" },
-      { label: "Audio-Jobs", value: mp.audio_jobs.total, color: "var(--color-success)", hint: `${mp.audio_jobs.ready} bereit` },
-      { label: "Pipeline-Runs", value: mp.pipeline_runs.total, color: "var(--color-warning)", hint: `${mp.pipeline_runs.active} aktiv` },
-    );
-  }
-
-  const availableCount = modules.filter((m) => m.status === "available").length;
+  const recentProjects = [...(projects.data ?? [])]
+    .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+    .slice(0, 3);
+  const activeJobs = (jobs.data?.jobs ?? [])
+    .filter((job) => ACTIVE_JOB_STATUSES.has(job.status))
+    .slice(0, 4);
+  const libraryCount = library.data?.items.length ?? 0;
 
   return (
-    <div className="dashboard">
-      {/* Hero */}
-      <header className="dashboard__hero">
-        <div className="dashboard__hero-title">
-          <h1>Dashboard</h1>
-          <span className="dashboard__hero-sub">
-            {data.app_name} v{data.version} · {availableCount}/{modules.length} Module aktiv
-          </span>
+    <div className="page dashboard-home">
+      {backend.status === "offline" && (
+        <div className="system-warning" role="alert">
+          <strong>Backend nicht erreichbar</strong>
+          <span>Neue Vorgänge können aktuell nicht gestartet werden. Bereits geladene Ansichten bleiben verfügbar.</span>
         </div>
-        <div className="dashboard__hero-meta">
-          <span className="dashboard__live">
-            <span
-              className={`dashboard__live-dot ${isOnline ? "" : "dashboard__live-dot--offline"}`}
-              aria-hidden="true"
+      )}
+
+      <section className="home-hero">
+        <div>
+          <span className="eyebrow">TTVturbo</span>
+          <h1>Weiterarbeiten oder etwas Neues erstellen</h1>
+          <p>Einzelne Aufgaben bleiben kleine Schnellwerkzeuge. Komplexe Bearbeitung läuft über Projekte.</p>
+        </div>
+        <div className="home-hero__actions">
+          <Link className="btn btn--primary" to="/create"><Plus size={16} /> Create öffnen</Link>
+          <Link className="btn btn--secondary" to="/library"><Library size={16} /> Library</Link>
+        </div>
+      </section>
+
+      <section className="home-section">
+        <div className="section-heading">
+          <div><h2>Schnellstart</h2><p>Direkt zur Aufgabe, ohne erst den zuständigen Backend-Service suchen zu müssen.</p></div>
+          <Link to="/create">Alle Möglichkeiten <ArrowRight size={14} /></Link>
+        </div>
+        <div className="quick-action-grid">
+          {QUICK_ACTIONS.map(({ to, title, description, icon: Icon }) => (
+            <Link className="quick-action-card" to={to} key={to}>
+              <span className="quick-action-card__icon"><Icon size={20} /></span>
+              <span><strong>{title}</strong><small>{description}</small></span>
+              <ArrowRight size={16} />
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      <div className="home-columns">
+        <section className="home-section">
+          <div className="section-heading">
+            <div><h2>Weiterarbeiten</h2><p>Zuletzt geänderte Bearbeitungsprojekte.</p></div>
+            <Link to="/projects">Alle Projekte <ArrowRight size={14} /></Link>
+          </div>
+          {projects.isLoading ? (
+            <div className="compact-loading"><Loader2 className="spin" size={18} /> Projekte werden geladen</div>
+          ) : recentProjects.length === 0 ? (
+            <EmptyState
+              title="Noch keine Projekte"
+              description="Ein Projekt ist erst nötig, wenn du Timeline, mehrere Clips oder Ausgabevarianten brauchst."
+              icon={<FolderKanban />}
+              action={<Link className="btn btn--primary" to="/projects">Projekt erstellen</Link>}
             />
-            {isOnline ? "Online" : "Offline"}
-          </span>
-          <span className="dashboard__updated">
-            Aktualisiert {formatDateTime(new Date().toISOString(), use24h)}
-          </span>
-          <button
-            type="button"
-            className="btn btn--ghost btn--sm"
-            onClick={() => void status.refetch()}
-            aria-label="Aktualisieren"
-          >
-            <RefreshCw size={14} /> Aktualisieren
-          </button>
-        </div>
-      </header>
-
-      {/* KPI tiles */}
-      <section className="dashboard__kpis">
-        <KpiTile
-          icon={<Activity size={16} />}
-          label="Backend"
-          value={isOnline ? "Online" : "Offline"}
-          sub={data.app_name}
-          sparkData={series.uptime}
-          sparkColor="var(--color-success)"
-          formatValue={(v) => formatUptime(v)}
-        />
-        <KpiTile
-          icon={<Clock size={16} />}
-          label="Laufzeit"
-          value={formatUptime(data.uptime_seconds)}
-          sub="seit Serverstart"
-          sparkData={series.uptime}
-          sparkColor="var(--color-accent)"
-          formatValue={(v) => formatUptime(v)}
-        />
-        <KpiTile
-          icon={<Mic2 size={16} />}
-          label="Aufnahmen"
-          value={String(data.recordings.count)}
-          sub={formatDuration(data.recordings.total_duration_seconds)}
-          sparkData={series.count}
-          sparkColor="var(--color-info)"
-          formatValue={(v) => String(Math.round(v))}
-        />
-        <KpiTile
-          icon={<HardDrive size={16} />}
-          label="Freier Speicher"
-          value={formatBytes(data.storage.free_bytes)}
-          sub={`${usedPct}% belegt`}
-          sparkData={series.free}
-          sparkColor="var(--color-warning)"
-          formatValue={(v) => formatBytes(v)}
-        />
-      </section>
-
-      {/* Charts row */}
-      <section className="dashboard__charts">
-        <div className="chart-card">
-          <div className="chart-card__head">
-            <div>
-              <div className="chart-card__title">Aufnahmen-Verlauf</div>
-              <div className="chart-card__subtitle">
-                Anzahl gespeicherter Aufnahmen über die Sitzung
-              </div>
-            </div>
-            <Badge variant="info">{samples.length} Samples</Badge>
-          </div>
-          <div className="chart-card__body">
-            {series.count.length > 1 ? (
-              <AreaChart
-                data={series.count}
-                height={180}
-                color="var(--color-accent)"
-                fillId="dash-area-count"
-                formatValue={(v) => `${Math.round(v)}`}
-                ariaLabel="Aufnahmen-Verlauf"
-              />
-            ) : (
-              <div className="dash-empty">
-                <Database size={28} />
-                <span>Sammelt Daten … Graphen erscheinen nach wenigen Sekunden.</span>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="chart-card storage-card">
-          <div className="chart-card__head">
-            <div>
-              <div className="chart-card__title">Speicherbelegung</div>
-              <div className="chart-card__subtitle">Aufnahmemedium</div>
-            </div>
-          </div>
-          <div className="storage-card__body">
-            <div className="storage-card__donut">
-              <DonutChart
-                segments={storageSegments}
-                centerLabel={formatBytes(totalBytes)}
-                centerSub="Gesamt"
-                ariaLabel="Speicherbelegung"
-              />
-            </div>
-            <div className="storage-card__legend">
-              <div className="legend-item">
-                <span className="legend-item__swatch" style={{ backgroundColor: "var(--color-accent)" }} />
-                <span className="legend-item__label">Belegt</span>
-                <span className="legend-item__value">{formatBytes(usedBytes)}</span>
-              </div>
-              <div className="legend-item">
-                <span className="legend-item__swatch" style={{ backgroundColor: "var(--color-success)" }} />
-                <span className="legend-item__label">Frei</span>
-                <span className="legend-item__value">{formatBytes(freeBytes)}</span>
-              </div>
-              <div className="legend-item">
-                <span className="legend-item__swatch" style={{ backgroundColor: "transparent", border: "1px solid var(--color-border)" }} />
-                <span className="legend-item__label">Belegung</span>
-                <span className="legend-item__value">{usedPct}%</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Pipeline / media bar charts */}
-      {(pipelineBars.length > 0 || mediaBars.length > 0) && (
-        <section className="dashboard__charts">
-          {pipelineBars.length > 0 && (
-            <div className="chart-card">
-              <div className="chart-card__head">
-                <div>
-                  <div className="chart-card__title">VOD Pipeline</div>
-                  <div className="chart-card__subtitle">Profile, Downloads & Status</div>
-                </div>
-                <Link className="dash-module__link" to="/vod-downloader">
-                  Öffnen <ArrowRight size={12} />
+          ) : (
+            <div className="recent-project-list">
+              {recentProjects.map((project) => (
+                <Link to={`/projects/${project.id}`} className="recent-project" key={project.id}>
+                  <span className="recent-project__icon"><FolderKanban size={18} /></span>
+                  <span className="recent-project__body">
+                    <strong>{project.name}</strong>
+                    <small>{project.sequence_count} Ausgaben · {project.branch_count} Varianten</small>
+                  </span>
+                  <time>{formatDateTime(project.updated_at, use24h)}</time>
+                  <ArrowRight size={15} />
                 </Link>
-              </div>
-              <div className="chart-card__body">
-                <BarChart bars={pipelineBars} ariaLabel="VOD Pipeline Status" />
-              </div>
-            </div>
-          )}
-          {mediaBars.length > 0 && (
-            <div className="chart-card">
-              <div className="chart-card__head">
-                <div>
-                  <div className="chart-card__title">Media Processing</div>
-                  <div className="chart-card__subtitle">Audio, Transkripte & Pipeline-Runs</div>
-                </div>
-                <Link className="dash-module__link" to="/transcription">
-                  Öffnen <ArrowRight size={12} />
-                </Link>
-              </div>
-              <div className="chart-card__body">
-                <BarChart bars={mediaBars} ariaLabel="Media Processing Status" />
-              </div>
+              ))}
             </div>
           )}
         </section>
-      )}
 
-      {/* Modules */}
-      <section>
-        <div className="dashboard__section-head">
-          <span className="dashboard__section-title">Module</span>
-          <span className="dashboard__section-sub">{availableCount} aktiv · {modules.length} gesamt</span>
-        </div>
-        <div className="dashboard__modules">
-          {modules.map((m) => {
-            const badge = featureBadge(m.status);
-            return (
-              <div key={m.title} className="dash-module">
-                <div className="dash-module__head">
-                  <div className="dash-module__icon" aria-hidden="true">{m.icon}</div>
-                  <div className="dash-module__title">{m.title}</div>
-                </div>
-                <div className="dash-module__desc">{m.description}</div>
-                <div className="dash-module__foot">
-                  <Badge variant={badge.variant}>{badge.label}</Badge>
-                  <Link className="dash-module__link" to={m.to}>
-                    Öffnen <ArrowRight size={12} />
-                  </Link>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-interface KpiTileProps {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  sub: string;
-  sparkData: number[];
-  sparkColor: string;
-  formatValue: (v: number) => string;
-}
-
-function KpiTile({ icon, label, value, sub, sparkData, sparkColor, formatValue }: KpiTileProps) {
-  const fillId = `kpi-${label.replace(/\s+/g, "-").toLowerCase()}`;
-  return (
-    <div className="kpi-tile">
-      <div className="kpi-tile__head">
-        <span className="kpi-tile__label">{label}</span>
-        <span className="kpi-tile__icon" aria-hidden="true">{icon}</span>
+        <section className="home-section">
+          <div className="section-heading">
+            <div><h2>Aktive Vorgänge</h2><p>Alle Services verwenden eine gemeinsame Job-Übersicht.</p></div>
+            <Link to="/jobs">Alle Jobs <ArrowRight size={14} /></Link>
+          </div>
+          {jobs.isLoading ? (
+            <div className="compact-loading"><Loader2 className="spin" size={18} /> Vorgänge werden geladen</div>
+          ) : activeJobs.length === 0 ? (
+            <div className="dashboard-idle">
+              <ListChecks size={23} />
+              <div><strong>Keine aktiven Vorgänge</strong><span>Gestartete Jobs erscheinen automatisch hier und unten im Job-Dock.</span></div>
+            </div>
+          ) : (
+            <div className="active-job-list">
+              {activeJobs.map((job) => (
+                <Link className="active-job-row" to="/jobs" key={`${job.operation}-${job.id}`}>
+                  <Loader2 size={16} className="spin" />
+                  <span><strong>{job.label}</strong><small>{job.stage || job.sourceTitle || "Wird vorbereitet"}</small></span>
+                  <b>{Math.round(job.progress ?? 0)}%</b>
+                </Link>
+              ))}
+            </div>
+          )}
+        </section>
       </div>
-      <div className="kpi-tile__value">{value}</div>
-      <div className="kpi-tile__sub">{sub}</div>
-      {sparkData.length > 1 ? (
-        <div className="kpi-tile__spark">
-          <AreaChart
-            data={sparkData}
-            height={44}
-            color={sparkColor}
-            fillId={fillId}
-            formatValue={formatValue}
-            ariaLabel={`${label}-Verlauf`}
-          />
-        </div>
-      ) : null}
+
+      <section className="home-library-summary">
+        <div><Library size={18} /><span><strong>{libraryCount}</strong> dauerhaft gespeicherte Medien</span></div>
+        <p>Temporäre Schnellwerkzeug-Dateien werden hier nicht angezeigt.</p>
+        <Link to="/library">Library öffnen <ArrowRight size={14} /></Link>
+      </section>
     </div>
   );
 }

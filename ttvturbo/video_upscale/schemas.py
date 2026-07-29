@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -66,6 +66,7 @@ class StartUpscaleRequest(BaseModel):
     region: Optional[NormalizedRegion] = None
     region_track_artifact_id: Optional[str] = None
     region_track_id: Optional[str] = None
+    output_lifecycle: Literal["TEMPORARY", "PERSISTENT"] = "PERSISTENT"
     options: UpscaleOptions = Field(default_factory=UpscaleOptions)
 
     @model_validator(mode="after")

@@ -1,7 +1,9 @@
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { ChevronRight, Cpu, HardDrive, Mic2, Server, SlidersHorizontal, Tv } from "lucide-react";
 import { useUIStore } from "../stores/uiStore";
 import { useBackendStatus } from "../hooks/useBackendStatus";
 import { Card } from "../components/ui/Card";
@@ -18,26 +20,21 @@ const settingsSchema = z.object({
 
 type SettingsFormValues = z.infer<typeof settingsSchema>;
 
-function Switch({
-  checked,
-  onChange,
-  ariaLabel,
-}: {
-  checked: boolean;
-  onChange: (next: boolean) => void;
-  ariaLabel: string;
-}) {
+function Switch({ checked, onChange, ariaLabel }: { checked: boolean; onChange: (next: boolean) => void; ariaLabel: string }) {
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={ariaLabel}
-      className={`switch${checked ? " is-on" : ""}`}
-      onClick={() => onChange(!checked)}
-    >
+    <button type="button" role="switch" aria-checked={checked} aria-label={ariaLabel} className={`switch${checked ? " is-on" : ""}`} onClick={() => onChange(!checked)}>
       <span className="switch__thumb" aria-hidden="true" />
     </button>
+  );
+}
+
+function SettingsLink({ to, icon, title, description }: { to: string; icon: ReactNode; title: string; description: string }) {
+  return (
+    <Link className="settings-link-card" to={to}>
+      <span className="settings-link-card__icon">{icon}</span>
+      <span><strong>{title}</strong><small>{description}</small></span>
+      <ChevronRight size={17} />
+    </Link>
   );
 }
 
@@ -45,19 +42,16 @@ export function SettingsPage() {
   const store = useUIStore();
   const toast = useToast();
   const backend = useBackendStatus();
+  const { register, watch, reset, setValue, handleSubmit, formState } = useForm<SettingsFormValues>({
+    resolver: zodResolver(settingsSchema),
+    defaultValues: {
+      sidebarCollapsed: store.sidebarCollapsed,
+      use24HourFormat: store.use24HourFormat,
+      autoplayAfterRecord: store.autoplayAfterRecord,
+      confirmDelete: store.confirmDelete,
+    },
+  });
 
-  const { register, watch, reset, setValue, handleSubmit, formState } =
-    useForm<SettingsFormValues>({
-      resolver: zodResolver(settingsSchema),
-      defaultValues: {
-        sidebarCollapsed: store.sidebarCollapsed,
-        use24HourFormat: store.use24HourFormat,
-        autoplayAfterRecord: store.autoplayAfterRecord,
-        confirmDelete: store.confirmDelete,
-      },
-    });
-
-  // Keep the form in sync if the store changes elsewhere.
   useEffect(() => {
     reset({
       sidebarCollapsed: store.sidebarCollapsed,
@@ -68,135 +62,59 @@ export function SettingsPage() {
   }, [store.sidebarCollapsed, store.use24HourFormat, store.autoplayAfterRecord, store.confirmDelete, reset]);
 
   const values = watch();
-
-  const onSubmit = (data: SettingsFormValues) => {
-    store.setSettings(data);
-    toast.show({ title: "Einstellungen gespeichert", variant: "success" });
-  };
-
-  const browser = typeof navigator !== "undefined" ? navigator.userAgent : "—";
-  const backendUrl =
-    typeof window !== "undefined" ? `${window.location.origin}/api` : "/api";
+  const backendUrl = typeof window !== "undefined" ? `${window.location.origin}/api` : "/api";
 
   return (
-    <div className="page">
-      <div className="settings-page">
-      <form className="form" onSubmit={handleSubmit(onSubmit)}>
-        <Card>
-          <h3 style={{ fontSize: 16, marginBottom: 12 }}>Allgemein</h3>
+    <div className="page settings-page-v2">
+      <section className="settings-shortcuts">
+        <SettingsLink to="/twitch-profiles" icon={<Tv size={19} />} title="Twitch-Profile" description="Kanäle, Synchronisierung und VOD-Quellen." />
+        <SettingsLink to="/voice-profiles" icon={<Mic2 size={19} />} title="Voice-Profile" description="Referenzaufnahmen und Stimmen verwalten." />
+        <a className="settings-link-card" href="#systemstatus">
+          <span className="settings-link-card__icon"><Server size={19} /></span>
+          <span><strong>Systemstatus</strong><small>Backend, Speicher und Laufzeit prüfen.</small></span>
+          <ChevronRight size={17} />
+        </a>
+      </section>
 
-          <div className="form-row">
-            <div className="form-row__label">
-              <span className="form-row__label-text">Sidebar beim Start eingeklappt</span>
-              <span className="form-row__hint">
-                Zeigt die Sidebar beim Laden der App im eingeklappten Zustand.
-              </span>
-            </div>
-            <div className="form-row__control">
-              <Switch
-                checked={values.sidebarCollapsed}
-                onChange={(v) => setValue("sidebarCollapsed", v, { shouldDirty: true })}
-                ariaLabel="Sidebar beim Start eingeklappt"
-              />
-              <input type="hidden" {...register("sidebarCollapsed")} />
-            </div>
-          </div>
+      <div className="settings-columns">
+        <form className="form" onSubmit={handleSubmit((data) => { store.setSettings(data); toast.show({ title: "Einstellungen gespeichert", variant: "success" }); })}>
+          <Card title="Allgemein">
+            <div className="settings-section-lead"><SlidersHorizontal size={17} /><span>Darstellung und Standardverhalten der Oberfläche.</span></div>
+            {[
+              { key: "sidebarCollapsed" as const, title: "Sidebar beim Start einklappen", hint: "Startet mit der kompakten Navigation." },
+              { key: "use24HourFormat" as const, title: "24-Stunden-Zeitformat", hint: "Zeigt Uhrzeiten ohne AM/PM." },
+              { key: "autoplayAfterRecord" as const, title: "Neue Aufnahme automatisch abspielen", hint: "Spielt eine Aufnahme nach erfolgreicher Konvertierung ab." },
+              { key: "confirmDelete" as const, title: "Löschen immer bestätigen", hint: "Zeigt vor destruktiven Aktionen eine Sicherheitsabfrage." },
+            ].map((option) => (
+              <div className="form-row" key={option.key}>
+                <div className="form-row__label"><span className="form-row__label-text">{option.title}</span><span className="form-row__hint">{option.hint}</span></div>
+                <div className="form-row__control">
+                  <Switch checked={values[option.key]} onChange={(value) => setValue(option.key, value, { shouldDirty: true })} ariaLabel={option.title} />
+                  <input type="hidden" {...register(option.key)} />
+                </div>
+              </div>
+            ))}
+            <div className="form-actions"><Button type="button" variant="ghost" onClick={() => reset()} disabled={!formState.isDirty}>Verwerfen</Button><Button type="submit" variant="primary" disabled={!formState.isDirty}>Speichern</Button></div>
+          </Card>
+        </form>
 
-          <div className="form-row">
-            <div className="form-row__label">
-              <span className="form-row__label-text">24-Stunden-Zeitformat</span>
-              <span className="form-row__hint">
-                Zeigt Uhrzeiten im 24-Stunden-Format anstelle von AM/PM.
-              </span>
-            </div>
-            <div className="form-row__control">
-              <Switch
-                checked={values.use24HourFormat}
-                onChange={(v) => setValue("use24HourFormat", v, { shouldDirty: true })}
-                ariaLabel="24-Stunden-Zeitformat"
-              />
-              <input type="hidden" {...register("use24HourFormat")} />
-            </div>
-          </div>
-
-          <div className="form-row">
-            <div className="form-row__label">
-              <span className="form-row__label-text">Aufnahme nach Abschluss automatisch abspielen</span>
-              <span className="form-row__hint">
-                Spielt eine neue Aufnahme nach erfolgreicher Konvertierung automatisch ab.
-              </span>
-            </div>
-            <div className="form-row__control">
-              <Switch
-                checked={values.autoplayAfterRecord}
-                onChange={(v) => setValue("autoplayAfterRecord", v, { shouldDirty: true })}
-                ariaLabel="Aufnahme nach Abschluss automatisch abspielen"
-              />
-              <input type="hidden" {...register("autoplayAfterRecord")} />
-            </div>
-          </div>
-
-          <div className="form-row" style={{ borderBottom: "none" }}>
-            <div className="form-row__label">
-              <span className="form-row__label-text">Löschbestätigung aktivieren</span>
-              <span className="form-row__hint">
-                Verlangt eine zusätzliche Bestätigung beim Löschen von Aufnahmen.
-              </span>
-            </div>
-            <div className="form-row__control">
-              <Switch
-                checked={values.confirmDelete}
-                onChange={(v) => setValue("confirmDelete", v, { shouldDirty: true })}
-                ariaLabel="Löschbestätigung aktivieren"
-              />
-              <input type="hidden" {...register("confirmDelete")} />
-            </div>
-          </div>
-
-          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-            <Button type="submit" variant="primary" disabled={!formState.isDirty}>
-              Speichern
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => reset()}
-              disabled={!formState.isDirty}
-            >
-              Verwerfen
-            </Button>
-          </div>
+        <Card title="Modelle und Verarbeitung">
+          <div className="settings-section-lead"><Cpu size={17} /><span>Modelle werden zentral vom Backend geladen. Schnellwerkzeuge zeigen nur sinnvolle Qualitätsstufen.</span></div>
+          <div className="info-row"><span className="info-row__label">GPU-Worker</span><span className="info-row__value">Gemeinsam, ein schwerer Job gleichzeitig</span></div>
+          <div className="info-row"><span className="info-row__label">Modellauswahl</span><span className="info-row__value">Backend-Konfiguration</span></div>
+          <div className="info-row"><span className="info-row__label">Temporäre Ergebnisse</span><span className="info-row__value">Automatische Aufbewahrungsfrist</span></div>
+          <p className="settings-note">Modell-IDs und Dateipfade werden nicht als normale Benutzeroptionen angeboten. Sie bleiben in der Serverkonfiguration.</p>
         </Card>
-      </form>
-
-      <Card>
-        <h3 style={{ fontSize: 16, marginBottom: 12 }}>Systeminformationen (schreibgeschützt)</h3>
-        <div className="info-row">
-          <span className="info-row__label">Backendstatus</span>
-          <span className="info-row__value">
-            {backend.status === "online" ? "online" : backend.status === "offline" ? "offline" : "verbinde …"}
-          </span>
-        </div>
-        <div className="info-row">
-          <span className="info-row__label">Backendadresse</span>
-          <span className="info-row__value">{backendUrl}</span>
-        </div>
-        <div className="info-row">
-          <span className="info-row__label">App-Version</span>
-          <span className="info-row__value">{backend.data?.version ?? "—"}</span>
-        </div>
-        <div className="info-row">
-          <span className="info-row__label">Browser</span>
-          <span className="info-row__value" style={{ wordBreak: "break-all" }}>{browser}</span>
-        </div>
-        <div className="info-row" style={{ borderBottom: "none" }}>
-          <span className="info-row__label">Freier Speicher</span>
-          <span className="info-row__value">
-            {backend.data ? formatBytes(backend.data.storage.free_bytes) : "—"}
-          </span>
-        </div>
-      </Card>
       </div>
+
+      <Card title="Systemstatus" className="system-status-card">
+        <div id="systemstatus" className="system-status-grid">
+          <div><Server size={17} /><span>Backend</span><strong>{backend.status === "online" ? "Online" : backend.status === "offline" ? "Offline" : "Verbindung …"}</strong></div>
+          <div><HardDrive size={17} /><span>Freier Speicher</span><strong>{backend.data ? formatBytes(backend.data.storage.free_bytes) : "—"}</strong></div>
+          <div><Cpu size={17} /><span>Version</span><strong>{backend.data?.version ?? "—"}</strong></div>
+        </div>
+        <div className="system-address"><span>API</span><code>{backendUrl}</code></div>
+      </Card>
     </div>
   );
 }

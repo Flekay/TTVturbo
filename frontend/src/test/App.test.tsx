@@ -38,7 +38,7 @@ describe("App routing", () => {
     });
     const main = (container.querySelector("#main-content") as HTMLElement | null) ?? container;
     await waitFor(() => {
-      expect(within(main).getByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
+      expect(within(main).getByRole("heading", { name: "Weiterarbeiten oder etwas Neues erstellen" })).toBeInTheDocument();
     });
   });
 
@@ -83,9 +83,12 @@ describe("App routing", () => {
     expect(within(main).getByText("Seite nicht gefunden")).toBeInTheDocument();
   });
 
-  it("marks the active sidebar route", () => {
-    renderWithProviders(<AppRouter />, { initialEntries: ["/voice-profiles"] });
-    const link = screen.getByRole("link", { name: "Voice Profiles" });
+  it("shows only the consolidated primary navigation and marks it active", () => {
+    renderWithProviders(<AppRouter />, { initialEntries: ["/create"] });
+    const navigation = screen.getByRole("navigation", { name: "Hauptnavigation" });
+    expect(within(navigation).getAllByRole("link")).toHaveLength(6);
+    expect(within(navigation).queryByRole("link", { name: "Voice Profiles" })).not.toBeInTheDocument();
+    const link = within(navigation).getByRole("link", { name: "Create" });
     expect(link.className).toContain("is-active");
   });
 
@@ -93,7 +96,7 @@ describe("App routing", () => {
     const { container } = renderWithProviders(<AppRouter />, { initialEntries: ["/"] });
     const main = (container.querySelector("#main-content") as HTMLElement | null) ?? container;
     await waitFor(() => {
-      expect(within(main).getByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
+      expect(within(main).getByRole("heading", { name: "Weiterarbeiten oder etwas Neues erstellen" })).toBeInTheDocument();
     });
   });
 });

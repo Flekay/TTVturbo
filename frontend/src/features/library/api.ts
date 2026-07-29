@@ -22,7 +22,14 @@ export function libraryItemFileUrl(itemId: string): string {
 export async function uploadToLibrary(file: File): Promise<LibraryItem> {
   const formData = new FormData();
   formData.append("file", file);
+  formData.append("lifecycle", "PERSISTENT");
   return apiClient.post(`${LIBRARY}/uploads`, { body: formData, schema: libraryItemSchema });
+}
+
+export async function promoteLibraryItem(itemId: string): Promise<LibraryItem> {
+  return apiClient.post(`${LIBRARY}/items/${encodeURIComponent(itemId)}/promote`, {
+    schema: libraryItemSchema,
+  });
 }
 
 export async function deleteLibraryItem(itemId: string): Promise<unknown> {

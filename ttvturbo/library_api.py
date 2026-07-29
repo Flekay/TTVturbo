@@ -14,7 +14,7 @@ import logging
 import os
 from typing import Optional
 
-from fastapi import APIRouter, UploadFile
+from fastapi import APIRouter, Form, Query, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 
 from ttvturbo.api_utils import error_response as _error_response
@@ -62,9 +62,9 @@ def build_library_router(
     router = APIRouter(prefix="/api/library", tags=["library"])
 
     @router.get("/items")
-    def list_items() -> JSONResponse:
+    def list_items(include_temporary: bool = Query(False)) -> JSONResponse:
         try:
-            items = service.list_items()
+            items = service.list_items(include_temporary=include_temporary)
         except Exception as exc:
             return _map_error(exc)
         return JSONResponse(content={"items": items})
@@ -88,7 +88,10 @@ def build_library_router(
         return FileResponse(path, filename=path.name)
 
     @router.post("/uploads")
-    async def upload_to_library(file: UploadFile) -> JSONResponse:
+    async def upload_to_library(
+        file: UploadFile,
+        lifecycle: str = Form("PERSISTENT"),
+    ) -> JSONResponse:
         """Upload a media file to the library.
 
         The file is streamed to a temp path and atomically renamed, so a
@@ -100,7 +103,11 @@ def build_library_router(
             return _error_response(400, "upload_validation", "File name is required.")
         item_id = None
         try:
-            meta = service.create_upload_item(file_name=file.filename, title=file.filename)
+            meta = service.create_upload_item(
+                file_name=file.filename,
+                title=file.filename,
+                lifecycle=lifecycle,
+            )
             item_id = meta["id"]
             # Stream the file into the item directory atomically.
             dest = await service.storage.stream_item_file(
@@ -134,6 +141,14 @@ def build_library_router(
         finally:
             await file.close()
         return JSONResponse(status_code=201, content=meta)
+
+    @router.post("/items/{item_id}/promote")
+    def promote_item(item_id: str) -> JSONResponse:
+        try:
+            item = service.promote_item(item_id)
+        except Exception as exc:
+            return _map_error(exc)
+        return JSONResponse(content=item)
 
     @router.delete("/items/{item_id}")
     def delete_item(item_id: str) -> JSONResponse:

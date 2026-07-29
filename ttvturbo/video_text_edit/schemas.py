@@ -1,7 +1,7 @@
 """Schemas for text-guided video editing and inpainting."""
 from __future__ import annotations
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
@@ -63,6 +63,7 @@ class StartVideoTextEditRequest(BaseModel):
     region_track_id: Optional[str] = None
     mask_asset_id: Optional[str] = None
     options: TextEditOptions = Field(default_factory=TextEditOptions)
+    output_lifecycle: Literal["TEMPORARY", "PERSISTENT"] = "PERSISTENT"
 
     @model_validator(mode="after")
     def combination(self):

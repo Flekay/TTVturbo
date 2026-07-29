@@ -1,7 +1,7 @@
 """Schemas for deterministic EditProject rendering."""
 from __future__ import annotations
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -27,6 +27,7 @@ class StartRenderRequest(BaseModel):
     sequence_id: str = Field(min_length=1, max_length=128)
     commit_id: Optional[str] = None
     settings: RenderSettings = Field(default_factory=RenderSettings)
+    output_lifecycle: Literal["TEMPORARY", "PERSISTENT"] = "PERSISTENT"
 
 
 class RenderResult(BaseModel):

@@ -9,6 +9,9 @@ the on-disk layout and design rationale.
 from __future__ import annotations
 
 from .schemas import (
+    LIFECYCLE_PERSISTENT,
+    LIFECYCLE_TEMPORARY,
+    SUPPORTED_LIFECYCLES,
     SCHEMA_VERSION,
     SUPPORTED_SCHEMA_VERSIONS,
     LibraryConflictError,
@@ -22,6 +25,9 @@ from .storage import LibraryStorage
 from .service import LibraryService
 
 __all__ = [
+    "LIFECYCLE_PERSISTENT",
+    "LIFECYCLE_TEMPORARY",
+    "SUPPORTED_LIFECYCLES",
     "SCHEMA_VERSION",
     "SUPPORTED_SCHEMA_VERSIONS",
     "LibraryConflictError",

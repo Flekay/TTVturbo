@@ -190,6 +190,9 @@ class Settings:
     # --- filesystem --------------------------------------------------------
     data_root: Path = field(default_factory=lambda: _env_path("TTVTURBO_DATA_DIR", DEFAULT_DATA_DIR))
     frontend_dist: Path = field(default_factory=lambda: DEFAULT_FRONTEND_DIST)
+    temporary_asset_ttl_hours: float = field(
+        default_factory=lambda: _env_float("TTVTURBO_TEMPORARY_ASSET_TTL_HOURS", 24.0)
+    )
 
     # --- external tools ----------------------------------------------------
     ffmpeg_path: Optional[str] = None

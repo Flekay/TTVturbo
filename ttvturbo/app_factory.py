@@ -228,7 +228,10 @@ def _init_services(
         container.library_service = ov.library_service
     else:
         container.library_storage = LibraryStorage(paths.library)
-        container.library_service = LibraryService(container.library_storage)
+        container.library_service = LibraryService(
+            container.library_storage,
+            temporary_ttl_hours=settings.temporary_asset_ttl_hours,
+        )
 
     # --- Edit projects ----------------------------------------------------
     if ov and ov.edit_project_service is not None:

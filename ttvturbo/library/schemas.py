@@ -44,6 +44,10 @@ from __future__ import annotations
 SCHEMA_VERSION = 1
 SUPPORTED_SCHEMA_VERSIONS = frozenset({1})
 
+LIFECYCLE_TEMPORARY = "TEMPORARY"
+LIFECYCLE_PERSISTENT = "PERSISTENT"
+SUPPORTED_LIFECYCLES = frozenset({LIFECYCLE_TEMPORARY, LIFECYCLE_PERSISTENT})
+
 
 class LibraryError(Exception):
     """Base error for library operations."""

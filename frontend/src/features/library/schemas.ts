@@ -14,6 +14,11 @@ export const libraryItemSchema = z.object({
   vod_id: z.string().nullable().optional(),
   created_at: z.string(),
   updated_at: z.string(),
+  lifecycle: z.enum(["TEMPORARY", "PERSISTENT"]).optional(),
+  expires_at: z.string().nullable().optional(),
+  derived: z.boolean().optional(),
+  derived_from_item_id: z.string().nullable().optional(),
+  generated: z.boolean().optional(),
 });
 
 export const libraryItemListResponseSchema = z.object({

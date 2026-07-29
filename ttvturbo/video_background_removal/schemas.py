@@ -1,7 +1,7 @@
 """Schemas for generic video background removal."""
 from __future__ import annotations
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
@@ -76,6 +76,7 @@ class StartBackgroundRemovalRequest(BaseModel):
     temporal_smoothing: float = Field(default=0.7, ge=0.0, le=1.0)
     edge_refinement: bool = True
     preserve_audio: bool = True
+    output_lifecycle: Literal["TEMPORARY", "PERSISTENT"] = "PERSISTENT"
 
     @model_validator(mode="after")
     def validate_combination(self):

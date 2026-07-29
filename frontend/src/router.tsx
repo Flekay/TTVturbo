@@ -1,19 +1,23 @@
+import { useEffect, type ReactNode } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
-import { useEffect } from "react";
 import { AppLayout } from "./components/layout/AppLayout";
+import { CreatePage } from "./pages/CreatePage";
 import { DashboardPage } from "./pages/DashboardPage";
-import { VoiceProfilesPage } from "./pages/VoiceProfilesPage";
-import { VoiceClonePage } from "./pages/VoiceClonePage";
+import { JobsPage } from "./pages/JobsPage";
+import { LibraryDetailPage } from "./pages/LibraryDetailPage";
+import { LibraryPage } from "./pages/LibraryPage";
+import { NotFoundPage } from "./pages/NotFoundPage";
+import { ProjectsPage } from "./pages/ProjectsPage";
+import { ProjectWorkspacePage } from "./pages/ProjectWorkspacePage";
+import { QuickToolPage } from "./pages/QuickToolPage";
+import { SettingsPage } from "./pages/SettingsPage";
+import { TranscriptionPage } from "./pages/TranscriptionPage";
+import { TwitchProfilesPage } from "./pages/TwitchProfilesPage";
+import { VodDetailPage } from "./pages/VodDetailPage";
 import { VodDownloaderPage } from "./pages/VodDownloaderPage";
 import { VodPipelinePage } from "./pages/VodPipelinePage";
-import { VodDetailPage } from "./pages/VodDetailPage";
-import { TranscriptionPage } from "./pages/TranscriptionPage";
-import { LibraryPage } from "./pages/LibraryPage";
-import { LibraryDetailPage } from "./pages/LibraryDetailPage";
-import { TwitchProfilesPage } from "./pages/TwitchProfilesPage";
-import { SettingsPage } from "./pages/SettingsPage";
-import { NotFoundPage } from "./pages/NotFoundPage";
-import { UnavailablePage } from "./pages/UnavailablePage";
+import { VoiceClonePage } from "./pages/VoiceClonePage";
+import { VoiceProfilesPage } from "./pages/VoiceProfilesPage";
 import { findRouteMeta } from "./router.routes";
 
 function useDocumentTitle() {
@@ -24,256 +28,50 @@ function useDocumentTitle() {
   }, [location.pathname]);
 }
 
-function Unavailable({
-  title,
-  description,
-  plannedFeatures,
-}: {
-  title: string;
-  description: string;
-  plannedFeatures: string[];
-}) {
-  return (
-    <UnavailablePage title={title} description={description} plannedFeatures={plannedFeatures} />
-  );
+function WithLayout({ children }: { children: ReactNode }) {
+  return <AppLayout>{children}</AppLayout>;
 }
 
 export function AppRouter() {
   useDocumentTitle();
+
   return (
     <Routes>
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
-      <Route
-        path="/dashboard"
-        element={
-          <AppLayout>
-            <DashboardPage />
-          </AppLayout>
-        }
-      />
-      <Route
-        path="/voice-profiles"
-        element={
-          <AppLayout>
-            <VoiceProfilesPage />
-          </AppLayout>
-        }
-      />
-      <Route
-        path="/voice-clone"
-        element={
-          <AppLayout>
-            <VoiceClonePage />
-          </AppLayout>
-        }
-      />
-      {/* VOD Downloader (renamed from the old /vod-pipeline). */}
-      <Route
-        path="/vod-downloader"
-        element={
-          <AppLayout>
-            <VodDownloaderPage />
-          </AppLayout>
-        }
-      />
-      {/* New VOD Pipeline page (orchestrates download + audio + transcription). */}
-      <Route
-        path="/vod-pipeline"
-        element={
-          <AppLayout>
-            <VodPipelinePage />
-          </AppLayout>
-        }
-      />
-      {/* VOD detail page: transcript, artifacts, pipeline runs for a single VOD. */}
-      <Route
-        path="/vod-pipeline/:vodId"
-        element={
-          <AppLayout>
-            <VodDetailPage />
-          </AppLayout>
-        }
-      />
-      {/* New Transcription on-demand page. */}
-      <Route
-        path="/transcription"
-        element={
-          <AppLayout>
-            <TranscriptionPage />
-          </AppLayout>
-        }
-      />
-      <Route
-        path="/twitch-profiles"
-        element={
-          <AppLayout>
-            <TwitchProfilesPage />
-          </AppLayout>
-        }
-      />
-      <Route
-        path="/library"
-        element={
-          <AppLayout>
-            <LibraryPage />
-          </AppLayout>
-        }
-      />
-      {/* Library item detail: video, audio artifact, transcriptions. */}
-      <Route
-        path="/library/:itemId"
-        element={
-          <AppLayout>
-            <LibraryDetailPage />
-          </AppLayout>
-        }
-      />
-      {/* Legacy redirects. */}
+      <Route path="/dashboard" element={<WithLayout><DashboardPage /></WithLayout>} />
+      <Route path="/library" element={<WithLayout><LibraryPage /></WithLayout>} />
+      <Route path="/library/:itemId" element={<WithLayout><LibraryDetailPage /></WithLayout>} />
+      <Route path="/create" element={<WithLayout><CreatePage /></WithLayout>} />
+      <Route path="/create/video-upscale" element={<WithLayout><QuickToolPage tool="video-upscale" /></WithLayout>} />
+      <Route path="/create/background-removal" element={<WithLayout><QuickToolPage tool="video-background-removal" /></WithLayout>} />
+      <Route path="/create/text-edit" element={<WithLayout><QuickToolPage tool="video-text-edit" /></WithLayout>} />
+      <Route path="/create/video-generation" element={<WithLayout><QuickToolPage tool="video-generation" /></WithLayout>} />
+      <Route path="/projects" element={<WithLayout><ProjectsPage /></WithLayout>} />
+      <Route path="/projects/:projectId" element={<WithLayout><ProjectWorkspacePage /></WithLayout>} />
+      <Route path="/jobs" element={<WithLayout><JobsPage /></WithLayout>} />
+      <Route path="/settings" element={<WithLayout><SettingsPage /></WithLayout>} />
+
+      {/* Contextual legacy pages remain reachable from Create and Settings. */}
+      <Route path="/voice-profiles" element={<WithLayout><VoiceProfilesPage /></WithLayout>} />
+      <Route path="/voice-clone" element={<WithLayout><VoiceClonePage /></WithLayout>} />
+      <Route path="/vod-downloader" element={<WithLayout><VodDownloaderPage /></WithLayout>} />
+      <Route path="/vod-pipeline" element={<WithLayout><VodPipelinePage /></WithLayout>} />
+      <Route path="/vod-pipeline/:vodId" element={<WithLayout><VodDetailPage /></WithLayout>} />
+      <Route path="/transcription" element={<WithLayout><TranscriptionPage /></WithLayout>} />
+      <Route path="/twitch-profiles" element={<WithLayout><TwitchProfilesPage /></WithLayout>} />
+
+      {/* Old navigation paths now resolve to the consolidated areas. */}
+      <Route path="/editor" element={<Navigate to="/projects" replace />} />
+      <Route path="/layouts" element={<Navigate to="/projects" replace />} />
       <Route path="/vod-explorer" element={<Navigate to="/vod-downloader" replace />} />
-      {/* Old /vod-pipeline is now the new pipeline page; redirect the old
-          download-only intent to /vod-downloader only if the user had it
-          bookmarked as the download page. Since /vod-pipeline is now the
-          new pipeline page, no redirect is needed for that path. */}
-      <Route
-        path="/clips"
-        element={
-          <AppLayout>
-            <Unavailable
-              title="Clip-Vorschläge"
-              description="Hier werden später automatisch generierte Clip-Vorschläge aus VODs angezeigt."
-              plannedFeatures={[
-                "Automatische Clip-Erkennung",
-                "Vorschau und Auswahl",
-                "Übernahme in den Video Editor",
-              ]}
-            />
-          </AppLayout>
-        }
-      />
-      <Route
-        path="/ideas"
-        element={
-          <AppLayout>
-            <Unavailable
-              title="Ideen"
-              description="Hier werden später Gesprächsthemen und Inhaltsideen gesammelt und verwaltet."
-              plannedFeatures={[
-                "Ideen erfassen und kategorisieren",
-                "Verknüpfung mit Aufnahmen und Clips",
-              ]}
-            />
-          </AppLayout>
-        }
-      />
-      <Route
-        path="/recording-studio"
-        element={
-          <AppLayout>
-            <Unavailable
-              title="Aufnahmestudio"
-              description="Hier entsteht später eine strukturierte Umgebung für längere Aufnahmesitzungen."
-              plannedFeatures={[
-                "Strukturierte Aufnahmesitzungen",
-                "Skript- und Szenenverwaltung",
-                "Direkte Übergabe an Synthetic Studio",
-              ]}
-            />
-          </AppLayout>
-        }
-      />
-      <Route
-        path="/synthetic-studio"
-        element={
-          <AppLayout>
-            <Unavailable
-              title="Synthetic Studio"
-              description="Hier werden später Voice-Clones erzeugt und synthetische Aufnahmen erstellt."
-              plannedFeatures={[
-                "Voice-Clone aus Referenzaufnahmen",
-                "Synthetische Aufnahmen mit Qwen3-TTS",
-                "Qualitätskontrolle und Export",
-              ]}
-            />
-          </AppLayout>
-        }
-      />
-      <Route
-        path="/editor"
-        element={
-          <AppLayout>
-            <Unavailable
-              title="Video Editor"
-              description="Hier entsteht später ein Editor zum Zuschneiden und Arrangieren von Videos."
-              plannedFeatures={[
-                "Videos zuschneiden und zusammenfügen",
-                "Szenen und Spuren verwalten",
-                "Export in verschiedene Formate",
-              ]}
-            />
-          </AppLayout>
-        }
-      />
-      <Route
-        path="/layouts"
-        element={
-          <AppLayout>
-            <Unavailable
-              title="Layout Studio"
-              description="Hier werden später Szenen und Layouts für die Produktion vorbereitet."
-              plannedFeatures={[
-                "Szenen und Layouts verwalten",
-                "Vorlagen für wiederkehrende Formate",
-              ]}
-            />
-          </AppLayout>
-        }
-      />
-      <Route
-        path="/automations"
-        element={
-          <AppLayout>
-            <Unavailable
-              title="Automationen"
-              description="Hier werden später wiederkehrende Abläufe automatisiert konfiguriert."
-              plannedFeatures={[
-                "Wiederkehrende Abläufe definieren",
-                "Trigger und Aktionen verknüpfen",
-              ]}
-            />
-          </AppLayout>
-        }
-      />
-      <Route
-        path="/publishing"
-        element={
-          <AppLayout>
-            <Unavailable
-              title="Veröffentlichungen"
-              description="Hier werden später fertige Clips für die Veröffentlichung vorbereitet."
-              plannedFeatures={[
-                "Veröffentlichungsziele verwalten",
-                "Exports vorbereiten und ausliefern",
-              ]}
-            />
-          </AppLayout>
-        }
-      />
-      <Route
-        path="/settings"
-        element={
-          <AppLayout>
-            <SettingsPage />
-          </AppLayout>
-        }
-      />
-      <Route
-        path="*"
-        element={
-          <AppLayout>
-            <NotFoundPage />
-          </AppLayout>
-        }
-      />
+      <Route path="/clips" element={<Navigate to="/vod-pipeline" replace />} />
+      <Route path="/ideas" element={<Navigate to="/create" replace />} />
+      <Route path="/recording-studio" element={<Navigate to="/voice-profiles" replace />} />
+      <Route path="/synthetic-studio" element={<Navigate to="/voice-clone" replace />} />
+      <Route path="/automations" element={<Navigate to="/jobs" replace />} />
+      <Route path="/publishing" element={<Navigate to="/projects" replace />} />
+
+      <Route path="*" element={<WithLayout><NotFoundPage /></WithLayout>} />
     </Routes>
   );
 }

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Download, Music, FileVideo, Film } from "lucide-react";
+import { ArrowLeft, Download, Music, FileVideo, Film, FolderKanban, Sparkles, ImageOff, WandSparkles } from "lucide-react";
 import { Badge, type BadgeVariant } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
@@ -109,6 +109,13 @@ export function LibraryDetailPage() {
         </Link>
         <Badge variant="success">Bereit</Badge>
       </div>
+
+      <section className="library-detail-actions" aria-label="Medienaktionen">
+        <Link className="btn btn--primary" to={`/projects?source=${encodeURIComponent(item.id)}`}><FolderKanban size={15} /> Im Editor öffnen</Link>
+        <Link className="btn btn--secondary" to={`/create/video-upscale?source=${encodeURIComponent(item.id)}&persist=1`}><Sparkles size={15} /> Hochskalieren</Link>
+        <Link className="btn btn--secondary" to={`/create/background-removal?source=${encodeURIComponent(item.id)}&persist=1`}><ImageOff size={15} /> Hintergrund entfernen</Link>
+        <Link className="btn btn--secondary" to={`/create/text-edit?source=${encodeURIComponent(item.id)}&persist=1`}><WandSparkles size={15} /> Per Text bearbeiten</Link>
+      </section>
 
       <section className="page__section">
         <h2 className="page__section-title">{item.title}</h2>

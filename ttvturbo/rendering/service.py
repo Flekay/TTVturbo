@@ -144,7 +144,12 @@ class RenderingService(SubprocessCapabilityService):
         # Idempotent cache: an exact projection+settings already rendered in
         # the requested mode can be reused without another encode.
         for artifact in self.storage.iter_artifacts():
-            if artifact.get("projection_hash") == projection["projection_hash"] and artifact.get("mode") == request.settings.mode.value:
+            artifact_lifecycle = artifact.get("lifecycle", "PERSISTENT")
+            if (
+                artifact.get("projection_hash") == projection["projection_hash"]
+                and artifact.get("mode") == request.settings.mode.value
+                and artifact_lifecycle == request.output_lifecycle
+            ):
                 try:
                     self.library_service.get_item(artifact["library_item_id"])
                     cached_job = {
@@ -163,6 +168,7 @@ class RenderingService(SubprocessCapabilityService):
                         "projection_hash": projection["projection_hash"],
                         "state_hash": projection["state_hash"],
                         "settings": settings,
+                        "output_lifecycle": request.output_lifecycle,
                         "output_artifact_id": artifact["id"],
                         "library_item_id": artifact["library_item_id"],
                         "cached": True,
@@ -191,6 +197,7 @@ class RenderingService(SubprocessCapabilityService):
             "projection_hash": projection["projection_hash"],
             "state_hash": projection["state_hash"],
             "settings": settings,
+            "output_lifecycle": request.output_lifecycle,
             "attempt": 1,
             "output_artifact_id": None,
             "library_item_id": None,
@@ -246,6 +253,7 @@ class RenderingService(SubprocessCapabilityService):
                 "projection_hash": result.projection_hash,
                 "mode": mode,
             },
+            lifecycle=job.get("output_lifecycle", "PERSISTENT"),
         )
         artifact = {
             "schema_version": 1,
@@ -269,6 +277,7 @@ class RenderingService(SubprocessCapabilityService):
             "file_name": dest.name,
             "file_size_bytes": dest.stat().st_size,
             "container": "mp4",
+            "lifecycle": job.get("output_lifecycle", "PERSISTENT"),
             "created_at": now_iso(),
             "revision": 1,
         }

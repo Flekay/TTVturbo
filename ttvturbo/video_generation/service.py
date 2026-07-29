@@ -256,6 +256,7 @@ class VideoGenerationService:
         aspect_ratio: str = "16:9",
         seed: Optional[int] = None,
         options: Optional[dict] = None,
+        output_lifecycle: str = "PERSISTENT",
     ) -> dict:
         """Start a video-generation job.
 
@@ -297,6 +298,10 @@ class VideoGenerationService:
             if req["generation_type"] == "TEXT_TO_VIDEO"
             else self.settings.video_generation_i2v_model_id
         ).strip()
+        if output_lifecycle not in {"TEMPORARY", "PERSISTENT"}:
+            raise VideoGenerationValidationError(
+                "output_lifecycle must be TEMPORARY or PERSISTENT"
+            )
         job = make_job_record(
             job_id=job_id,
             generation_type=req["generation_type"],
@@ -312,6 +317,7 @@ class VideoGenerationService:
             model_id=model_id,
             created_at=now,
         )
+        job["output_lifecycle"] = output_lifecycle
         self.storage.save_job(job)
 
         # Resolve + copy the source image for I2V so the worker has a
@@ -842,6 +848,7 @@ class VideoGenerationService:
             "file_name": "source.mp4",
             "file_size_bytes": validated.file_size_bytes,
             "container": "mp4",
+            "lifecycle": job.get("output_lifecycle", "PERSISTENT"),
             "source_image_asset_id": job.get("source_image_asset_id"),
             "created_at": now,
             "revision": 1,
@@ -888,6 +895,7 @@ class VideoGenerationService:
             file_name=canonical_name,
             title=title,
             duration_seconds=result.duration_seconds,
+            lifecycle=job.get("output_lifecycle", "PERSISTENT"),
         )
         item_id = meta["id"]
         dest = self.library_service.storage.source_file_path(item_id, "mp4")

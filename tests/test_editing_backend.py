@@ -267,3 +267,29 @@ def test_commit_compare_and_child_navigation(edit_service: EditProjectService):
     comparison = edit_service.compare_commits(project["id"], main["head_commit_id"], commit["id"])
     assert comparison["change_count"] == 1
     assert comparison["changes"][0]["path"].endswith(".layout")
+
+
+def test_temporary_library_item_must_be_promoted_before_project_creation(tmp_path: Path):
+    from ttvturbo.library import LibraryService, LibraryStorage
+
+    library = LibraryService(LibraryStorage(tmp_path / "library"))
+    item = library.create_upload_item("temporary.mp4", lifecycle="TEMPORARY")
+    source = library.storage.item_dir(item["id"]) / "temporary.mp4"
+    source.write_bytes(b"temporary source")
+
+    service = EditProjectService(
+        EditDatabase(tmp_path / "editing.sqlite3"),
+        library_service=library,
+    )
+    with pytest.raises(EditValidationError, match="must be promoted"):
+        service.create_project(
+            name="Temporary source",
+            sources=[{"media_item_id": item["id"]}],
+        )
+
+    library.promote_item(item["id"])
+    project = service.create_project(
+        name="Persistent source",
+        sources=[{"media_item_id": item["id"]}],
+    )
+    assert project["sources"][0]["media_item_id"] == item["id"]

@@ -20,6 +20,9 @@ from typing import Any, Optional
 
 from .schemas import (
     SCHEMA_VERSION,
+    LIFECYCLE_PERSISTENT,
+    LIFECYCLE_TEMPORARY,
+    SUPPORTED_LIFECYCLES,
     LibraryConflictError,
     LibraryNotFoundError,
     LibraryStorageError,
@@ -33,8 +36,22 @@ logger = logging.getLogger("ttvturbo.library.service")
 class LibraryService:
     """Business logic for the persistent library."""
 
-    def __init__(self, storage: LibraryStorage) -> None:
+    def __init__(self, storage: LibraryStorage, *, temporary_ttl_hours: float = 24.0) -> None:
         self.storage = storage
+        self.temporary_ttl_hours = max(0.1, float(temporary_ttl_hours))
+
+    def _temporary_expiry(self) -> str:
+        expires = _dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(hours=self.temporary_ttl_hours)
+        return expires.isoformat().replace("+00:00", "Z")
+
+    @staticmethod
+    def _normalise_lifecycle(value: Optional[str]) -> str:
+        lifecycle = str(value or LIFECYCLE_PERSISTENT).upper()
+        if lifecycle not in SUPPORTED_LIFECYCLES:
+            raise LibraryValidationError(
+                f"lifecycle must be one of {sorted(SUPPORTED_LIFECYCLES)}, got {value!r}"
+            )
+        return lifecycle
 
     # ------------------------------------------------------------------ create
     def create_item(
@@ -47,6 +64,8 @@ class LibraryService:
         file_size_bytes: Optional[int] = None,
         twitch_video_id: Optional[str] = None,
         vod_id: Optional[str] = None,
+        lifecycle: str = LIFECYCLE_PERSISTENT,
+        expires_at: Optional[str] = None,
     ) -> dict:
         """Create a new library item record (metadata only).
 
@@ -64,6 +83,11 @@ class LibraryService:
                 raise LibraryConflictError(
                     f"A library item for twitch_video_id {twitch_video_id} already exists."
                 )
+        lifecycle = self._normalise_lifecycle(lifecycle)
+        if lifecycle == LIFECYCLE_TEMPORARY and not expires_at:
+            expires_at = self._temporary_expiry()
+        if lifecycle == LIFECYCLE_PERSISTENT:
+            expires_at = None
         item_id = str(uuid.uuid4())
         now = _now_iso()
         meta = {
@@ -77,6 +101,8 @@ class LibraryService:
             "container": container,
             "twitch_video_id": twitch_video_id,
             "vod_id": vod_id,
+            "lifecycle": lifecycle,
+            "expires_at": expires_at,
             "created_at": now,
             "updated_at": now,
         }
@@ -151,6 +177,8 @@ class LibraryService:
         file_name: str,
         title: Optional[str] = None,
         duration_seconds: Optional[float] = None,
+        lifecycle: str = LIFECYCLE_PERSISTENT,
+        expires_at: Optional[str] = None,
     ) -> dict:
         """Create a library item for a manual file upload.
 
@@ -166,6 +194,8 @@ class LibraryService:
             file_name=file_name,
             container=container,
             duration_seconds=duration_seconds,
+            lifecycle=lifecycle,
+            expires_at=expires_at,
         )
         return meta
 
@@ -178,8 +208,14 @@ class LibraryService:
             raise LibraryStorageError(f"could not move {src} -> {dest}: {exc}") from exc
 
     # ------------------------------------------------------------------ read
-    def list_items(self) -> list[dict]:
+    def list_items(self, *, include_temporary: bool = False) -> list[dict]:
+        self.cleanup_expired()
         results = list(self.storage.iter_items())
+        if not include_temporary:
+            results = [
+                meta for meta in results
+                if meta.get("lifecycle", LIFECYCLE_PERSISTENT) == LIFECYCLE_PERSISTENT
+            ]
         for meta in results:
             self.storage.enrich_with_file_info(meta)
         results.sort(key=lambda m: m.get("created_at", ""), reverse=True)
@@ -187,8 +223,52 @@ class LibraryService:
 
     def get_item(self, item_id: str) -> dict:
         meta = self.storage.load_item(item_id)
+        if self._is_expired(meta):
+            self.storage.delete_item(item_id)
+            raise LibraryNotFoundError(f"library item expired: {item_id}")
         self.storage.enrich_with_file_info(meta)
         return meta
+
+    def promote_item(self, item_id: str) -> dict:
+        """Promote a hidden temporary item into the persistent library."""
+        meta = self.storage.load_item(item_id)
+        if self._is_expired(meta):
+            self.storage.delete_item(item_id)
+            raise LibraryNotFoundError(f"library item expired: {item_id}")
+        meta["lifecycle"] = LIFECYCLE_PERSISTENT
+        meta["expires_at"] = None
+        meta["updated_at"] = _now_iso()
+        self.storage.save_item(meta)
+        self.storage.enrich_with_file_info(meta)
+        return meta
+
+    @staticmethod
+    def _is_expired(meta: dict) -> bool:
+        if meta.get("lifecycle", LIFECYCLE_PERSISTENT) != LIFECYCLE_TEMPORARY:
+            return False
+        raw = meta.get("expires_at")
+        if not raw:
+            return False
+        try:
+            expires = _dt.datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        except ValueError:
+            return False
+        now = _dt.datetime.now(_dt.timezone.utc)
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=_dt.timezone.utc)
+        return expires <= now
+
+    def cleanup_expired(self) -> int:
+        deleted = 0
+        for meta in list(self.storage.iter_items()):
+            if not self._is_expired(meta):
+                continue
+            try:
+                if self.storage.delete_item(meta["id"]):
+                    deleted += 1
+            except Exception:
+                logger.exception("Could not remove expired library item %s", meta.get("id"))
+        return deleted
 
     def find_by_twitch_video_id(self, twitch_video_id: str) -> Optional[dict]:
         for meta in self.storage.iter_items():
