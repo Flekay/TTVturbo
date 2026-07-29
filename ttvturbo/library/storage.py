@@ -37,7 +37,7 @@ logger = logging.getLogger("ttvturbo.library.storage")
 ITEM_FILENAME = "metadata.json"
 TMP_SUFFIX = ".tmp"
 SOURCE_BASENAME = "source"
-SUPPORTED_CONTAINERS = ("mp4", "mkv", "webm")
+SUPPORTED_CONTAINERS = ("mp4", "mkv", "webm", "mov")
 
 
 def sanitize_container(container: str) -> str:

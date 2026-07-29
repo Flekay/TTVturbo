@@ -80,6 +80,7 @@ class DataPaths:
     ideas_research: Path
     video_generation: Path
     editing: Path
+    video_upscale: Path
 
     @classmethod
     def from_root(cls, data_root: Path) -> "DataPaths":
@@ -103,6 +104,7 @@ class DataPaths:
             ideas_research=root / "ideas_research",
             video_generation=root / "video_generation",
             editing=root / "editing",
+            video_upscale=root / "video_upscale",
         )
 
     def ensure_dirs(self) -> None:
@@ -128,6 +130,7 @@ class DataPaths:
             self.ideas_research,
             self.video_generation,
             self.editing,
+            self.video_upscale,
         ):
             p.mkdir(parents=True, exist_ok=True)
 
@@ -310,6 +313,14 @@ class Settings:
     video_generation_max_duration_seconds: float = field(default_factory=lambda: _env_float("TTVTURBO_VIDEO_GENERATION_MAX_DURATION_SECONDS", 10.0))
     video_generation_max_prompt_length: int = field(default_factory=lambda: _env_int("TTVTURBO_VIDEO_GENERATION_MAX_PROMPT_LENGTH", 1000))
     video_generation_max_concurrent: int = field(default_factory=lambda: _env_int("TTVTURBO_MAX_CONCURRENT_VIDEO_GENERATION", 1))
+
+    # --- generic video upscale ---------------------------------------------
+    # AUTO uses Real-ESRGAN NCNN when the executable is configured; otherwise
+    # a deterministic Lanczos backend remains fully functional.
+    video_upscale_backend: str = field(default_factory=lambda: _env_str("TTVTURBO_VIDEO_UPSCALE_BACKEND", "AUTO"))
+    video_upscale_realesrgan_path: str = field(default_factory=lambda: _env_optional_str("TTVTURBO_REALESRGAN_PATH") or "")
+    video_upscale_realesrgan_model: str = field(default_factory=lambda: _env_str("TTVTURBO_REALESRGAN_MODEL", "realesrgan-x4plus"))
+    video_upscale_max_concurrent: int = field(default_factory=lambda: _env_int("TTVTURBO_MAX_CONCURRENT_VIDEO_UPSCALE", 1))
 
     # --- server ------------------------------------------------------------
     host: str = "127.0.0.1"

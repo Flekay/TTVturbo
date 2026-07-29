@@ -39,4 +39,7 @@ yt-dlp==2026.7.4
 # media_processing.asr_metrics so the app still starts without it; tests
 # that need it install it via requirements-dev.txt.
 jiwer==4.0.0
+# Frame-based media capabilities (deterministic Lanczos upscale and image I/O).
+# AI models remain optional and live in requirements-gpu.txt.
+Pillow>=10.0.0
 

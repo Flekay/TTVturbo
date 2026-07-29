@@ -108,7 +108,10 @@ class LibraryService:
         # actually written by ``source_file_path`` (which rewrites unsupported
         # containers to mp4). Without this, a "mov" clip would be stored as
         # source.mp4 but recorded as source.mov and become unlocatable.
-        container = sanitize_container(container)
+        source_extension = source_file.suffix.lstrip(".").lower()
+        container = sanitize_container(
+            source_extension if source_extension in ("mp4", "mkv", "webm", "mov") else container
+        )
         # Duplication check.
         existing = self.find_by_twitch_video_id(twitch_video_id)
         if existing is not None:
@@ -156,7 +159,7 @@ class LibraryService:
         """
         # Determine container from extension.
         ext = Path(file_name).suffix.lstrip(".").lower() or "mp4"
-        container = ext if ext in ("mp4", "mkv", "webm") else "mp4"
+        container = ext if ext in ("mp4", "mkv", "webm", "mov") else "mp4"
         meta = self.create_item(
             source="upload",
             title=title or file_name,

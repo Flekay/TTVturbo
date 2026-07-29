@@ -61,6 +61,7 @@ from ttvturbo.visual_analysis_api import build_visual_analysis_router
 from ttvturbo.video_generation_api import build_video_generation_router
 from ttvturbo.ideas_research_api import build_ideas_research_router
 from ttvturbo.editing_api import build_editing_router
+from ttvturbo.video_upscale_api import build_video_upscale_router
 from ttvturbo.editing import EditDatabase, EditProjectService
 
 from ttvturbo.library import LibraryService, LibraryStorage
@@ -105,6 +106,7 @@ class ServiceContainer:
         self.video_generation_service: Any = None
         self.ideas_research_service: Any = None
         self.edit_project_service: Any = None
+        self.video_upscale_service: Any = None
         # Router references (for tests that need to swap router.state).
         self.voice_profiles_router: Any = None
         self.vod_pipeline_router: Any = None
@@ -117,6 +119,7 @@ class ServiceContainer:
         self.video_generation_router: Any = None
         self.ideas_research_router: Any = None
         self.editing_router: Any = None
+        self.video_upscale_router: Any = None
         self.app_router: Any = None
         self.start_time_monotonic: float = 0.0
 
@@ -171,6 +174,7 @@ class ServiceOverrides:
     video_generation_service: Any = None
     ideas_research_service: Any = None
     edit_project_service: Any = None
+    video_upscale_service: Any = None
 
 
 # ---------------------------------------------------------------------------
@@ -457,6 +461,23 @@ def _init_services(
             adapter=UnavailableVideoGenerationAdapter(),
         )
 
+    # --- Generic media capabilities ---------------------------------------
+    if ov and ov.video_upscale_service is not None:
+        container.video_upscale_service = ov.video_upscale_service
+    else:
+        from ttvturbo.video_upscale import VideoUpscaleService, VideoUpscaleStorage
+
+        container.video_upscale_service = VideoUpscaleService(
+            storage=VideoUpscaleStorage(paths.video_upscale),
+            library_service=container.library_service,
+            settings=settings,
+            gpu_lock=container.gpu_lock,
+            visual_analysis_service=container.visual_analysis_service,
+            worker_python=tools.python,
+            ffmpeg_path=tools.ffmpeg,
+            ffprobe_path=tools.ffprobe,
+        )
+
     # --- Profile reference resolver --------------------------------------
     def _resolve_profile_reference(profile_id: str, script_id: str) -> dict:
         from ttvturbo.voice_clone.service import ValidationError as _VCValidationError
@@ -571,6 +592,7 @@ def create_app(
     video_generation_proxy = _ServiceProxy(container, "video_generation_service")
     ideas_research_proxy = _ServiceProxy(container, "ideas_research_service")
     editing_proxy = _ServiceProxy(container, "edit_project_service")
+    video_upscale_proxy = _ServiceProxy(container, "video_upscale_service")
 
     quality_analyzer = make_voice_profile_quality_analyzer(voice_clone_proxy)
 
@@ -598,6 +620,7 @@ def create_app(
     video_generation_router = build_video_generation_router(video_generation_proxy)
     ideas_research_router = build_ideas_research_router(ideas_research_proxy)
     editing_router = build_editing_router(editing_proxy)
+    video_upscale_router = build_video_upscale_router(video_upscale_proxy)
     app_router = build_app_router(container)
 
     @asynccontextmanager
@@ -612,6 +635,7 @@ def create_app(
             # idempotent and a failure in one does not block the rest.
             from ttvturbo.lifecycle import shutdown_service
 
+            shutdown_service(container.video_upscale_service)
             shutdown_service(container.audio_forensics_service)
             shutdown_service(container.asr_benchmark_service)
             shutdown_service(container.visual_analysis_service)
@@ -642,6 +666,7 @@ def create_app(
     container.video_generation_router = video_generation_router
     container.ideas_research_router = ideas_research_router
     container.editing_router = editing_router
+    container.video_upscale_router = video_upscale_router
     container.app_router = app_router
 
     # Register routers.  The app-level router (which includes the SPA
@@ -661,6 +686,7 @@ def create_app(
     app.include_router(video_generation_router)
     app.include_router(ideas_research_router)
     app.include_router(editing_router)
+    app.include_router(video_upscale_router)
     # App-level routes (status, recordings, voice-clone, SPA fallback).
     # Registered last so the SPA catch-all does not shadow /api/* routes
     # from the feature routers above.
