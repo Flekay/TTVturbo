@@ -71,7 +71,11 @@ def test_status_features_not_implemented_modules(client):
     # documented strings; which one depends on the host machine.
     assert features["voice_cloning"] in ("available", "unavailable")
     assert features["vod_analysis"] == "not_implemented"
-    assert features["video_editor"] == "not_implemented"
+    assert features["video_editor"] in ("available", "unavailable")
+    assert features["video_upscale"] in ("available", "unavailable")
+    assert features["video_background_removal"] in ("available", "unavailable")
+    assert features["video_text_edit"] in ("available", "unavailable")
+    assert features["video_rendering"] in ("available", "unavailable")
 
 
 def test_status_exposes_voice_clone_runtime_diagnostics(client):

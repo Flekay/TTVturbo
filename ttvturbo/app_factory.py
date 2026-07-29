@@ -64,6 +64,7 @@ from ttvturbo.editing_api import build_editing_router
 from ttvturbo.video_upscale_api import build_video_upscale_router
 from ttvturbo.video_background_removal_api import build_video_background_removal_router
 from ttvturbo.video_text_edit_api import build_video_text_edit_router
+from ttvturbo.rendering_api import build_rendering_router
 from ttvturbo.editing import EditDatabase, EditProjectService
 
 from ttvturbo.library import LibraryService, LibraryStorage
@@ -111,6 +112,7 @@ class ServiceContainer:
         self.video_upscale_service: Any = None
         self.video_background_removal_service: Any = None
         self.video_text_edit_service: Any = None
+        self.rendering_service: Any = None
         # Router references (for tests that need to swap router.state).
         self.voice_profiles_router: Any = None
         self.vod_pipeline_router: Any = None
@@ -126,6 +128,7 @@ class ServiceContainer:
         self.video_upscale_router: Any = None
         self.video_background_removal_router: Any = None
         self.video_text_edit_router: Any = None
+        self.rendering_router: Any = None
         self.app_router: Any = None
         self.start_time_monotonic: float = 0.0
 
@@ -183,6 +186,7 @@ class ServiceOverrides:
     video_upscale_service: Any = None
     video_background_removal_service: Any = None
     video_text_edit_service: Any = None
+    rendering_service: Any = None
 
 
 # ---------------------------------------------------------------------------
@@ -521,6 +525,21 @@ def _init_services(
             ffprobe_path=tools.ffprobe,
         )
 
+    if ov and ov.rendering_service is not None:
+        container.rendering_service = ov.rendering_service
+    else:
+        from ttvturbo.rendering import RenderingService, RenderingStorage
+
+        container.rendering_service = RenderingService(
+            storage=RenderingStorage(paths.rendering),
+            edit_project_service=container.edit_project_service,
+            library_service=container.library_service,
+            settings=settings,
+            worker_python=tools.python,
+            ffmpeg_path=tools.ffmpeg,
+            ffprobe_path=tools.ffprobe,
+        )
+
     # --- Profile reference resolver --------------------------------------
     def _resolve_profile_reference(profile_id: str, script_id: str) -> dict:
         from ttvturbo.voice_clone.service import ValidationError as _VCValidationError
@@ -638,6 +657,7 @@ def create_app(
     video_upscale_proxy = _ServiceProxy(container, "video_upscale_service")
     video_background_removal_proxy = _ServiceProxy(container, "video_background_removal_service")
     video_text_edit_proxy = _ServiceProxy(container, "video_text_edit_service")
+    rendering_proxy = _ServiceProxy(container, "rendering_service")
 
     quality_analyzer = make_voice_profile_quality_analyzer(voice_clone_proxy)
 
@@ -668,6 +688,7 @@ def create_app(
     video_upscale_router = build_video_upscale_router(video_upscale_proxy)
     video_background_removal_router = build_video_background_removal_router(video_background_removal_proxy)
     video_text_edit_router = build_video_text_edit_router(video_text_edit_proxy)
+    rendering_router = build_rendering_router(rendering_proxy)
     app_router = build_app_router(container)
 
     @asynccontextmanager
@@ -682,9 +703,10 @@ def create_app(
             # idempotent and a failure in one does not block the rest.
             from ttvturbo.lifecycle import shutdown_service
 
-            shutdown_service(container.video_upscale_service)
-            shutdown_service(container.video_background_removal_service)
+            shutdown_service(container.rendering_service)
             shutdown_service(container.video_text_edit_service)
+            shutdown_service(container.video_background_removal_service)
+            shutdown_service(container.video_upscale_service)
             shutdown_service(container.audio_forensics_service)
             shutdown_service(container.asr_benchmark_service)
             shutdown_service(container.visual_analysis_service)
@@ -718,6 +740,7 @@ def create_app(
     container.video_upscale_router = video_upscale_router
     container.video_background_removal_router = video_background_removal_router
     container.video_text_edit_router = video_text_edit_router
+    container.rendering_router = rendering_router
     container.app_router = app_router
 
     # Register routers.  The app-level router (which includes the SPA
@@ -740,6 +763,7 @@ def create_app(
     app.include_router(video_upscale_router)
     app.include_router(video_background_removal_router)
     app.include_router(video_text_edit_router)
+    app.include_router(rendering_router)
     # App-level routes (status, recordings, voice-clone, SPA fallback).
     # Registered last so the SPA catch-all does not shadow /api/* routes
     # from the feature routers above.

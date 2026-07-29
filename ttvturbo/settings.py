@@ -83,6 +83,7 @@ class DataPaths:
     video_upscale: Path
     video_background_removal: Path
     video_text_edit: Path
+    rendering: Path
 
     @classmethod
     def from_root(cls, data_root: Path) -> "DataPaths":
@@ -109,6 +110,7 @@ class DataPaths:
             video_upscale=root / "video_upscale",
             video_background_removal=root / "video_background_removal",
             video_text_edit=root / "video_text_edit",
+            rendering=root / "rendering",
         )
 
     def ensure_dirs(self) -> None:
@@ -137,6 +139,7 @@ class DataPaths:
             self.video_upscale,
             self.video_background_removal,
             self.video_text_edit,
+            self.rendering,
         ):
             p.mkdir(parents=True, exist_ok=True)
 
@@ -342,6 +345,9 @@ class Settings:
     video_text_edit_cache_dir: Optional[str] = field(default_factory=lambda: _env_optional_str("TTVTURBO_VIDEO_TEXT_EDIT_CACHE_DIR"))
     video_text_edit_max_processing_side: int = field(default_factory=lambda: _env_int("TTVTURBO_VIDEO_TEXT_EDIT_MAX_SIDE", 768))
     video_text_edit_max_concurrent: int = field(default_factory=lambda: _env_int("TTVTURBO_MAX_CONCURRENT_VIDEO_TEXT_EDIT", 1))
+
+    # --- deterministic preview / final rendering --------------------------
+    rendering_max_concurrent: int = field(default_factory=lambda: _env_int("TTVTURBO_MAX_CONCURRENT_RENDERING", 1))
 
     # --- server ------------------------------------------------------------
     host: str = "127.0.0.1"

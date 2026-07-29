@@ -186,6 +186,22 @@ def build_status_router(container: Any) -> APIRouter:
             transcripts_count = len(container.transcription_service.list_transcriptions())
         except Exception:  # pragma: no cover - defensive
             pass
+        capability_status: dict[str, str] = {}
+        for feature_id, attr in (
+            ("video_upscale", "video_upscale_service"),
+            ("video_background_removal", "video_background_removal_service"),
+            ("video_text_edit", "video_text_edit_service"),
+            ("video_rendering", "rendering_service"),
+        ):
+            try:
+                service = getattr(container, attr)
+                runtime = service.runtime_status()
+                capability_status[feature_id] = (
+                    "available" if runtime.get("available") else "unavailable"
+                )
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning("%s status aggregation failed: %s", feature_id, exc)
+                capability_status[feature_id] = "unavailable"
         return JSONResponse(content={
             "status": "online",
             "app_name": APP_NAME,
@@ -206,7 +222,8 @@ def build_status_router(container: Any) -> APIRouter:
                 "transcription": transcription_available,
                 "clip_finder": clip_finder_available,
                 "vod_analysis": "not_implemented",
-                "video_editor": "not_implemented",
+                "video_editor": capability_status.get("video_rendering", "unavailable"),
+                **capability_status,
             },
             "voice_clone_runtime": {
                 "available": vc_status["available"],
