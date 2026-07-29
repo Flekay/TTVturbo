@@ -60,6 +60,8 @@ from ttvturbo.asr_api import build_asr_router
 from ttvturbo.visual_analysis_api import build_visual_analysis_router
 from ttvturbo.video_generation_api import build_video_generation_router
 from ttvturbo.ideas_research_api import build_ideas_research_router
+from ttvturbo.editing_api import build_editing_router
+from ttvturbo.editing import EditDatabase, EditProjectService
 
 from ttvturbo.library import LibraryService, LibraryStorage
 from ttvturbo.library_api import build_library_router
@@ -102,6 +104,7 @@ class ServiceContainer:
         self.visual_analysis_service: Any = None
         self.video_generation_service: Any = None
         self.ideas_research_service: Any = None
+        self.edit_project_service: Any = None
         # Router references (for tests that need to swap router.state).
         self.voice_profiles_router: Any = None
         self.vod_pipeline_router: Any = None
@@ -113,6 +116,7 @@ class ServiceContainer:
         self.visual_analysis_router: Any = None
         self.video_generation_router: Any = None
         self.ideas_research_router: Any = None
+        self.editing_router: Any = None
         self.app_router: Any = None
         self.start_time_monotonic: float = 0.0
 
@@ -166,6 +170,7 @@ class ServiceOverrides:
     visual_analysis_service: Any = None
     video_generation_service: Any = None
     ideas_research_service: Any = None
+    edit_project_service: Any = None
 
 
 # ---------------------------------------------------------------------------
@@ -208,6 +213,15 @@ def _init_services(
     else:
         container.library_storage = LibraryStorage(paths.library)
         container.library_service = LibraryService(container.library_storage)
+
+    # --- Edit projects ----------------------------------------------------
+    if ov and ov.edit_project_service is not None:
+        container.edit_project_service = ov.edit_project_service
+    else:
+        container.edit_project_service = EditProjectService(
+            EditDatabase(paths.editing / "edit_projects.sqlite3"),
+            library_service=container.library_service,
+        )
 
     # --- Voice clone ------------------------------------------------------
     if ov and ov.voice_clone_service is not None:
@@ -556,6 +570,7 @@ def create_app(
     visual_analysis_proxy = _ServiceProxy(container, "visual_analysis_service")
     video_generation_proxy = _ServiceProxy(container, "video_generation_service")
     ideas_research_proxy = _ServiceProxy(container, "ideas_research_service")
+    editing_proxy = _ServiceProxy(container, "edit_project_service")
 
     quality_analyzer = make_voice_profile_quality_analyzer(voice_clone_proxy)
 
@@ -582,6 +597,7 @@ def create_app(
     visual_analysis_router = build_visual_analysis_router(visual_analysis_proxy)
     video_generation_router = build_video_generation_router(video_generation_proxy)
     ideas_research_router = build_ideas_research_router(ideas_research_proxy)
+    editing_router = build_editing_router(editing_proxy)
     app_router = build_app_router(container)
 
     @asynccontextmanager
@@ -625,6 +641,7 @@ def create_app(
     container.visual_analysis_router = visual_analysis_router
     container.video_generation_router = video_generation_router
     container.ideas_research_router = ideas_research_router
+    container.editing_router = editing_router
     container.app_router = app_router
 
     # Register routers.  The app-level router (which includes the SPA
@@ -643,6 +660,7 @@ def create_app(
     app.include_router(visual_analysis_router)
     app.include_router(video_generation_router)
     app.include_router(ideas_research_router)
+    app.include_router(editing_router)
     # App-level routes (status, recordings, voice-clone, SPA fallback).
     # Registered last so the SPA catch-all does not shadow /api/* routes
     # from the feature routers above.

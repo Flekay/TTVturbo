@@ -79,6 +79,7 @@ class DataPaths:
     visual_analysis: Path
     ideas_research: Path
     video_generation: Path
+    editing: Path
 
     @classmethod
     def from_root(cls, data_root: Path) -> "DataPaths":
@@ -101,6 +102,7 @@ class DataPaths:
             visual_analysis=root / "visual_analysis",
             ideas_research=root / "ideas_research",
             video_generation=root / "video_generation",
+            editing=root / "editing",
         )
 
     def ensure_dirs(self) -> None:
@@ -125,6 +127,7 @@ class DataPaths:
             self.visual_analysis,
             self.ideas_research,
             self.video_generation,
+            self.editing,
         ):
             p.mkdir(parents=True, exist_ok=True)
 
