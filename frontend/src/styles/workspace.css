@@ -310,7 +310,8 @@
   user-select: none;
   touch-action: none;
 }
-.editor-stage__safe-area { position: absolute; inset: 5%; z-index: 999; border: 1px dashed rgba(255,255,255,.14); pointer-events: none; }
+.editor-stage::after { content: ""; position: absolute; inset: 0; z-index: 1000; border: 1px solid rgba(255,255,255,.28); pointer-events: none; }
+.editor-stage__safe-area { position: absolute; z-index: 999; border: 1px dashed rgba(255,255,255,.22); pointer-events: none; }
 .editor-stage-item { position: absolute; min-width: 18px; min-height: 18px; cursor: move; transform-origin: center; touch-action: none; }
 .editor-stage-item video { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; background: transparent; }
 .editor-stage-item.is-selected { outline: 2px solid var(--color-accent); outline-offset: 0; }
@@ -603,13 +604,38 @@
 .new-project-preset strong,
 .new-project-preset small { margin-inline: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .new-project-preset small { color: var(--color-text-secondary); }
-.new-project-preset__preview { height: 185px; display: grid; place-items: center; background: #252b36; color: #9aa3b2; }
-.new-project-preset__preview::before { content: ""; position: absolute; border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.025); }
-.new-project-preset__preview { position: relative; }
-.new-project-preset__preview--desktop::before { width: 130px; aspect-ratio: 16 / 9; }
-.new-project-preset__preview--mobile::before { height: 130px; aspect-ratio: 9 / 16; }
-.new-project-preset__preview--custom::before { width: 112px; height: 88px; }
-.new-project-preset__preview svg { position: relative; z-index: 1; }
+.new-project-preset__preview { position: relative; height: 185px; display: grid; place-items: center; background: #252b36; color: #9aa3b2; }
+
+/* Preset mockups: dashed-outline placeholders communicate the intended layout.
+   Desktop shows a top bar + content skeleton.
+   Mobile mimics TikTok/Reels/YT Shorts: profile top-left, action buttons
+   stacked on the right, caption + music at the bottom.
+   Custom keeps only the dashed frame. */
+.preset-mockup { position: relative; border: 1px dashed rgba(255,255,255,.28); border-radius: 6px; background: rgba(255,255,255,.02); overflow: hidden; }
+.preset-mockup--desktop { width: 138px; aspect-ratio: 16 / 9; padding: 4px; display: flex; flex-direction: column; gap: 4px; }
+.preset-mockup--mobile { width: 78px; aspect-ratio: 9 / 16; }
+.preset-mockup--custom { width: 112px; height: 88px; }
+
+.preset-mockup__bar { height: 6px; border: 1px dashed rgba(255,255,255,.3); border-radius: 3px; }
+.preset-mockup__controls { height: 8px; border: 1px dashed rgba(255,255,255,.3); border-radius: 3px; }
+.preset-mockup__skeleton { flex: 1; display: grid; place-items: center; border: 1px dashed rgba(255,255,255,.3); border-radius: 4px; color: rgba(255,255,255,.25); }
+
+/* Mobile shorts layout */
+.preset-mockup--mobile .preset-mockup__profile { position: absolute; top: 5px; left: 5px; width: 10px; height: 10px; border: 1px dashed rgba(255,255,255,.35); border-radius: 50%; }
+.preset-mockup--mobile .preset-mockup__username { position: absolute; top: 5px; left: 18px; display: inline-flex; align-items: center; gap: 2px; width: 22px; height: 8px; padding: 0 3px; border: 1px dashed rgba(255,255,255,.3); border-radius: 3px; color: rgba(255,255,255,.25); }
+.preset-mockup--mobile .preset-mockup__skeleton { position: absolute; top: 20px; left: 5px; right: 22px; bottom: 28px; display: grid; place-items: center; border: 1px dashed rgba(255,255,255,.3); border-radius: 4px; color: rgba(255,255,255,.25); }
+.preset-mockup--mobile .preset-mockup__actions { position: absolute; right: 4px; bottom: 30px; display: flex; flex-direction: column; gap: 6px; align-items: center; }
+.preset-mockup--mobile .preset-mockup__actions > svg { display: grid; place-items: center; width: 16px; height: 16px; border: 1px dashed rgba(255,255,255,.35); border-radius: 50%; color: rgba(255,255,255,.3); }
+.preset-mockup--mobile .preset-mockup__caption { position: absolute; left: 5px; right: 22px; bottom: 12px; height: 5px; border: 1px dashed rgba(255,255,255,.3); border-radius: 3px; }
+.preset-mockup--mobile .preset-mockup__music { position: absolute; left: 5px; right: 22px; bottom: 4px; display: inline-flex; align-items: center; gap: 2px; height: 6px; padding: 0 3px; border: 1px dashed rgba(255,255,255,.3); border-radius: 3px; color: rgba(255,255,255,.25); }
+
+.new-project-details__safe-area { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg-elevated); }
+.new-project-details__safe-area-toggle { display: inline-flex; align-items: center; gap: 8px; color: var(--color-text-primary); font-size: 13px; }
+.new-project-details__safe-area-toggle input { width: 16px; height: 16px; accent-color: var(--color-accent); }
+.new-project-details__safe-area-sides { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.new-project-details__safe-area-sides label { display: grid; gap: 4px; color: var(--color-text-secondary); font-size: 11px; }
+.new-project-details__safe-area-sides .input { width: 100%; }
+
 .new-project-dialog__empty-note { margin-top: 22px; padding: 13px 14px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); color: var(--color-text-secondary); background: rgba(255,255,255,.02); font-size: 13px; }
 
 .new-project-details { display: flex; flex-direction: column; gap: 16px; padding: 24px; border-left: 1px solid var(--color-border); background: #181c24; }

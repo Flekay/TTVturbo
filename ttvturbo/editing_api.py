@@ -35,6 +35,11 @@ class SequenceSpec(BaseModel):
     fps_numerator: int = 60
     fps_denominator: int = 1
     format_profile: str = "CUSTOM"
+    safe_area_enabled: bool = True
+    safe_area_margin_top: int = 80
+    safe_area_margin_right: int = 80
+    safe_area_margin_bottom: int = 80
+    safe_area_margin_left: int = 80
 
 
 class CreateProjectRequest(BaseModel):
@@ -88,6 +93,11 @@ class UpdateSequenceRequest(BaseModel):
     fps_numerator: Optional[int] = None
     fps_denominator: Optional[int] = None
     format_profile: Optional[str] = None
+    safe_area_enabled: Optional[bool] = None
+    safe_area_margin_top: Optional[int] = None
+    safe_area_margin_right: Optional[int] = None
+    safe_area_margin_bottom: Optional[int] = None
+    safe_area_margin_left: Optional[int] = None
     message: Optional[str] = None
 
 

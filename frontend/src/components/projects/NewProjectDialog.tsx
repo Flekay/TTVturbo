@@ -1,5 +1,5 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { Monitor, RectangleVertical, SlidersHorizontal, X } from "lucide-react";
+import { Bookmark, Heart, Image as ImageIcon, MessageSquare, Music, Type, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../ui/Button";
 
@@ -12,6 +12,11 @@ export interface NewProjectValues {
     fps_numerator: number;
     fps_denominator: number;
     format_profile: "DESKTOP_16_9" | "MOBILE_9_16" | "CUSTOM";
+    safe_area_enabled: boolean;
+    safe_area_margin_top: number;
+    safe_area_margin_right: number;
+    safe_area_margin_bottom: number;
+    safe_area_margin_left: number;
   };
 }
 
@@ -24,9 +29,21 @@ interface NewProjectDialogProps {
 
 type PresetId = "desktop" | "mobile" | "custom";
 
-const PRESETS: Record<Exclude<PresetId, "custom">, { width: number; height: number; profile: NewProjectValues["sequence"]["format_profile"] }> = {
-  desktop: { width: 1920, height: 1080, profile: "DESKTOP_16_9" },
-  mobile: { width: 1080, height: 1920, profile: "MOBILE_9_16" },
+interface PresetConfig {
+  width: number;
+  height: number;
+  profile: NewProjectValues["sequence"]["format_profile"];
+  safe: { top: number; right: number; bottom: number; left: number };
+}
+
+// Desktop: top bar + fullscreen title (~120px), bottom player controls (~120px).
+// No side overlays on desktop players, so left/right stay at 0.
+// Mobile safe zones cover TikTok, Instagram Reels and YouTube Shorts.
+// Top: Reels top bar (~250px). Right: action button column (~160px).
+// Bottom: caption + music + YT Shorts description (~340px). Left: 0.
+const PRESETS: Record<Exclude<PresetId, "custom">, PresetConfig> = {
+  desktop: { width: 1920, height: 1080, profile: "DESKTOP_16_9", safe: { top: 120, right: 0, bottom: 120, left: 0 } },
+  mobile: { width: 1080, height: 1920, profile: "MOBILE_9_16", safe: { top: 250, right: 160, bottom: 340, left: 0 } },
 };
 
 export function NewProjectDialog({ open, onOpenChange, onCreate, busy = false }: NewProjectDialogProps) {
@@ -36,6 +53,11 @@ export function NewProjectDialog({ open, onOpenChange, onCreate, busy = false }:
   const [width, setWidth] = useState(1920);
   const [height, setHeight] = useState(1080);
   const [fps, setFps] = useState(60);
+  const [safeArea, setSafeArea] = useState(true);
+  const [safeTop, setSafeTop] = useState(80);
+  const [safeRight, setSafeRight] = useState(80);
+  const [safeBottom, setSafeBottom] = useState(80);
+  const [safeLeft, setSafeLeft] = useState(80);
 
   useEffect(() => {
     if (!open) return;
@@ -44,6 +66,8 @@ export function NewProjectDialog({ open, onOpenChange, onCreate, busy = false }:
     setWidth(1920);
     setHeight(1080);
     setFps(60);
+    setSafeArea(true);
+    setSafeTop(80); setSafeRight(80); setSafeBottom(80); setSafeLeft(80);
     const timer = window.setTimeout(() => {
       nameRef.current?.focus();
       nameRef.current?.select();
@@ -56,8 +80,19 @@ export function NewProjectDialog({ open, onOpenChange, onCreate, busy = false }:
     if (!Number.isInteger(width) || width < 64 || width > 7680) return "Breite muss zwischen 64 und 7680 Pixel liegen.";
     if (!Number.isInteger(height) || height < 64 || height > 7680) return "Höhe muss zwischen 64 und 7680 Pixel liegen.";
     if (!Number.isInteger(fps) || fps < 1 || fps > 240) return "FPS muss zwischen 1 und 240 liegen.";
+    if (safeArea) {
+      const maxH = Math.floor(width / 2);
+      const maxV = Math.floor(height / 2);
+      const sides: Array<[number, string, number]> = [
+        [safeTop, "Oben", maxV], [safeRight, "Rechts", maxH],
+        [safeBottom, "Unten", maxV], [safeLeft, "Links", maxH],
+      ];
+      for (const [value, label, maximum] of sides) {
+        if (!Number.isInteger(value) || value < 0 || value > maximum) return `Safe-Area ${label} muss zwischen 0 und ${maximum} px liegen.`;
+      }
+    }
     return null;
-  }, [fps, height, name, width]);
+  }, [fps, height, name, safeArea, safeBottom, safeLeft, safeRight, safeTop, width]);
 
   function choosePreset(next: PresetId) {
     setPreset(next);
@@ -65,6 +100,15 @@ export function NewProjectDialog({ open, onOpenChange, onCreate, busy = false }:
     const value = PRESETS[next];
     setWidth(value.width);
     setHeight(value.height);
+    setSafeTop(value.safe.top);
+    setSafeRight(value.safe.right);
+    setSafeBottom(value.safe.bottom);
+    setSafeLeft(value.safe.left);
+  }
+
+  function setSafeSide(setter: (v: number) => void, value: number) {
+    setPreset("custom");
+    setter(value);
   }
 
   async function submit() {
@@ -80,6 +124,11 @@ export function NewProjectDialog({ open, onOpenChange, onCreate, busy = false }:
         fps_numerator: fps,
         fps_denominator: 1,
         format_profile: profile,
+        safe_area_enabled: safeArea,
+        safe_area_margin_top: safeTop,
+        safe_area_margin_right: safeRight,
+        safe_area_margin_bottom: safeBottom,
+        safe_area_margin_left: safeLeft,
       },
     });
   }
@@ -108,17 +157,36 @@ export function NewProjectDialog({ open, onOpenChange, onCreate, busy = false }:
               <h3>Projektformat</h3>
               <div className="new-project-presets__grid">
                 <button type="button" className={`new-project-preset${preset === "desktop" ? " is-selected" : ""}`} onClick={() => choosePreset("desktop")}>
-                  <span className="new-project-preset__preview new-project-preset__preview--desktop"><Monitor size={42} /></span>
+                  <span className="new-project-preset__preview new-project-preset__preview--desktop">
+                    <span className="preset-mockup preset-mockup--desktop">
+                      <span className="preset-mockup__bar" />
+                      <span className="preset-mockup__skeleton"><ImageIcon size={18} /></span>
+                      <span className="preset-mockup__controls" />
+                    </span>
+                  </span>
                   <strong>Desktop</strong>
                   <small>16:9 · 1920 × 1080</small>
                 </button>
                 <button type="button" className={`new-project-preset${preset === "mobile" ? " is-selected" : ""}`} onClick={() => choosePreset("mobile")}>
-                  <span className="new-project-preset__preview new-project-preset__preview--mobile"><RectangleVertical size={42} /></span>
+                  <span className="new-project-preset__preview new-project-preset__preview--mobile">
+                    <span className="preset-mockup preset-mockup--mobile">
+                      <span className="preset-mockup__profile" />
+                      <span className="preset-mockup__username"><Type size={8} /></span>
+                      <span className="preset-mockup__skeleton"><ImageIcon size={18} /></span>
+                      <span className="preset-mockup__actions">
+                        <Heart size={12} /><MessageSquare size={12} /><Bookmark size={12} />
+                      </span>
+                      <span className="preset-mockup__caption" />
+                      <span className="preset-mockup__music"><Music size={8} /></span>
+                    </span>
+                  </span>
                   <strong>Mobile</strong>
                   <small>9:16 · 1080 × 1920</small>
                 </button>
                 <button type="button" className={`new-project-preset${preset === "custom" ? " is-selected" : ""}`} onClick={() => choosePreset("custom")}>
-                  <span className="new-project-preset__preview new-project-preset__preview--custom"><SlidersHorizontal size={42} /></span>
+                  <span className="new-project-preset__preview new-project-preset__preview--custom">
+                    <span className="preset-mockup preset-mockup--custom" />
+                  </span>
                   <strong>Custom</strong>
                   <small>Eigene Auflösung</small>
                 </button>
@@ -152,6 +220,30 @@ export function NewProjectDialog({ open, onOpenChange, onCreate, busy = false }:
                   <option value={60}>60 FPS</option>
                 </select>
               </label>
+              <div className="new-project-details__safe-area">
+                <label className="new-project-details__safe-area-toggle">
+                  <input type="checkbox" checked={safeArea} onChange={(event) => { setSafeArea(event.target.checked); setPreset("custom"); }} />
+                  Safe Area anzeigen
+                </label>
+                <div className="new-project-details__safe-area-sides">
+                  <label>Oben
+                    <input className="input" type="number" min={0} max={Math.floor(height / 2)} step={1} value={safeTop} onChange={(event) => setSafeSide(setSafeTop, Number(event.target.value))} disabled={!safeArea} />
+                    px
+                  </label>
+                  <label>Rechts
+                    <input className="input" type="number" min={0} max={Math.floor(width / 2)} step={1} value={safeRight} onChange={(event) => setSafeSide(setSafeRight, Number(event.target.value))} disabled={!safeArea} />
+                    px
+                  </label>
+                  <label>Unten
+                    <input className="input" type="number" min={0} max={Math.floor(height / 2)} step={1} value={safeBottom} onChange={(event) => setSafeSide(setSafeBottom, Number(event.target.value))} disabled={!safeArea} />
+                    px
+                  </label>
+                  <label>Links
+                    <input className="input" type="number" min={0} max={Math.floor(width / 2)} step={1} value={safeLeft} onChange={(event) => setSafeSide(setSafeLeft, Number(event.target.value))} disabled={!safeArea} />
+                    px
+                  </label>
+                </div>
+              </div>
               <div className="new-project-details__summary">
                 <span>Ausgabe</span>
                 <strong>{width || 0} × {height || 0} · {fps || 0} FPS</strong>

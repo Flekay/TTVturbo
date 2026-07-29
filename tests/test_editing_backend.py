@@ -49,6 +49,38 @@ def test_project_starts_with_desktop_and_mobile_sequences(edit_service: EditProj
     assert project["checkout_commit_id"] == project["branches"][0]["head_commit_id"]
 
 
+def test_create_project_preserves_safe_area_fields(edit_service: EditProjectService):
+    project = edit_service.create_project(
+        name="Short",
+        sources=[{"media_item_id": "media-1", "sha256": "a" * 64}],
+        sequences=[{
+            "name": "Mobile",
+            "width": 1080,
+            "height": 1920,
+            "fps_numerator": 60,
+            "fps_denominator": 1,
+            "format_profile": "MOBILE_9_16",
+            "safe_area_enabled": True,
+            "safe_area_margin_top": 250,
+            "safe_area_margin_right": 160,
+            "safe_area_margin_bottom": 340,
+            "safe_area_margin_left": 0,
+        }],
+    )
+    seq = project["sequences"][0]
+    assert seq["safe_area_enabled"] is True
+    assert seq["safe_area_margin_top"] == 250
+    assert seq["safe_area_margin_right"] == 160
+    assert seq["safe_area_margin_bottom"] == 340
+    assert seq["safe_area_margin_left"] == 0
+    # Verify fields survive a fresh get_project (snapshot reconstruction)
+    refetched = edit_service.get_project(project["id"])
+    seq2 = refetched["sequences"][0]
+    assert seq2["safe_area_margin_top"] == 250
+    assert seq2["safe_area_margin_bottom"] == 340
+    assert seq2["safe_area_margin_left"] == 0
+
+
 def test_atomic_commit_and_deterministic_reconstruction(edit_service: EditProjectService):
     project = _project(edit_service); main = _main(project); seq = project["sequences"][0]
     commit = edit_service.create_commit(
@@ -152,6 +184,17 @@ def test_derived_custom_sequence_is_independent(edit_service: EditProjectService
     assert result["sequence"]["id"] != desktop["id"]
     assert result["sequence"]["width"] == 1440
     assert len(edit_service.list_sequences(project["id"])) == 3
+
+
+def test_delete_project_removes_project_with_commits_and_branches(edit_service: EditProjectService):
+    project = _project(edit_service); main = _main(project); seq = project["sequences"][0]
+    edit_service.create_commit(
+        project["id"], branch_id=main["id"], expected_head_commit_id=main["head_commit_id"], message="Add track",
+        operations=[{"type":"ADD_TRACK","sequence_id":seq["id"],"payload":{"track":{"id":"gameplay","type":"GAMEPLAY","name":"Gameplay"}}}],
+    )
+    edit_service.create_branch(project["id"], name="feature")
+    assert edit_service.delete_project(project["id"]) is True
+    assert all(p["id"] != project["id"] for p in edit_service.list_projects())
 
 
 class _FakeLibrary:

@@ -87,6 +87,26 @@ def validate_sequence(sequence: dict[str, Any]) -> dict[str, Any]:
     if seq["format_profile"] not in {p.value for p in FormatProfile}:
         raise EditValidationError(f"unknown format profile: {seq['format_profile']}")
     seq.update({"width": width, "height": height, "fps_numerator": fps_n, "fps_denominator": fps_d})
+    safe_area_enabled = bool(seq.get("safe_area_enabled", True))
+    max_h = width // 2
+    max_v = height // 2
+    safe_area_margin_top = int(seq.get("safe_area_margin_top", 80))
+    safe_area_margin_right = int(seq.get("safe_area_margin_right", 80))
+    safe_area_margin_bottom = int(seq.get("safe_area_margin_bottom", 80))
+    safe_area_margin_left = int(seq.get("safe_area_margin_left", 80))
+    for name, value, maximum in (
+        ("safe_area_margin_top", safe_area_margin_top, max_v),
+        ("safe_area_margin_right", safe_area_margin_right, max_h),
+        ("safe_area_margin_bottom", safe_area_margin_bottom, max_v),
+        ("safe_area_margin_left", safe_area_margin_left, max_h),
+    ):
+        if value < 0 or value > maximum:
+            raise EditValidationError(f"{name} must be between 0 and {maximum} px")
+    seq["safe_area_enabled"] = safe_area_enabled
+    seq["safe_area_margin_top"] = safe_area_margin_top
+    seq["safe_area_margin_right"] = safe_area_margin_right
+    seq["safe_area_margin_bottom"] = safe_area_margin_bottom
+    seq["safe_area_margin_left"] = safe_area_margin_left
     seq.setdefault("tracks", {})
     seq.setdefault("track_order", [])
     seq.setdefault("layout", None)
@@ -224,10 +244,12 @@ class OperationEngine:
         seq = _sequence(state, sid)
 
         if op_type == "SET_SEQUENCE_FORMAT":
-            old = {k: seq[k] for k in ("width", "height", "fps_numerator", "fps_denominator", "format_profile")}
+            format_keys = ("width", "height", "fps_numerator", "fps_denominator", "format_profile")
+            safe_keys = ("safe_area_enabled", "safe_area_margin_top", "safe_area_margin_right", "safe_area_margin_bottom", "safe_area_margin_left")
+            old = {k: seq.get(k) for k in format_keys + safe_keys}
             merged = dict(old); merged.update(payload)
             checked = validate_sequence({"id": sid, "name": seq["name"], **merged})
-            new = {k: checked[k] for k in old}
+            new = {k: checked[k] for k in format_keys + safe_keys}
             seq.update(new)
             return self._record(op_type, sid, sid, new, old, f"sequences.{sid}.format")
 

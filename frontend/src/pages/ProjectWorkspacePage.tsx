@@ -162,11 +162,11 @@ export function ProjectWorkspacePage() {
   useEffect(() => { sourceIdsRef.current = new Set(stateSources.filter((source) => !source.asset_id).map((source) => source.media_item_id)); }, [stateSources]);
 
   useEffect(() => {
-    const { sidebarCollapsed, topbarHidden } = useUIStore.getState();
+    const { topbarHidden } = useUIStore.getState();
     setSidebarCollapsed(true);
     setTopbarHidden(true);
     return () => {
-      setSidebarCollapsed(sidebarCollapsed);
+      setSidebarCollapsed(false);
       setTopbarHidden(topbarHidden);
     };
   }, [setSidebarCollapsed, setTopbarHidden]);

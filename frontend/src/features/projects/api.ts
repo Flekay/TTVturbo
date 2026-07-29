@@ -16,6 +16,11 @@ export interface EditSequence {
   fps_numerator: number;
   fps_denominator: number;
   format_profile: string;
+  safe_area_enabled?: boolean;
+  safe_area_margin_top?: number;
+  safe_area_margin_right?: number;
+  safe_area_margin_bottom?: number;
+  safe_area_margin_left?: number;
   tracks?: Record<string, TimelineTrack>;
   track_order?: string[];
   layout?: unknown;
@@ -111,6 +116,11 @@ export async function createProject(payload: {
     fps_numerator: number;
     fps_denominator: number;
     format_profile: string;
+    safe_area_enabled?: boolean;
+    safe_area_margin_top?: number;
+    safe_area_margin_right?: number;
+    safe_area_margin_bottom?: number;
+    safe_area_margin_left?: number;
   }>;
 }): Promise<EditProject> {
   return apiClient.post<EditProject>("/api/edit-projects", { body: payload });

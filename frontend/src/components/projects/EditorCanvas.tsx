@@ -181,7 +181,20 @@ export function EditorCanvas({
           style={{ aspectRatio: `${sequence.width} / ${sequence.height}` }}
           onPointerDown={() => undefined}
         >
-          <div className="editor-stage__safe-area" />
+          {sequence.safe_area_enabled !== false ? (() => {
+            const clamp = (v: number, max: number) => `${Math.max(0, Math.min(Number(v) || 0, max)) / Math.max(1, max) * 100}%`;
+            return (
+              <div
+                className="editor-stage__safe-area"
+                style={{
+                  top: clamp(sequence.safe_area_margin_top ?? 80, sequence.height),
+                  right: clamp(sequence.safe_area_margin_right ?? 80, sequence.width),
+                  bottom: clamp(sequence.safe_area_margin_bottom ?? 80, sequence.height),
+                  left: clamp(sequence.safe_area_margin_left ?? 80, sequence.width),
+                }}
+              />
+            );
+          })() : null}
           {active.filter((entry) => entry.visual).map((entry, index) => {
             const selected = entry.track.id === selectedTrackId && entry.clip.id === selectedClipId;
             const value = drafts[entry.key] ?? transformOf(entry.clip);

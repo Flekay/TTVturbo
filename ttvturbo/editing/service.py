@@ -364,6 +364,25 @@ class EditProjectService:
     def delete_project(self, project_id: str) -> bool:
         with self.db.transaction() as conn:
             self._require_project(conn, project_id)
+            # Manual cleanup in dependency order. Several tables reference
+            # edit_commits with ON DELETE RESTRICT (commit parents, branch
+            # heads, merge sessions, render artifacts), so the cascade from
+            # edit_projects alone cannot delete a project that has commits.
+            commit_ids = [r[0] for r in conn.execute("SELECT id FROM edit_commits WHERE project_id=?", (project_id,)).fetchall()]
+            if commit_ids:
+                placeholders = ",".join("?" * len(commit_ids))
+                # merge_conflicts -> merge_sessions (cascade), but delete
+                # sessions explicitly to clear RESTRICT refs to commits.
+                conn.execute(f"DELETE FROM edit_merge_conflicts WHERE merge_id IN (SELECT id FROM edit_merge_sessions WHERE project_id=?)", (project_id,))
+                conn.execute("DELETE FROM edit_merge_sessions WHERE project_id=?", (project_id,))
+                conn.execute("DELETE FROM edit_render_artifacts WHERE project_id=?", (project_id,))
+                conn.execute("DELETE FROM edit_branches WHERE project_id=?", (project_id,))
+                conn.execute(f"DELETE FROM edit_commit_parents WHERE commit_id IN ({placeholders}) OR parent_commit_id IN ({placeholders})", (*commit_ids, *commit_ids))
+                conn.execute(f"DELETE FROM edit_operations WHERE commit_id IN ({placeholders})", commit_ids)
+                conn.execute(f"DELETE FROM edit_snapshots WHERE commit_id IN ({placeholders})", commit_ids)
+                conn.execute("DELETE FROM edit_commits WHERE project_id=?", (project_id,))
+            conn.execute("DELETE FROM edit_sequences WHERE project_id=?", (project_id,))
+            conn.execute("DELETE FROM edit_project_sources WHERE project_id=?", (project_id,))
             conn.execute("DELETE FROM edit_projects WHERE id=?", (project_id,))
         return True
 
@@ -502,7 +521,7 @@ class EditProjectService:
             return {"sequence":seq,"commit":commit}
 
     def update_sequence(self, project_id: str, sequence_id: str, *, branch_id: str, expected_head_commit_id: str, updates: dict[str, Any], message: Optional[str] = None) -> dict[str, Any]:
-        allowed = {k:v for k,v in updates.items() if k in {"width","height","fps_numerator","fps_denominator","format_profile"}}
+        allowed = {k:v for k,v in updates.items() if k in {"width","height","fps_numerator","fps_denominator","format_profile","safe_area_enabled","safe_area_margin_top","safe_area_margin_right","safe_area_margin_bottom","safe_area_margin_left"}}
         if not allowed: raise EditValidationError("no supported sequence format fields supplied")
         with self.db.transaction() as conn:
             commit = self._create_commit_conn(conn, project_id=project_id, branch_id=branch_id, expected_head_commit_id=expected_head_commit_id, message=message or "Update sequence format", operations=[{"type":"SET_SEQUENCE_FORMAT","sequence_id":sequence_id,"payload":allowed}])

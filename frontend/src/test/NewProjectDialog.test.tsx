@@ -25,6 +25,11 @@ describe("NewProjectDialog", () => {
         fps_numerator: 60,
         fps_denominator: 1,
         format_profile: "MOBILE_9_16",
+        safe_area_enabled: true,
+        safe_area_margin_top: 250,
+        safe_area_margin_right: 160,
+        safe_area_margin_bottom: 340,
+        safe_area_margin_left: 0,
       },
     });
   });
