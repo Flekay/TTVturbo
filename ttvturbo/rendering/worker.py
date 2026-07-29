@@ -100,7 +100,7 @@ def _compile(desc: dict[str, Any], job_dir: Path) -> tuple[list[str], Path, floa
     fps = fps_num / fps_den
     duration = _timeline_duration(projection)
 
-    cmd = [desc["ffmpeg_path"], "-hide_banner", "-y"]
+    cmd = [desc["ffmpeg_path"], "-hide_banner", "-loglevel", "warning", "-y"]
     filters: list[str] = [f"color=c=black:s={width}x{height}:r={fps_num}/{fps_den}:d={duration:.6f}[base0]"]
     tracks = projection.get("tracks") or {}
     source_files = desc["source_files"]
@@ -196,6 +196,32 @@ def _compile(desc: dict[str, Any], job_dir: Path) -> tuple[list[str], Path, floa
     return cmd, output_path, duration
 
 
+
+def _run_ffmpeg(cmd: list[str], job_dir: Path, duration: float) -> tuple[int, str]:
+    """Run FFmpeg while draining progress without risking a stderr pipe deadlock."""
+    stderr_path = job_dir / "ffmpeg.stderr.log"
+    with stderr_path.open("w", encoding="utf-8", errors="replace") as stderr_handle:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=stderr_handle,
+            text=True,
+            bufsize=1,
+        )
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            key, _, value = line.strip().partition("=")
+            if key in {"out_time_ms", "out_time_us"}:
+                try:
+                    out_us = int(value)
+                    progress = 8 + 87 * min(1.0, out_us / max(1.0, duration * 1_000_000))
+                    update_job(job_dir, progress=progress, stage="render")
+                except ValueError:
+                    pass
+        code = proc.wait()
+    stderr = stderr_path.read_text(encoding="utf-8", errors="replace") if stderr_path.exists() else ""
+    return code, stderr
+
 def main(argv=None) -> int:
     args = argv if argv is not None else sys.argv[1:]
     if len(args) != 1:
@@ -212,21 +238,13 @@ def main(argv=None) -> int:
         cmd, output, duration = _compile(desc, job_dir)
         (job_dir / "ffmpeg_command.json").write_text(json.dumps(cmd, ensure_ascii=False, indent=2), encoding="utf-8")
         update_job(job_dir, progress=8, stage="render")
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
-        assert proc.stdout is not None
-        for line in proc.stdout:
-            key, _, value = line.strip().partition("=")
-            if key in {"out_time_ms", "out_time_us"}:
-                try:
-                    out_us = int(value)
-                    progress = 8 + 87 * min(1.0, out_us / max(1.0, duration * 1_000_000))
-                    update_job(job_dir, progress=progress, stage="render")
-                except ValueError:
-                    pass
-        stderr = proc.stderr.read() if proc.stderr else ""
-        code = proc.wait()
+        # FFmpeg diagnostics go to a file rather than an unread stderr PIPE.
+        # Otherwise a full stderr buffer can block the process at the 95%
+        # progress ceiling even though all frames have already been encoded.
+        code, stderr = _run_ffmpeg(cmd, job_dir, duration)
         if code != 0:
             return fail(job_dir, f"ffmpeg render failed: {stderr[-4000:]}", code="RENDER_FAILED")
+        update_job(job_dir, progress=96, stage="finalize")
         if not output.is_file() or output.stat().st_size <= 0:
             return fail(job_dir, "render output is missing or empty", code="RENDER_EMPTY")
         meta = video_metadata(desc["ffprobe_path"], output)

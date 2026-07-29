@@ -586,3 +586,30 @@ def test_text_instruction_edit_respects_static_region(
     outside_difference = np.abs(src[2:12, 2:12] - out[2:12, 2:12]).mean()
     inside_difference = np.abs(src[20:44, 30:66] - out[20:44, 30:66]).mean()
     assert inside_difference > outside_difference * 2
+
+
+def test_renderer_does_not_pipe_unread_ffmpeg_stderr(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from ttvturbo.rendering import worker
+
+    captured = {}
+
+    class FakeProcess:
+        stdout = ["out_time_us=1000000\n", "progress=end\n"]
+
+        def wait(self):
+            return 0
+
+    def fake_popen(command, **kwargs):
+        captured["command"] = command
+        captured.update(kwargs)
+        return FakeProcess()
+
+    monkeypatch.setattr(worker.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(worker, "update_job", lambda *args, **kwargs: None)
+
+    code, stderr = worker._run_ffmpeg(["ffmpeg"], tmp_path, 1.0)
+
+    assert code == 0
+    assert stderr == ""
+    assert captured["stdout"] is worker.subprocess.PIPE
+    assert captured["stderr"] is not worker.subprocess.PIPE

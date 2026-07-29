@@ -39,7 +39,7 @@ class SequenceSpec(BaseModel):
 
 class CreateProjectRequest(BaseModel):
     name: str
-    sources: list[SourceRequest]
+    sources: list[SourceRequest] = Field(default_factory=list)
     sequences: Optional[list[SequenceSpec]] = None
     author: Optional[str] = None
 

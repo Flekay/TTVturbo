@@ -100,7 +100,16 @@ export async function fetchProject(projectId: string): Promise<EditProject> {
 
 export async function createProject(payload: {
   name: string;
-  sources: Array<{ media_item_id: string; asset_id?: string }>;
+  sources?: Array<{ media_item_id: string; asset_id?: string }>;
+  sequences?: Array<{
+    id?: string;
+    name: string;
+    width: number;
+    height: number;
+    fps_numerator: number;
+    fps_denominator: number;
+    format_profile: string;
+  }>;
 }): Promise<EditProject> {
   return apiClient.post<EditProject>("/api/edit-projects", { body: payload });
 }

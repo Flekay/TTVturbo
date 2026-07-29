@@ -293,3 +293,42 @@ def test_temporary_library_item_must_be_promoted_before_project_creation(tmp_pat
         sources=[{"media_item_id": item["id"]}],
     )
     assert project["sources"][0]["media_item_id"] == item["id"]
+
+
+def test_empty_project_can_start_with_one_custom_sequence(edit_service: EditProjectService):
+    project = edit_service.create_project(
+        name="Empty mobile project",
+        sources=[],
+        sequences=[{
+            "name": "Mobile",
+            "width": 1080,
+            "height": 1920,
+            "fps_numerator": 60,
+            "fps_denominator": 1,
+            "format_profile": "MOBILE_9_16",
+        }],
+    )
+    assert project["sources"] == []
+    assert len(project["sequences"]) == 1
+    assert project["sequences"][0]["format_profile"] == "MOBILE_9_16"
+    assert project["sequences"][0]["tracks"] == {}
+
+
+def test_create_project_api_defaults_to_no_sources(tmp_path: Path):
+    app = create_app(Settings(data_root=tmp_path / "data"))
+    with TestClient(app) as client:
+        response = client.post("/api/edit-projects", json={
+            "name": "Empty desktop project",
+            "sequences": [{
+                "name": "Desktop",
+                "width": 1920,
+                "height": 1080,
+                "fps_numerator": 60,
+                "fps_denominator": 1,
+                "format_profile": "DESKTOP_16_9",
+            }],
+        })
+    assert response.status_code == 201, response.text
+    payload = response.json()
+    assert payload["sources"] == []
+    assert len(payload["sequences"]) == 1

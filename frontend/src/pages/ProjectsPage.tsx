@@ -2,34 +2,29 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Film, FolderKanban, Plus, Search, Trash2 } from "lucide-react";
 import { Button } from "../components/ui/Button";
-import { Card } from "../components/ui/Card";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { EmptyState } from "../components/ui/EmptyState";
 import { ErrorState } from "../components/ui/ErrorState";
-import { useLibraryItemsQuery } from "../features/library/hooks";
 import { useCreateProject, useDeleteProject, useProjects } from "../features/projects/hooks";
 import type { EditProjectSummary } from "../features/projects/api";
 import { formatDateTime } from "../utils/format";
 import { useUIStore } from "../stores/uiStore";
+import { NewProjectDialog, type NewProjectValues } from "../components/projects/NewProjectDialog";
 
 export function ProjectsPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const requestedSource = searchParams.get("source");
   const projects = useProjects();
-  const library = useLibraryItemsQuery();
   const create = useCreateProject();
   const remove = useDeleteProject();
   const use24h = useUIStore((state) => state.use24HourFormat);
   const [search, setSearch] = useState("");
   const [creating, setCreating] = useState(false);
-  const [name, setName] = useState("");
-  const [sourceId, setSourceId] = useState("");
   const [deleting, setDeleting] = useState<EditProjectSummary | null>(null);
 
   useEffect(() => {
     if (!requestedSource) return;
-    setSourceId(requestedSource);
     setCreating(true);
   }, [requestedSource]);
 
@@ -39,12 +34,13 @@ export function ProjectsPage() {
 
   const filtered = (projects.data ?? []).filter((project) => project.name.toLowerCase().includes(search.trim().toLowerCase()));
 
-  async function handleCreate() {
-    if (!name.trim() || !sourceId) return;
-    const project = await create.mutateAsync({ name: name.trim(), sources: [{ media_item_id: sourceId }] });
+  async function handleCreate(values: NewProjectValues) {
+    const project = await create.mutateAsync({
+      name: values.name,
+      sources: [],
+      sequences: [values.sequence],
+    });
     setCreating(false);
-    setName("");
-    setSourceId("");
     navigate(`/projects/${project.id}`);
   }
 
@@ -58,15 +54,7 @@ export function ProjectsPage() {
         <Button variant="primary" onClick={() => setCreating(true)}><Plus size={15} /> Neues Projekt</Button>
       </div>
 
-      {creating && (
-        <Card className="project-create-card" title="Neues Bearbeitungsprojekt">
-          <div className="field-grid field-grid--2">
-            <label>Projektname<input className="input" value={name} onChange={(event) => setName(event.target.value)} placeholder="Zum Beispiel: Daily Game Recommendation" autoFocus /></label>
-            <label>Quelle<select className="input" value={sourceId} onChange={(event) => setSourceId(event.target.value)}><option value="">Medium auswählen …</option>{(library.data?.items ?? []).map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
-          </div>
-          <div className="form-actions"><Button variant="ghost" onClick={() => setCreating(false)}>Abbrechen</Button><Button variant="primary" onClick={() => void handleCreate()} loading={create.isPending} disabled={!name.trim() || !sourceId}>Projekt erstellen</Button></div>
-        </Card>
-      )}
+      <NewProjectDialog open={creating} onOpenChange={setCreating} onCreate={handleCreate} busy={create.isPending} />
 
       {projects.isLoading ? (
         <div className="state">Projekte werden geladen …</div>

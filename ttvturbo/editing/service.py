@@ -292,8 +292,6 @@ class EditProjectService:
     ) -> dict[str, Any]:
         if not name.strip():
             raise EditValidationError("project name must not be empty")
-        if not sources:
-            raise EditValidationError("at least one immutable source is required")
         resolved_sources = [self._resolve_source(s) for s in sources]
         source_keys = [(src["media_item_id"], src.get("asset_id")) for src in resolved_sources]
         if len(source_keys) != len(set(source_keys)):
@@ -303,7 +301,7 @@ class EditProjectService:
                 {"id": _uuid(), "name": "Desktop", "width": 1920, "height": 1080, "fps_numerator": 60, "fps_denominator": 1, "format_profile": FormatProfile.DESKTOP_16_9.value},
                 {"id": _uuid(), "name": "Mobile", "width": 1080, "height": 1920, "fps_numerator": 60, "fps_denominator": 1, "format_profile": FormatProfile.MOBILE_9_16.value},
             ]
-        checked = [validate_sequence(s) for s in sequences]
+        checked = [validate_sequence({**s, "id": s.get("id") or _uuid()}) for s in sequences]
         if not checked:
             raise EditValidationError("at least one sequence is required")
         project_id = _uuid(); commit_id = _uuid(); branch_id = _uuid(); ts = now_iso()
