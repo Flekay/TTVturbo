@@ -20,6 +20,7 @@ from ttvturbo.video_background_removal import (
 )
 from ttvturbo.video_text_edit import VideoTextEditService, VideoTextEditStorage
 from ttvturbo.video_upscale import VideoUpscaleService, VideoUpscaleStorage
+from ttvturbo.video_cut import VideoCutService, VideoCutStorage
 
 
 @pytest.fixture()
@@ -482,10 +483,24 @@ def test_app_registers_all_new_backend_routes(tmp_path: Path):
     from ttvturbo.app_factory import create_app
 
     app = create_app(Settings(data_root=tmp_path / "data"))
-    paths = {route.path for route in app.routes}
+    paths: set[str] = set()
+
+    def _walk(route_list) -> None:
+        for route in route_list:
+            if hasattr(route, "original_router"):
+                _walk(route.original_router.routes)
+                continue
+            if hasattr(route, "routes"):
+                _walk(route.routes)
+                continue
+            if hasattr(route, "path"):
+                paths.add(route.path)
+
+    _walk(app.routes)
     assert "/api/video-upscale/jobs" in paths
     assert "/api/video-background-removal/jobs" in paths
     assert "/api/video-text-edit/jobs" in paths
+    assert "/api/video-cut/jobs" in paths
     assert "/api/rendering/jobs" in paths
 
 
@@ -500,6 +515,7 @@ def test_new_capability_apis_map_missing_jobs_to_404(tmp_path: Path):
             "/api/video-upscale",
             "/api/video-background-removal",
             "/api/video-text-edit",
+            "/api/video-cut",
             "/api/rendering",
         ):
             response = client.get(f"{prefix}/jobs/{missing}")
@@ -613,3 +629,67 @@ def test_renderer_does_not_pipe_unread_ffmpeg_stderr(tmp_path: Path, monkeypatch
     assert stderr == ""
     assert captured["stdout"] is worker.subprocess.PIPE
     assert captured["stderr"] is not worker.subprocess.PIPE
+
+
+def test_video_cut_crops_region_and_preserves_audio(tmp_path: Path, tools: tuple[str, str]):
+    ffmpeg, ffprobe = tools
+    settings = Settings(data_root=tmp_path / "data")
+    paths = settings.paths(); paths.ensure_dirs()
+    library = LibraryService(LibraryStorage(paths.library))
+    item, source = _library_video(library, ffmpeg, title="VOD source")
+    original_hash = sha256_file(source)
+
+    from ttvturbo.video_cut.worker import main as cut_worker
+
+    service = VideoCutService(
+        storage=VideoCutStorage(paths.video_cut),
+        library_service=library,
+        settings=settings,
+        gpu_lock=GpuLock(paths.data_root),
+        worker_python="python",
+        ffmpeg_path=ffmpeg,
+        ffprobe_path=ffprobe,
+        worker_runner=_sync_worker(cut_worker),
+    )
+    # Source is 96x64; select the top-left quarter (48x32).
+    job = service.start_job(
+        media_item_id=item["id"],
+        region={"x": 0.0, "y": 0.0, "width": 0.5, "height": 0.5},
+        output_lifecycle="TEMPORARY",
+        options={"preserve_audio": True, "quality": "FINAL"},
+    )
+    assert job["status"] == "COMPLETED"
+    artifact = service.get_artifact(job["output_artifact_id"])
+    assert artifact["artifact_type"] == "VIDEO_REGION_CUT"
+    output = library.item_file_path(artifact["library_item_id"])
+    meta = video_metadata(ffprobe, output)
+    # Crop dimensions are rounded to even values; 48x32 are already even.
+    assert (meta["width"], meta["height"]) == (48, 32)
+    assert meta["has_audio"] is True
+    assert sha256_file(source) == original_hash
+    assert artifact["lifecycle"] == "TEMPORARY"
+
+
+def test_video_cut_rejects_region_outside_frame(tmp_path: Path, tools: tuple[str, str]):
+    ffmpeg, ffprobe = tools
+    settings = Settings(data_root=tmp_path / "data")
+    paths = settings.paths(); paths.ensure_dirs()
+    library = LibraryService(LibraryStorage(paths.library))
+    item, _ = _library_video(library, ffmpeg)
+
+    service = VideoCutService(
+        storage=VideoCutStorage(paths.video_cut),
+        library_service=library,
+        settings=settings,
+        gpu_lock=GpuLock(paths.data_root),
+        ffmpeg_path=ffmpeg,
+        ffprobe_path=ffprobe,
+    )
+    service.runtime_status = lambda: {"available": True, "reasons": []}
+    import pytest as _pytest
+    with _pytest.raises(Exception):
+        service.start_job(
+            media_item_id=item["id"],
+            region={"x": 0.8, "y": 0.8, "width": 0.5, "height": 0.5},
+        )
+

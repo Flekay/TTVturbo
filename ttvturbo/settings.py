@@ -83,6 +83,7 @@ class DataPaths:
     video_upscale: Path
     video_background_removal: Path
     video_text_edit: Path
+    video_cut: Path
     rendering: Path
     editor_commands: Path
 
@@ -111,6 +112,7 @@ class DataPaths:
             video_upscale=root / "video_upscale",
             video_background_removal=root / "video_background_removal",
             video_text_edit=root / "video_text_edit",
+            video_cut=root / "video_cut",
             rendering=root / "rendering",
             editor_commands=root / "editor_commands",
         )
@@ -141,6 +143,7 @@ class DataPaths:
             self.video_upscale,
             self.video_background_removal,
             self.video_text_edit,
+            self.video_cut,
             self.rendering,
             self.editor_commands,
         ):
@@ -351,6 +354,9 @@ class Settings:
     video_text_edit_cache_dir: Optional[str] = field(default_factory=lambda: _env_optional_str("TTVTURBO_VIDEO_TEXT_EDIT_CACHE_DIR"))
     video_text_edit_max_processing_side: int = field(default_factory=lambda: _env_int("TTVTURBO_VIDEO_TEXT_EDIT_MAX_SIDE", 768))
     video_text_edit_max_concurrent: int = field(default_factory=lambda: _env_int("TTVTURBO_MAX_CONCURRENT_VIDEO_TEXT_EDIT", 1))
+
+    # --- video region cut (ausschneiden) ----------------------------------
+    video_cut_max_concurrent: int = field(default_factory=lambda: _env_int("TTVTURBO_MAX_CONCURRENT_VIDEO_CUT", 1))
 
     # --- deterministic preview / final rendering --------------------------
     rendering_max_concurrent: int = field(default_factory=lambda: _env_int("TTVTURBO_MAX_CONCURRENT_RENDERING", 1))
