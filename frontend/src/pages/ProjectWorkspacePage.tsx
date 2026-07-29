@@ -123,6 +123,80 @@ export function ProjectWorkspacePage() {
   const [editorBusy, setEditorBusy] = useState(false);
   const [renderJobId, setRenderJobId] = useState<string | null>(null);
   const [savedRenderId, setSavedRenderId] = useState<string | null>(null);
+  const [sidePanelWidth, setSidePanelWidth] = useState(350);
+  const [timelineHeight, setTimelineHeight] = useState(330);
+  const editorGridRef = useRef<HTMLDivElement>(null);
+
+  const startResize = (cursor: string) => {
+    document.body.style.cursor = cursor;
+    document.body.style.userSelect = "none";
+    return () => {
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+  };
+
+  const beginSideResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = sidePanelWidth;
+    const reset = startResize("col-resize");
+    const move = (moveEvent: PointerEvent) => {
+      const delta = startX - moveEvent.clientX;
+      setSidePanelWidth(Math.max(240, Math.min(720, startWidth + delta)));
+    };
+    const release = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", release);
+      reset();
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", release);
+  };
+
+  const beginTimelineResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const startY = event.clientY;
+    const startHeight = timelineHeight;
+    const gridEl = editorGridRef.current;
+    const gridHeight = gridEl?.getBoundingClientRect().height ?? startHeight + 360;
+    const reset = startResize("row-resize");
+    const move = (moveEvent: PointerEvent) => {
+      const delta = moveEvent.clientY - startY;
+      setTimelineHeight(Math.max(160, Math.min(gridHeight - 240, startHeight - delta)));
+    };
+    const release = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", release);
+      reset();
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", release);
+  };
+
+  const beginCornerResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startWidth = sidePanelWidth;
+    const startHeight = timelineHeight;
+    const gridEl = editorGridRef.current;
+    const gridHeight = gridEl?.getBoundingClientRect().height ?? startHeight + 360;
+    const reset = startResize("nwse-resize");
+    const move = (moveEvent: PointerEvent) => {
+      const deltaX = startX - moveEvent.clientX;
+      const deltaY = moveEvent.clientY - startY;
+      setSidePanelWidth(Math.max(240, Math.min(720, startWidth + deltaX)));
+      setTimelineHeight(Math.max(160, Math.min(gridHeight - 240, startHeight - deltaY)));
+    };
+    const release = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", release);
+      reset();
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", release);
+  };
 
   const renderJob = useQuery({
     queryKey: ["render-job", renderJobId],
@@ -144,7 +218,6 @@ export function ProjectWorkspacePage() {
   const stateSources = commitState.data?.state?.sources ?? project.data?.sources ?? [];
   const activeBranch = project.data?.branches.find((branch) => branch.id === project.data?.active_branch_id);
   const commitItems = useMemo(() => commits.data?.pages.flatMap((page) => page.commits) ?? [], [commits.data]);
-  const commitTotal = commits.data?.pages[0]?.total ?? commitItems.length;
   const mediaTitles = useMemo(() => Object.fromEntries((library.data?.items ?? []).map((item) => [item.id, item.title])), [library.data?.items]);
 
   const timelineEndUs = useMemo(() => {
@@ -714,7 +787,18 @@ export function ProjectWorkspacePage() {
         <Button variant="primary" onClick={() => void handleRender()} loading={startRenderMutation.isPending || renderActive} disabled={timelineEndUs <= 0}><Video size={15} /> Final rendern</Button>
       </header>
 
-      <div className="editor-v2-grid">
+      <div
+        ref={editorGridRef}
+        className="editor-v2-grid"
+        style={{
+          gridTemplateColumns: `minmax(0, 1fr) 1px ${sidePanelWidth}px`,
+          gridTemplateRows: `minmax(240px, 1fr) 1px ${timelineHeight}px`,
+        }}
+      >
+        <div className="editor-v2-resizer editor-v2-resizer--vertical" onPointerDown={beginSideResize} role="separator" aria-orientation="vertical" aria-label="Seitenleiste skalieren" />
+        <div className="editor-v2-resizer editor-v2-resizer--horizontal editor-v2-resizer--h-left" onPointerDown={beginTimelineResize} role="separator" aria-orientation="horizontal" aria-label="Zeitleiste skalieren" />
+        <div className="editor-v2-resizer editor-v2-resizer--corner" onPointerDown={beginCornerResize} role="separator" aria-orientation="vertical" aria-label="Seitenleiste und Zeitleiste skalieren" />
+        <div className="editor-v2-resizer editor-v2-resizer--horizontal editor-v2-resizer--h-right" onPointerDown={beginTimelineResize} role="separator" aria-orientation="horizontal" aria-label="Zeitleiste skalieren" />
         <main className="editor-v2-main">
           <EditorCanvas
             sequence={readySequence}
@@ -746,7 +830,6 @@ export function ProjectWorkspacePage() {
         <EditorSidePanel
           checkoutCommitId={readyProject.checkout_commit_id}
           commits={commitItems}
-          totalCommits={commitTotal}
           commitsLoading={commits.isLoading}
           hasMoreCommits={Boolean(commits.hasNextPage)}
           loadingMoreCommits={commits.isFetchingNextPage}

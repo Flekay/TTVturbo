@@ -1,11 +1,10 @@
-import { Check, GitCommitHorizontal, History, Loader2, Send, Sparkles } from "lucide-react";
+import { Check, History, Loader2, Send, Sparkles } from "lucide-react";
 import { useMemo, useRef, useState, type CSSProperties, type WheelEvent } from "react";
 import type { EditCommit } from "../../features/projects/api";
 
 interface EditorSidePanelProps {
   checkoutCommitId: string;
   commits: EditCommit[];
-  totalCommits: number;
   commitsLoading: boolean;
   hasMoreCommits: boolean;
   loadingMoreCommits: boolean;
@@ -170,7 +169,6 @@ function formatCommitDate(value: string): string {
 export function EditorSidePanel({
   checkoutCommitId,
   commits,
-  totalCommits,
   commitsLoading,
   hasMoreCommits,
   loadingMoreCommits,
@@ -284,11 +282,6 @@ export function EditorSidePanel({
           onScroll={(event) => loadMoreWhenNearBottom(event.currentTarget)}
           onWheel={handleHistoryWheel}
         >
-          <header className="editor-history-header">
-            <div><GitCommitHorizontal size={15} /><strong>Änderungsverlauf</strong></div>
-            <span>{commits.length} / {totalCommits}</span>
-          </header>
-
           <div className="editor-history-list">
             {graph.rows.map(({ commit, lane, color, segments }) => {
               const isCurrent = commit.id === checkoutCommitId;

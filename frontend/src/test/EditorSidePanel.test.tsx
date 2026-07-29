@@ -7,7 +7,6 @@ import { renderWithProviders } from "./test-utils";
 const baseProps = {
   checkoutCommitId: "commit-1",
   commits: [],
-  totalCommits: 0,
   commitsLoading: false,
   hasMoreCommits: false,
   loadingMoreCommits: false,
@@ -60,7 +59,6 @@ describe("EditorSidePanel", () => {
         {...baseProps}
         onExecuteCommand={vi.fn().mockResolvedValue("ok")}
         checkoutCommitId="commit-2"
-        totalCommits={2}
         commits={[
           { id: "commit-2", message: "Clip getrimmt", created_at: "2026-07-29T18:34:13Z", parent_ids: ["commit-1"] },
           { id: "commit-1", message: "Projekt erstellt", created_at: "2026-07-29T18:30:00Z", parent_ids: [] },
@@ -84,7 +82,6 @@ describe("EditorSidePanel", () => {
       <EditorSidePanel
         {...baseProps}
         onExecuteCommand={vi.fn().mockResolvedValue("ok")}
-        totalCommits={20}
         hasMoreCommits
         commits={[
           { id: "commit-1", message: "Neueste Änderung", created_at: "2026-07-29T18:34:13Z", parent_ids: [] },
