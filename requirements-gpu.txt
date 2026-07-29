@@ -84,3 +84,6 @@ diffusers>=0.30.0
 # video-generation worker always has it.
 Pillow>=10.0.0
 
+# Generic video background removal. The GPU extra installs ONNX Runtime with
+# CUDA support; the worker can also be configured for CPU execution.
+rembg[gpu]>=2.0.67

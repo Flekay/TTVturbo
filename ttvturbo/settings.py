@@ -81,6 +81,7 @@ class DataPaths:
     video_generation: Path
     editing: Path
     video_upscale: Path
+    video_background_removal: Path
 
     @classmethod
     def from_root(cls, data_root: Path) -> "DataPaths":
@@ -105,6 +106,7 @@ class DataPaths:
             video_generation=root / "video_generation",
             editing=root / "editing",
             video_upscale=root / "video_upscale",
+            video_background_removal=root / "video_background_removal",
         )
 
     def ensure_dirs(self) -> None:
@@ -131,6 +133,7 @@ class DataPaths:
             self.video_generation,
             self.editing,
             self.video_upscale,
+            self.video_background_removal,
         ):
             p.mkdir(parents=True, exist_ok=True)
 
@@ -321,6 +324,12 @@ class Settings:
     video_upscale_realesrgan_path: str = field(default_factory=lambda: _env_optional_str("TTVTURBO_REALESRGAN_PATH") or "")
     video_upscale_realesrgan_model: str = field(default_factory=lambda: _env_str("TTVTURBO_REALESRGAN_MODEL", "realesrgan-x4plus"))
     video_upscale_max_concurrent: int = field(default_factory=lambda: _env_int("TTVTURBO_MAX_CONCURRENT_VIDEO_UPSCALE", 1))
+
+    # --- generic video background removal ---------------------------------
+    video_background_removal_model_id: str = field(default_factory=lambda: _env_str("TTVTURBO_VIDEO_BACKGROUND_MODEL", "isnet-general-use"))
+    video_background_removal_person_model_id: str = field(default_factory=lambda: _env_str("TTVTURBO_VIDEO_BACKGROUND_PERSON_MODEL", "u2net_human_seg"))
+    video_background_removal_device: str = field(default_factory=lambda: _env_str("TTVTURBO_VIDEO_BACKGROUND_DEVICE", "cpu"))
+    video_background_removal_max_concurrent: int = field(default_factory=lambda: _env_int("TTVTURBO_MAX_CONCURRENT_VIDEO_BACKGROUND_REMOVAL", 1))
 
     # --- server ------------------------------------------------------------
     host: str = "127.0.0.1"
