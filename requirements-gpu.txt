@@ -87,3 +87,7 @@ Pillow>=10.0.0
 # Generic video background removal. The GPU extra installs ONNX Runtime with
 # CUDA support; the worker can also be configured for CPU execution.
 rembg[gpu]>=2.0.67
+
+# Optical-flow temporal guidance for text-guided video editing. The worker
+# falls back to deterministic frame blending when OpenCV is unavailable.
+opencv-python-headless>=4.10.0

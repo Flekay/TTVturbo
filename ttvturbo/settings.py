@@ -82,6 +82,7 @@ class DataPaths:
     editing: Path
     video_upscale: Path
     video_background_removal: Path
+    video_text_edit: Path
 
     @classmethod
     def from_root(cls, data_root: Path) -> "DataPaths":
@@ -107,6 +108,7 @@ class DataPaths:
             editing=root / "editing",
             video_upscale=root / "video_upscale",
             video_background_removal=root / "video_background_removal",
+            video_text_edit=root / "video_text_edit",
         )
 
     def ensure_dirs(self) -> None:
@@ -134,6 +136,7 @@ class DataPaths:
             self.editing,
             self.video_upscale,
             self.video_background_removal,
+            self.video_text_edit,
         ):
             p.mkdir(parents=True, exist_ok=True)
 
@@ -330,6 +333,15 @@ class Settings:
     video_background_removal_person_model_id: str = field(default_factory=lambda: _env_str("TTVTURBO_VIDEO_BACKGROUND_PERSON_MODEL", "u2net_human_seg"))
     video_background_removal_device: str = field(default_factory=lambda: _env_str("TTVTURBO_VIDEO_BACKGROUND_DEVICE", "cpu"))
     video_background_removal_max_concurrent: int = field(default_factory=lambda: _env_int("TTVTURBO_MAX_CONCURRENT_VIDEO_BACKGROUND_REMOVAL", 1))
+
+    # --- text-guided video inpaint / edit ---------------------------------
+    video_text_inpaint_model_id: str = field(default_factory=lambda: _env_str("TTVTURBO_VIDEO_INPAINT_MODEL", "stable-diffusion-v1-5/stable-diffusion-inpainting"))
+    video_instruction_edit_model_id: str = field(default_factory=lambda: _env_str("TTVTURBO_VIDEO_INSTRUCTION_EDIT_MODEL", "timbrooks/instruct-pix2pix"))
+    video_text_edit_device: str = field(default_factory=lambda: _env_str("TTVTURBO_VIDEO_TEXT_EDIT_DEVICE", "cuda"))
+    video_text_edit_dtype: str = field(default_factory=lambda: _env_str("TTVTURBO_VIDEO_TEXT_EDIT_DTYPE", "float16"))
+    video_text_edit_cache_dir: Optional[str] = field(default_factory=lambda: _env_optional_str("TTVTURBO_VIDEO_TEXT_EDIT_CACHE_DIR"))
+    video_text_edit_max_processing_side: int = field(default_factory=lambda: _env_int("TTVTURBO_VIDEO_TEXT_EDIT_MAX_SIDE", 768))
+    video_text_edit_max_concurrent: int = field(default_factory=lambda: _env_int("TTVTURBO_MAX_CONCURRENT_VIDEO_TEXT_EDIT", 1))
 
     # --- server ------------------------------------------------------------
     host: str = "127.0.0.1"
