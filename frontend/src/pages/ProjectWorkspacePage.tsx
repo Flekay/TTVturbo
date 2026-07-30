@@ -11,11 +11,13 @@ import { Button } from "../components/ui/Button";
 import { ErrorState } from "../components/ui/ErrorState";
 import { useToast } from "../components/ui/ToastProvider";
 import { promoteLibraryItem } from "../features/capabilities/api";
-import { libraryItemFileUrl } from "../features/library/api";
+import { useStartCapabilityJob, useCapabilityJob } from "../features/capabilities/hooks";
+import { fetchLibraryItem, libraryItemFileUrl } from "../features/library/api";
 import { useLibraryItemsQuery } from "../features/library/hooks";
 import type { LibraryItem } from "../features/library/schemas";
 import { useUIStore } from "../stores/uiStore";
 import { parseEditorCommand, startRender, type EditCommit, type EditorCommandContext, type EditorCommandIntent, type EditSequence, type TimelineClip, type TimelineTrack } from "../features/projects/api";
+import type { NormalizedRegion } from "../features/videoCut";
 import {
   useAddProjectSource,
   useCheckoutBranch,
@@ -123,6 +125,8 @@ export function ProjectWorkspacePage() {
   const [editorBusy, setEditorBusy] = useState(false);
   const [renderJobId, setRenderJobId] = useState<string | null>(null);
   const [savedRenderId, setSavedRenderId] = useState<string | null>(null);
+  const [cutJobId, setCutJobId] = useState<string | null>(null);
+  const cutTargetRef = useRef<{ trackId: string; clip: TimelineClip } | null>(null);
   const [sidePanelWidth, setSidePanelWidth] = useState(350);
   const [timelineHeight, setTimelineHeight] = useState(330);
   const editorGridRef = useRef<HTMLDivElement>(null);
@@ -207,6 +211,10 @@ export function ProjectWorkspacePage() {
   const startRenderMutation = useMutation({ mutationFn: startRender, onSuccess: (job) => setRenderJobId(String(job.id)) });
   const promoteRender = useMutation({ mutationFn: promoteLibraryItem, onSuccess: (item) => setSavedRenderId(item.id) });
 
+  const startCutJob = useStartCapabilityJob("video-cut");
+  const cutJob = useCapabilityJob("video-cut", cutJobId);
+  const cutResultItemId = cutJob.data?.library_item_ids?.[0] ?? cutJob.data?.library_item_id ?? null;
+
   const activeSequenceId = project.data?.active_sequence_id ?? project.data?.sequences?.[0]?.id;
   const stateSequences = commitState.data?.state?.sequences ?? {};
   const activeSequence: EditSequence | undefined = activeSequenceId
@@ -286,10 +294,9 @@ export function ProjectWorkspacePage() {
     const handleKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
-      if (event.code === "Space") {
-        event.preventDefault();
-        setPlaying((value) => !value);
-      } else if ((event.key === "Delete" || event.key === "Backspace") && selectedTrack && selectedClip) {
+      // Space is handled by EditorCanvas (short press = play, long hold = pan).
+      if (event.code === "Space") return;
+      if ((event.key === "Delete" || event.key === "Backspace") && selectedTrack && selectedClip) {
         event.preventDefault();
         void removeClip(selectedTrack.id, selectedClip).catch((error) => toast.show({ title: "Clip konnte nicht entfernt werden", description: errorMessage(error), variant: "error" }));
       } else if (event.key.toLowerCase() === "s" && selectedTrack && selectedClip) {
@@ -308,6 +315,48 @@ export function ProjectWorkspacePage() {
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   });
+
+  // Ref holds the latest addMedia function so the auto-insert effect can call
+  // it without being defined after the early returns below.
+  const addMediaRef = useRef<((item: LibraryItem, mode: AddMediaMode) => Promise<void>) | null>(null);
+
+  // Replace the original clip with the cut result when the job completes.
+  // Must be declared BEFORE the early returns to keep hook order stable.
+  useEffect(() => {
+    if (!cutJob.data || cutJob.data.status !== "COMPLETED") return;
+    if (!cutResultItemId) return;
+    if (cutJobId && cutJob.data.id !== cutJobId) return;
+    const target = cutTargetRef.current;
+    if (!target) return;
+    void (async () => {
+      let item;
+      try {
+        // Fetch the item directly by ID — it may be TEMPORARY and thus
+        // absent from the filtered library list query.
+        item = await fetchLibraryItem(cutResultItemId);
+      } catch {
+        toast.show({ title: "Zuschnitt konnte nicht geladen werden", variant: "error" });
+        return;
+      }
+      try {
+        await replaceClipWithCutResult(target.trackId, target.clip, item);
+        setCutJobId(null);
+        cutTargetRef.current = null;
+      } catch {
+        // replaceClipWithCutResult already shows a toast on failure.
+      }
+    })();
+  }, [cutJob.data, cutResultItemId, cutJobId]);
+
+  // Toast on cut job failure (render-strip was removed).
+  useEffect(() => {
+    if (!cutJob.data || cutJob.data.status !== "FAILED") return;
+    if (cutJobId && cutJob.data.id !== cutJobId) return;
+    const msg = typeof cutJob.data.error === "string" ? cutJob.data.error : cutJob.data.error?.message ?? "Unbekannter Fehler";
+    toast.show({ title: "Zuschneiden fehlgeschlagen", description: msg, variant: "error" });
+    setCutJobId(null);
+    cutTargetRef.current = null;
+  }, [cutJob.data, cutJobId]);
 
   if (project.isError || !projectId) return <ErrorState title="Projekt konnte nicht geladen werden" message={project.error instanceof Error ? project.error.message : "Unbekannter Fehler"} />;
   if (project.isLoading || !project.data || !activeSequence) return <div className="state"><Loader2 className="spin" /> Projekt wird geladen …</div>;
@@ -415,6 +464,80 @@ export function ProjectWorkspacePage() {
       throw error;
     } finally {
       setEditorBusy(false);
+    }
+  }
+  addMediaRef.current = addMedia;
+
+  async function replaceClipWithCutResult(trackId: string, oldClip: TimelineClip, newItem: LibraryItem) {
+    setEditorBusy(true);
+    try {
+      await serialize(async () => {
+        const duration = await resolveDurationSeconds(newItem);
+        const branch = await ensureWritableBranchNow();
+        const sourceExists = sourceIdsRef.current.has(newItem.id);
+        if (!sourceExists) {
+          const attached = await addProjectSource.mutateAsync({
+            branch_id: branch.id,
+            expected_head_commit_id: headRef.current,
+            source: { media_item_id: newItem.id },
+            message: `Zuschnitt hinzugefügt: ${newItem.title}`,
+          });
+          headRef.current = attached.commit.id;
+          sourceIdsRef.current.add(newItem.id);
+        }
+        // Build a new clip that inherits position/transform from the old one
+        // but points at the cut result.
+        const newClip: TimelineClip = {
+          id: safeId("clip"),
+          source_media_item_id: newItem.id,
+          source_start_us: 0,
+          source_end_us: Math.max(1, Math.round(duration * 1_000_000)),
+          timeline_start_us: oldClip.timeline_start_us,
+          transform: oldClip.transform ?? { x: 0, y: 0, scale_x: 1, scale_y: 1, rotation: 0 },
+          opacity: oldClip.opacity,
+          audio_muted: oldClip.audio_muted,
+          speed: oldClip.speed,
+        };
+        const operations: Array<Record<string, unknown>> = [
+          { type: "REMOVE_CLIP", sequence_id: readySequence.id, payload: { track_id: trackId, clip_id: oldClip.id } },
+          { type: "ADD_CLIP", sequence_id: readySequence.id, payload: { track_id: trackId, clip: newClip } },
+        ];
+        const result = await createCommit.mutateAsync({
+          branch_id: branchRef.current,
+          expected_head_commit_id: headRef.current,
+          message: `Video zugeschnitten (ersetzt ${oldClip.id})`,
+          operations,
+        });
+        headRef.current = result.id;
+        setSelectedTrackId(trackId);
+        setSelectedClipId(newClip.id);
+      });
+      toast.show({ title: "Video zugeschnitten und ersetzt", variant: "success" });
+    } catch (error) {
+      toast.show({ title: "Zuschnitt konnte nicht eingefügt werden", description: errorMessage(error), variant: "error" });
+      throw error;
+    } finally {
+      setEditorBusy(false);
+    }
+  }
+
+  async function handleCutRegion(trackId: string, clip: TimelineClip, region: NormalizedRegion) {
+    if (!trackId || !clip) return;
+    cutTargetRef.current = { trackId, clip };
+    try {
+      const job = await startCutJob.mutateAsync({
+        media_item_id: clip.source_media_item_id,
+        output_lifecycle: "TEMPORARY",
+        region,
+        start_us: clip.source_start_us,
+        end_us: clip.source_end_us,
+        options: { preserve_audio: true, quality: "FINAL" },
+      });
+      setCutJobId(job.id);
+      toast.show({ title: "Zuschneiden gestartet", description: "Das Video wird zugeschnitten …", variant: "info" });
+    } catch (error) {
+      toast.show({ title: "Zuschneiden konnte nicht gestartet werden", description: errorMessage(error), variant: "error" });
+      cutTargetRef.current = null;
     }
   }
 
@@ -811,6 +934,8 @@ export function ProjectWorkspacePage() {
             onSelect={(trackId, clipId) => { setSelectedTrackId(trackId); setSelectedClipId(clipId); }}
             onTransformCommit={(trackId, clipId, transform) => runEditorAction(() => commitTransform(trackId, clipId, transform))}
             onAddMedia={() => setAddMediaOpen(true)}
+            onCutRegion={handleCutRegion}
+            onTogglePlay={() => setPlaying((value) => !value)}
           />
 
           {renderJobId ? (

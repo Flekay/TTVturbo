@@ -7,6 +7,8 @@ used because no per-frame AI processing is required.
 """
 from __future__ import annotations
 
+import os
+import shutil
 import subprocess
 import sys
 import traceback
@@ -19,6 +21,27 @@ from ttvturbo.media_capabilities.frame_pipeline import (
     update_job,
 )
 from ttvturbo.media_capabilities.utils import sha256_file, video_metadata
+
+
+def _resolve_executable(name: str, hint: str | None) -> str:
+    """Resolve an executable path, falling back to PATH + Windows locations."""
+    if hint and Path(hint).is_file():
+        return hint
+    found = shutil.which(name)
+    if found:
+        return found
+    if os.name == "nt":
+        local_app = os.environ.get("LOCALAPPDATA")
+        candidates: list[Path] = []
+        if local_app:
+            candidates.append(Path(local_app) / "Microsoft" / "WinGet" / "Packages")
+        candidates += [Path("C:/Program Files"), Path("C:/ffmpeg"), Path("C:/tools/ffmpeg")]
+        for base in candidates:
+            if not base.exists():
+                continue
+            for hit in base.rglob(f"{name}.exe"):
+                return str(hit)
+    raise FileNotFoundError(f"Could not find {name} (hint={hint!r})")
 
 
 def _run_ffmpeg_crop(
@@ -73,8 +96,8 @@ def main(argv: list[str] | None = None) -> int:
         expected_hash = str(desc.get("source_sha256") or "")
         if expected_hash and sha256_file(source) != expected_hash:
             return fail(job_dir, "source changed after the job was created", code="SOURCE_CHANGED", retryable=False)
-        ffmpeg = desc["ffmpeg_path"]
-        ffprobe = desc["ffprobe_path"]
+        ffmpeg = _resolve_executable("ffmpeg", desc.get("ffmpeg_path"))
+        ffprobe = _resolve_executable("ffprobe", desc.get("ffprobe_path"))
         start = float(desc.get("start_seconds") or 0.0)
         end = desc.get("end_seconds")
         end = float(end) if end is not None else None

@@ -246,6 +246,9 @@ class LibraryService:
     def _is_expired(meta: dict) -> bool:
         if meta.get("lifecycle", LIFECYCLE_PERSISTENT) != LIFECYCLE_TEMPORARY:
             return False
+        # In-use items are never expired (referenced by an edit project).
+        if meta.get("in_use"):
+            return False
         raw = meta.get("expires_at")
         if not raw:
             return False
@@ -257,6 +260,27 @@ class LibraryService:
         if expires.tzinfo is None:
             expires = expires.replace(tzinfo=_dt.timezone.utc)
         return expires <= now
+
+    def mark_in_use(self, item_id: str) -> None:
+        """Mark a library item as in-use so the cleanup loop skips it."""
+        meta = self.storage.load_item(item_id)
+        if meta.get("in_use"):
+            return
+        meta["in_use"] = True
+        meta["updated_at"] = _now_iso()
+        self.storage.save_item(meta)
+
+    def unmark_in_use(self, item_id: str) -> None:
+        """Clear the in-use flag so the cleanup loop can expire the item."""
+        try:
+            meta = self.storage.load_item(item_id)
+        except Exception:
+            return
+        if not meta.get("in_use"):
+            return
+        meta["in_use"] = False
+        meta["updated_at"] = _now_iso()
+        self.storage.save_item(meta)
 
     def cleanup_expired(self) -> int:
         deleted = 0

@@ -271,10 +271,11 @@ class EditProjectService:
             try:
                 if hasattr(self.library_service, "get_item"):
                     item = self.library_service.get_item(media_item_id)
-                    if item.get("lifecycle", "PERSISTENT") != "PERSISTENT":
-                        raise EditValidationError(
-                            "temporary media must be promoted before it can be used in an edit project"
-                        )
+                    # Mark temporary items as in-use so the cleanup loop
+                    # does not delete them while they are referenced by an
+                    # edit project.
+                    if item.get("lifecycle", "PERSISTENT") != "PERSISTENT" and hasattr(self.library_service, "mark_in_use"):
+                        self.library_service.mark_in_use(media_item_id)
                 path = self._library_path(media_item_id, asset_id)
             except EditValidationError:
                 raise
@@ -364,6 +365,15 @@ class EditProjectService:
     def delete_project(self, project_id: str) -> bool:
         with self.db.transaction() as conn:
             self._require_project(conn, project_id)
+            # Release in-use flags on TEMPORARY library items that were
+            # referenced by this project so the cleanup loop can expire them.
+            if self.library_service is not None and hasattr(self.library_service, "unmark_in_use"):
+                source_rows = conn.execute(
+                    "SELECT media_item_id FROM edit_project_sources WHERE project_id=?",
+                    (project_id,),
+                ).fetchall()
+                for (media_item_id,) in source_rows:
+                    self.library_service.unmark_in_use(media_item_id)
             # Manual cleanup in dependency order. Several tables reference
             # edit_commits with ON DELETE RESTRICT (commit parents, branch
             # heads, merge sessions, render artifacts), so the cascade from
