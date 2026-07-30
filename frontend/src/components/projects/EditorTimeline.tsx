@@ -51,8 +51,11 @@ type ContextMenuState =
 
 interface DragState {
   key: string;
+  sourceTrackId: string;
+  clipId: string;
   deltaUs: number;
   targetTrackId: string;
+  resolvedStartUs: number;
 }
 
 interface TrimState {
@@ -84,6 +87,37 @@ function rulerLabel(seconds: number): string {
 
 function snapUs(value: number): number {
   return Math.max(0, Math.round(value / 100_000) * 100_000);
+}
+
+// Push `proposedStart` so that [start, start+duration] does not overlap any
+// clip in `others` (excluding the clip with `selfId`). Chooses the nearest
+// non-overlapping side when a collision is detected.
+function resolveOverlap(
+  proposedStart: number,
+  duration: number,
+  others: TimelineClip[],
+  selfId: string,
+): number {
+  let start = Math.max(0, proposedStart);
+  for (let iter = 0; iter < others.length + 2; iter++) {
+    let collided = false;
+    for (const other of others) {
+      if (other.id === selfId) continue;
+      const otherStart = other.timeline_start_us;
+      const otherEnd = otherStart + durationUs(other);
+      if (start + duration <= otherStart || start >= otherEnd) continue;
+      const pushRight = otherEnd;
+      const pushLeft = Math.max(0, otherStart - duration);
+      start = Math.abs(pushRight - proposedStart) <= Math.abs(pushLeft - proposedStart)
+        ? pushRight
+        : pushLeft;
+      start = Math.max(0, start);
+      collided = true;
+      break;
+    }
+    if (!collided) break;
+  }
+  return start;
 }
 
 function trackAccepts(track: TimelineTrack, sourceTrack: TimelineTrack): boolean {
@@ -172,8 +206,10 @@ export function EditorTimeline({
     event.stopPropagation();
     onSelect(track.id, clip.id);
     const startX = event.clientX;
+    const clipDuration = durationUs(clip);
     let latestDelta = 0;
     let targetTrackId = track.id;
+    let resolvedStart = clip.timeline_start_us;
     const key = `${track.id}:${clip.id}`;
 
     const update = (pointer: PointerEvent) => {
@@ -181,14 +217,17 @@ export function EditorTimeline({
       const element = document.elementFromPoint(pointer.clientX, pointer.clientY)?.closest<HTMLElement>("[data-track-id]");
       const candidate = tracks.find((item) => item.id === element?.dataset.trackId);
       if (candidate && trackAccepts(candidate, track)) targetTrackId = candidate.id;
-      setDrag({ key, deltaUs: latestDelta, targetTrackId });
+      const proposed = snapUs(clip.timeline_start_us + latestDelta);
+      const targetTrack = tracks.find((item) => item.id === targetTrackId);
+      const others = Object.values(targetTrack?.clips ?? {});
+      resolvedStart = resolveOverlap(proposed, clipDuration, others, clip.id);
+      setDrag({ key, sourceTrackId: track.id, clipId: clip.id, deltaUs: latestDelta, targetTrackId, resolvedStartUs: resolvedStart });
     };
     const finish = () => {
       window.removeEventListener("pointermove", update);
       window.removeEventListener("pointerup", finish);
       setDrag(null);
-      const newStart = snapUs(clip.timeline_start_us + latestDelta);
-      if (newStart !== clip.timeline_start_us || targetTrackId !== track.id) onMoveClip(track.id, clip, targetTrackId, newStart);
+      if (resolvedStart !== clip.timeline_start_us || targetTrackId !== track.id) onMoveClip(track.id, clip, targetTrackId, resolvedStart);
     };
     window.addEventListener("pointermove", update);
     window.addEventListener("pointerup", finish, { once: true });
@@ -244,6 +283,30 @@ export function EditorTimeline({
   function closeAnd(action: () => void) {
     setContextMenu(null);
     action();
+  }
+
+  // Build the list of clips to render inside a given lane. While dragging, the
+  // dragged clip is hidden from its source lane and instead rendered inside the
+  // current target lane so the user sees the move live.
+  function laneEntries(track: TimelineTrack): Array<{ clip: TimelineClip; ownerTrack: TimelineTrack; isDragGhost: boolean }> {
+    const entries: Array<{ clip: TimelineClip; ownerTrack: TimelineTrack; isDragGhost: boolean }> = [];
+    for (const clip of Object.values(track.clips ?? {})) {
+      const key = `${track.id}:${clip.id}`;
+      if (drag?.key === key && drag.targetTrackId !== track.id) continue;
+      entries.push({ clip, ownerTrack: track, isDragGhost: false });
+    }
+    if (drag && drag.targetTrackId === track.id && drag.sourceTrackId !== track.id) {
+      const sourceTrack = tracks.find((item) => item.id === drag.sourceTrackId);
+      const draggedClip = sourceTrack?.clips?.[drag.clipId];
+      if (sourceTrack && draggedClip) {
+        entries.push({
+          clip: { ...draggedClip, timeline_start_us: drag.resolvedStartUs },
+          ownerTrack: track,
+          isDragGhost: true,
+        });
+      }
+    }
+    return entries;
   }
 
   const selectedTrack = tracks.find((track) => track.id === selectedTrackId);
@@ -310,37 +373,37 @@ export function EditorTimeline({
                   setContextMenu({ kind: "lane", ...position, track, timeUs: timeFromLanePoint(event.currentTarget, event.clientX) });
                 }}
               >
-                {Object.values(track.clips ?? {}).map((clip) => {
-                  const key = `${track.id}:${clip.id}`;
+                {laneEntries(track).map(({ clip, ownerTrack, isDragGhost }) => {
+                  const key = `${ownerTrack.id}:${clip.id}`;
+                  const isThisDragged = isDragGhost || (drag != null && drag.sourceTrackId === ownerTrack.id && drag.clipId === clip.id);
                   const trimValue = trim?.key === key ? trim : null;
                   const sourceStart = trimValue?.sourceStartUs ?? clip.source_start_us;
                   const sourceEnd = trimValue?.sourceEndUs ?? clip.source_end_us;
-                  const timelineStart = trimValue?.timelineStartUs ?? clip.timeline_start_us;
+                  const timelineStart = isThisDragged ? drag!.resolvedStartUs : (trimValue?.timelineStartUs ?? clip.timeline_start_us);
                   const baseDuration = (sourceEnd - sourceStart) / Math.max(0.05, Number(clip.speed ?? 1));
-                  const dragDelta = drag?.key === key ? drag.deltaUs : 0;
-                  const left = Math.max(0, (timelineStart + dragDelta) / 1_000_000 * pixelsPerSecond);
+                  const left = Math.max(0, timelineStart / 1_000_000 * pixelsPerSecond);
                   const width = Math.max(22, baseDuration / 1_000_000 * pixelsPerSecond);
-                  const selected = track.id === selectedTrackId && clip.id === selectedClipId;
+                  const selected = ownerTrack.id === selectedTrackId && clip.id === selectedClipId;
                   return (
                     <div
                       key={clip.id}
-                      className={`editor-timeline-clip editor-timeline-clip--${track.type.toLowerCase()}${selected ? " is-selected" : ""}${drag?.key === key ? " is-dragging" : ""}`}
+                      className={`editor-timeline-clip editor-timeline-clip--${ownerTrack.type.toLowerCase()}${selected ? " is-selected" : ""}${isThisDragged ? " is-dragging" : ""}`}
                       style={{ left, width }}
-                      onPointerDown={(event) => beginMove(event, track, clip)}
+                      onPointerDown={(event) => beginMove(event, ownerTrack, clip)}
                       onContextMenu={(event) => {
                         event.preventDefault();
                         event.stopPropagation();
-                        onSelect(track.id, clip.id);
-                        setContextMenu({ kind: "clip", ...contextPosition(event.clientX, event.clientY), track, clip });
+                        onSelect(ownerTrack.id, clip.id);
+                        setContextMenu({ kind: "clip", ...contextPosition(event.clientX, event.clientY), track: ownerTrack, clip });
                       }}
                     >
-                      <button className="editor-timeline-clip__trim editor-timeline-clip__trim--left" type="button" aria-label="Clip-Anfang trimmen" onPointerDown={(event) => beginTrim(event, track, clip, "left")} />
+                      <button className="editor-timeline-clip__trim editor-timeline-clip__trim--left" type="button" aria-label="Clip-Anfang trimmen" onPointerDown={(event) => beginTrim(event, ownerTrack, clip, "left")} />
                       <span className="editor-timeline-clip__content">
-                        {track.type === "AUDIO" ? <AudioLines size={13} /> : <Film size={13} />}
+                        {ownerTrack.type === "AUDIO" ? <AudioLines size={13} /> : <Film size={13} />}
                         <strong>{mediaTitles[clip.source_media_item_id] ?? "Clip"}</strong>
                         {Boolean(clip.audio_muted) ? <VolumeX size={12} /> : null}
                       </span>
-                      <button className="editor-timeline-clip__trim editor-timeline-clip__trim--right" type="button" aria-label="Clip-Ende trimmen" onPointerDown={(event) => beginTrim(event, track, clip, "right")} />
+                      <button className="editor-timeline-clip__trim editor-timeline-clip__trim--right" type="button" aria-label="Clip-Ende trimmen" onPointerDown={(event) => beginTrim(event, ownerTrack, clip, "right")} />
                     </div>
                   );
                 })}
