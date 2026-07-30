@@ -5,7 +5,8 @@ export type QuickToolId =
   | "video-upscale"
   | "video-background-removal"
   | "video-text-edit"
-  | "video-generation";
+  | "video-generation"
+  | "video-cut";
 
 export interface CapabilityJob {
   id: string;
@@ -41,6 +42,7 @@ const PREFIXES: Record<QuickToolId, string> = {
   "video-background-removal": "/api/video-background-removal",
   "video-text-edit": "/api/video-text-edit",
   "video-generation": "/api/video-generation",
+  "video-cut": "/api/video-cut",
 };
 
 export async function fetchCapabilityStatus(tool: QuickToolId): Promise<CapabilityStatus> {

@@ -27,6 +27,7 @@ const QUICK_ACTIONS = [
   { to: "/create/video-upscale", title: "Video hochskalieren", description: "Einzelne Datei, kein Projekt", icon: Sparkles },
   { to: "/create/background-removal", title: "Hintergrund entfernen", description: "Temporäres Schnellwerkzeug", icon: ImageOff },
   { to: "/create/text-edit", title: "Video per Text ändern", description: "Bereich oder Vollbild bearbeiten", icon: WandSparkles },
+  { to: "/create/video-cut", title: "Video-Bereich ausschneiden", description: "Rechteck extrahieren, Audio bleibt", icon: Scissors },
   { to: "/create/video-generation", title: "Video generieren", description: "Text- oder Bildvorlage", icon: Plus },
 ];
 

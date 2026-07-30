@@ -45,6 +45,7 @@ export function AppRouter() {
       <Route path="/create/video-upscale" element={<WithLayout><QuickToolPage tool="video-upscale" /></WithLayout>} />
       <Route path="/create/background-removal" element={<WithLayout><QuickToolPage tool="video-background-removal" /></WithLayout>} />
       <Route path="/create/text-edit" element={<WithLayout><QuickToolPage tool="video-text-edit" /></WithLayout>} />
+      <Route path="/create/video-cut" element={<WithLayout><QuickToolPage tool="video-cut" /></WithLayout>} />
       <Route path="/create/video-generation" element={<WithLayout><QuickToolPage tool="video-generation" /></WithLayout>} />
       <Route path="/projects" element={<WithLayout><ProjectsPage /></WithLayout>} />
       <Route path="/projects/:projectId" element={<WithLayout><ProjectWorkspacePage /></WithLayout>} />

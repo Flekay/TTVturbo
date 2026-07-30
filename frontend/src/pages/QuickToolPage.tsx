@@ -10,6 +10,7 @@ import {
   Image as ImageIcon,
   Loader2,
   Save,
+  Scissors,
   Settings2,
   Sparkles,
   Trash2,
@@ -40,6 +41,7 @@ import {
   useUploadTemporaryMedia,
 } from "../features/capabilities/hooks";
 import { createProject } from "../features/projects/api";
+import { RegionPicker, type NormalizedRegion } from "../features/videoCut";
 
 interface ToolDefinition {
   id: QuickToolId;
@@ -82,6 +84,14 @@ const DEFINITIONS: Record<QuickToolId, ToolDefinition> = {
     accept: "image/png,image/jpeg,image/webp,image/bmp",
     fileLabel: "Referenzbild optional",
     needsSource: false,
+  },
+  "video-cut": {
+    id: "video-cut",
+    title: "Video-Bereich ausschneiden",
+    description: "Wähle einen rechteckigen Bereich aus dem Video aus und speichere ihn als eigenes Video. Audio bleibt erhalten.",
+    accept: "video/*",
+    fileLabel: "Video auswählen",
+    needsSource: true,
   },
 };
 
@@ -158,6 +168,7 @@ export function QuickToolPage({ tool }: { tool: QuickToolId }) {
   const [guidance, setGuidance] = useState("7.5");
   const [startSeconds, setStartSeconds] = useState("0");
   const [endSeconds, setEndSeconds] = useState("");
+  const [cutRegion, setCutRegion] = useState<NormalizedRegion | null>(null);
 
   const status = useCapabilityStatus(tool);
   const capabilityInfo = useCapabilityInfo(tool);
@@ -276,6 +287,18 @@ export function QuickToolPage({ tool }: { tool: QuickToolId }) {
             ...(seed.trim() ? { seed: Number(seed) } : {}),
             quality: quality === "FAST" ? "PREVIEW" : "FINAL",
             preserve_audio: true,
+          },
+        };
+      } else if (tool === "video-cut") {
+        if (!cutRegion) throw new Error("Wähle zuerst einen Bereich im Video aus.");
+        payload = {
+          media_item_id: input!.id,
+          output_lifecycle: "TEMPORARY",
+          ...commonTimeRange(),
+          region: cutRegion,
+          options: {
+            preserve_audio: true,
+            quality: quality === "FAST" ? "PREVIEW" : "FINAL",
           },
         };
       } else {
@@ -434,6 +457,16 @@ export function QuickToolPage({ tool }: { tool: QuickToolId }) {
                 </>
               )}
 
+              {tool === "video-cut" && source && (
+                <RegionPicker
+                  videoUrl={libraryFileUrl(source.id)}
+                  region={cutRegion}
+                  onChange={setCutRegion}
+                  label="Bereich im Video"
+                  disabled={busy}
+                />
+              )}
+
               {tool === "video-generation" && (
                 <>
                   <label>Prompt<textarea className="input textarea" rows={6} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Beschreibe Szene, Bewegung, Licht und Kameraführung." /></label>
@@ -464,7 +497,7 @@ export function QuickToolPage({ tool }: { tool: QuickToolId }) {
 
             {!job && (
               <div className="quick-tool-actions">
-                <Button variant="primary" onClick={() => void handleStart()} loading={upload.isPending || start.isPending} disabled={Boolean(statusUnavailable) || (definition.needsSource && !source && !selectedFile)}><Sparkles size={16} /> {definition.title}</Button>
+                <Button variant="primary" onClick={() => void handleStart()} loading={upload.isPending || start.isPending} disabled={Boolean(statusUnavailable) || (definition.needsSource && !source && !selectedFile) || (tool === "video-cut" && !cutRegion)}>{tool === "video-cut" ? <Scissors size={16} /> : <Sparkles size={16} />} {definition.title}</Button>
                 <span>Ergebnis wird nach Ablauf der temporären Aufbewahrung gelöscht, solange du es nicht speicherst.</span>
               </div>
             )}

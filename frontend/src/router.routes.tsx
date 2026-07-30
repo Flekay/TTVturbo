@@ -5,6 +5,7 @@ import {
   Library,
   ListChecks,
   Plus,
+  Scissors,
   Settings,
   Sparkles,
   type LucideIcon,
@@ -78,6 +79,12 @@ export const ROUTES: RouteMeta[] = [
     label: "Video per Text bearbeiten",
     description: "Bereiche oder das vollständige Video mit einer Anweisung verändern.",
     icon: Sparkles,
+  },
+  {
+    path: "/create/video-cut",
+    label: "Video-Bereich ausschneiden",
+    description: "Einen rechteckigen Bereich aus einem Video als eigenes Video extrahieren.",
+    icon: Scissors,
   },
   {
     path: "/create/video-generation",

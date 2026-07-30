@@ -241,6 +241,26 @@
 .color-field { display: flex !important; align-items: center; justify-content: space-between; }
 .capability-note .info-row:last-child { border-bottom: 0; }
 
+/* Region picker (video-cut) */
+.region-picker { display: grid; gap: var(--space-2); }
+.region-picker__label { color: var(--color-text-secondary); font-size: 12px; }
+.region-picker__stage { position: relative; border: 1px solid var(--color-border); border-radius: var(--radius-md); overflow: hidden; background: #000; aspect-ratio: 16 / 9; }
+.region-picker__video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; user-select: none; }
+.region-picker__surface { position: absolute; inset: 0; cursor: crosshair; touch-action: none; }
+.region-picker__surface.is-disabled { cursor: not-allowed; opacity: .55; }
+.region-picker__surface.has-selection { cursor: default; }
+.region-picker__hint { position: absolute; inset: 0; display: grid; place-items: center; gap: 6px; color: var(--color-text-muted); font-size: 12px; text-align: center; pointer-events: none; background: rgba(0,0,0,.25); }
+.region-picker__hint span { max-width: 220px; }
+.region-picker__rect { position: absolute; border: 2px solid var(--color-accent); background: rgba(109,124,255,.12); cursor: move; touch-action: none; box-shadow: 0 0 0 9999px rgba(0,0,0,.35); }
+.region-picker__handle { position: absolute; width: 12px; height: 12px; background: var(--color-accent); border: 2px solid var(--color-bg-panel); border-radius: 50%; }
+.region-picker__handle--nw { top: -7px; left: -7px; cursor: nwse-resize; }
+.region-picker__handle--ne { top: -7px; right: -7px; cursor: nesw-resize; }
+.region-picker__handle--sw { bottom: -7px; left: -7px; cursor: nesw-resize; }
+.region-picker__handle--se { bottom: -7px; right: -7px; cursor: nwse-resize; }
+.region-picker__clear { position: absolute; top: 4px; right: 4px; display: grid; place-items: center; width: 20px; height: 20px; border: 0; border-radius: 50%; background: rgba(0,0,0,.6); color: var(--color-text-primary); cursor: pointer; }
+.region-picker__clear:hover { background: var(--color-error); }
+.region-picker__meta { display: flex; justify-content: space-between; color: var(--color-text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+
 /* Jobs */
 .tabs { display: inline-flex; gap: 3px; padding: 3px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg-elevated); }
 .page-toolbar__actions { display: flex; gap: var(--space-2); align-items: center; }

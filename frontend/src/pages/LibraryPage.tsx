@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { Download, Upload, Trash2, AlertCircle, Loader2, Film, FileVideo, Search, MoreVertical, Sparkles, ImageOff, WandSparkles, FolderKanban } from "lucide-react";
+import { Download, Upload, Trash2, AlertCircle, Loader2, Film, FileVideo, Search, MoreVertical, Sparkles, ImageOff, WandSparkles, FolderKanban, Scissors } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "../components/ui/Button";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog";
@@ -444,6 +444,9 @@ function LibraryCard({
                 </MenuItem>
                 <MenuItem onSelect={() => { window.location.href = `/create/text-edit?source=${encodeURIComponent(item.id)}&persist=1`; }}>
                   <WandSparkles size={14} /> Per Text bearbeiten
+                </MenuItem>
+                <MenuItem onSelect={() => { window.location.href = `/create/video-cut?source=${encodeURIComponent(item.id)}&persist=1`; }}>
+                  <Scissors size={14} /> Bereich ausschneiden
                 </MenuItem>
                 <MenuSeparator />
                 <MenuItem onSelect={() => window.open(item.fileUrl!, "_blank")}>

@@ -59,6 +59,7 @@ export function CreatePage() {
           <ToolCard to="/create/video-upscale" icon={<Sparkles size={21} />} title="Video hochskalieren" description="2×, 4× oder benutzerdefinierte Auflösung." statusTool="video-upscale" />
           <ToolCard to="/create/background-removal" icon={<ImageOff size={21} />} title="Hintergrund entfernen" description="Transparent, weichgezeichnet oder neue Farbe." statusTool="video-background-removal" />
           <ToolCard to="/create/text-edit" icon={<WandSparkles size={21} />} title="Video per Text bearbeiten" description="Objekte, Stil oder Bildbereiche verändern." statusTool="video-text-edit" />
+          <ToolCard to="/create/video-cut" icon={<Scissors size={21} />} title="Video-Bereich ausschneiden" description="Rechteckigen Bereich als eigenes Video extrahieren." statusTool="video-cut" />
           <ToolCard to="/create/video-generation" icon={<Video size={21} />} title="Video generieren" description="Text-to-Video oder Image-to-Video." statusTool="video-generation" />
           <ToolCard to="/transcription" icon={<Captions size={21} />} title="Audio transkribieren" description="Datei hochladen und Transkript exportieren." />
           <ToolCard to="/voice-clone" icon={<AudioLines size={21} />} title="Voiceover erstellen" description="Text mit einem vorhandenen Voice-Profil erzeugen." />
