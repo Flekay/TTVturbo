@@ -75,6 +75,27 @@ def _library_video(library: LibraryService, ffmpeg: str, *, title: str = "Source
     return item, path
 
 
+def _library_image(library: LibraryService, ffmpeg: str, *, width: int = 96, height: int = 64, title: str = "Image source") -> tuple[dict, Path]:
+    item = library.create_upload_item("source.png", title=title, duration_seconds=0.0)
+    path = library.storage.item_dir(item["id"]) / "source.png"
+    cmd = [
+        ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
+        "-f", "lavfi", "-i", f"color=c=red:s={width}x{height}:d=1",
+        "-frames:v", "1", str(path),
+    ]
+    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    assert proc.returncode == 0, proc.stderr.decode("utf-8", errors="replace")
+    assert path.is_file() and path.stat().st_size > 0
+    item.update({
+        "file_name": "source.png",
+        "container": "png",
+        "duration_seconds": 0.0,
+        "file_size_bytes": path.stat().st_size,
+    })
+    library.storage.save_item(item)
+    return item, path
+
+
 def _sync_worker(main):
     def runner(_payload: dict, job_dir: Path) -> None:
         code = main([str(job_dir)])
@@ -692,4 +713,44 @@ def test_video_cut_rejects_region_outside_frame(tmp_path: Path, tools: tuple[str
             media_item_id=item["id"],
             region={"x": 0.8, "y": 0.8, "width": 0.5, "height": 0.5},
         )
+
+
+def test_video_cut_crops_image_without_empty_range_error(tmp_path: Path, tools: tuple[str, str]):
+    """Cropping a still image must not fail with 'requested time range is empty'.
+
+    Images report duration_seconds=0 from ffprobe, which previously caused the
+    worker to reject the job. The worker now detects images and produces a
+    short video from the single frame with the crop applied.
+    """
+    ffmpeg, ffprobe = tools
+    settings = Settings(data_root=tmp_path / "data")
+    paths = settings.paths(); paths.ensure_dirs()
+    library = LibraryService(LibraryStorage(paths.library))
+    item, source = _library_image(library, ffmpeg, title="Image source")
+
+    from ttvturbo.video_cut.worker import main as cut_worker
+
+    service = VideoCutService(
+        storage=VideoCutStorage(paths.video_cut),
+        library_service=library,
+        settings=settings,
+        gpu_lock=GpuLock(paths.data_root),
+        worker_python="python",
+        ffmpeg_path=ffmpeg,
+        ffprobe_path=ffprobe,
+        worker_runner=_sync_worker(cut_worker),
+    )
+    # Source is 96x64; select the top-left quarter (48x32).
+    job = service.start_job(
+        media_item_id=item["id"],
+        region={"x": 0.0, "y": 0.0, "width": 0.5, "height": 0.5},
+        output_lifecycle="TEMPORARY",
+        options={"preserve_audio": True, "quality": "FINAL"},
+    )
+    assert job["status"] == "COMPLETED"
+    artifact = service.get_artifact(job["output_artifact_id"])
+    output = library.item_file_path(artifact["library_item_id"])
+    meta = video_metadata(ffprobe, output)
+    assert (meta["width"], meta["height"]) == (48, 32)
+    assert meta["duration_seconds"] > 0
 

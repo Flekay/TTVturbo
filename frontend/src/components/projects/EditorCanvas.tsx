@@ -47,7 +47,7 @@ interface EditorCanvasProps {
   onSelect: (trackId: string, clipId: string) => void;
   onTransformCommit: (trackId: string, clipId: string, transform: CanvasTransform) => Promise<void> | void;
   onAddMedia?: () => void;
-  onCutRegion?: (trackId: string, clip: TimelineClip, region: NormalizedRegion) => void;
+  onCutRegion?: (trackId: string, clip: TimelineClip, region: NormalizedRegion, targetTransform: CanvasTransform) => void;
   onTogglePlay?: () => void;
 }
 
@@ -69,6 +69,69 @@ const MAX_ZOOM = 8;
 const DEFAULT_ZOOM = 0.25;
 const MIN_CROP_SIZE = 0.02;
 const SPACE_HOLD_THRESHOLD = 150; // ms — short press = play, long hold = pan
+// Snap threshold in screen pixels; converted to stage pixels via /zoom.
+// Hold Ctrl while dragging to temporarily disable snapping (Photoshop convention).
+const SNAP_THRESHOLD_PX = 6;
+
+interface SnapGuides {
+  vertical: number[]; // x positions in stage pixels
+  horizontal: number[]; // y positions in stage pixels
+}
+
+// Snap a moving clip's rectangle (in stage pixels) to the stage edges and
+// stage center. The clip's left/center/right are matched against vertical
+// targets [0, seqW/2, seqW]; top/center/bottom against [0, seqH/2, seqH].
+// Returns the adjusted rect plus the guide lines that should be drawn.
+function snapMoveRect(
+  rect: { left: number; top: number; width: number; height: number },
+  seqW: number,
+  seqH: number,
+  zoom: number,
+): { rect: { left: number; top: number; width: number; height: number }; guides: SnapGuides } {
+  const threshold = SNAP_THRESHOLD_PX / zoom;
+  const vTargets = [0, seqW / 2, seqW];
+  const hTargets = [0, seqH / 2, seqH];
+  let { left, top, width, height } = rect;
+  const guides: SnapGuides = { vertical: [], horizontal: [] };
+
+  let bestVDiff = threshold + 1;
+  let bestVShift = 0;
+  let bestVTarget = 0;
+  for (const target of vTargets) {
+    for (const point of [left, left + width / 2, left + width]) {
+      const diff = point - target;
+      if (Math.abs(diff) <= threshold && Math.abs(diff) < Math.abs(bestVDiff)) {
+        bestVDiff = diff;
+        bestVShift = -diff;
+        bestVTarget = target;
+      }
+    }
+  }
+  if (bestVDiff <= threshold) {
+    left += bestVShift;
+    guides.vertical.push(bestVTarget);
+  }
+
+  let bestHDiff = threshold + 1;
+  let bestHShift = 0;
+  let bestHTarget = 0;
+  for (const target of hTargets) {
+    for (const point of [top, top + height / 2, top + height]) {
+      const diff = point - target;
+      if (Math.abs(diff) <= threshold && Math.abs(diff) < Math.abs(bestHDiff)) {
+        bestHDiff = diff;
+        bestHShift = -diff;
+        bestHTarget = target;
+      }
+    }
+  }
+  if (bestHDiff <= threshold) {
+    top += bestHShift;
+    guides.horizontal.push(bestHTarget);
+  }
+
+  return { rect: { left, top, width, height }, guides };
+}
 
 function clipDurationUs(clip: TimelineClip): number {
   return Math.max(1, (clip.source_end_us - clip.source_start_us) / Math.max(0.05, Number(clip.speed ?? 1)));
@@ -114,6 +177,59 @@ function computeContentFrame(
   return { left: (containerW - width) / 2, top: 0, width, height: containerH };
 }
 
+// Compute the transform the crop RESULT clip should receive so that it occupies
+// exactly the screen rectangle the crop region occupied within the original
+// clip's content frame. Without this, the cropped video would inherit the
+// original clip's transform (e.g. fill-the-whole-stage) and get stretched.
+//
+// The crop region is normalized (0..1) relative to the content frame. The new
+// video's intrinsic aspect ratio equals the crop rect's aspect ratio, so
+// setting the new container = crop rect makes the new video fill it exactly
+// (no letterboxing). Rotation is preserved: the crop rect center is rotated
+// around the original container center to find the new container center.
+function computeCropTargetTransform(
+  value: CanvasTransform,
+  region: NormalizedRegion,
+  dims: { w: number; h: number } | undefined,
+  seqW: number,
+  seqH: number,
+): CanvasTransform {
+  const containerW = value.scale_x * seqW;
+  const containerH = value.scale_y * seqH;
+  const isStretched = Math.abs(value.scale_x - value.scale_y) > 0.01;
+  // Content frame in container-local stage pixels.
+  const cf = dims && !isStretched
+    ? computeContentFrame(value.scale_x, value.scale_y, dims, seqW, seqH)
+    : { left: 0, top: 0, width: containerW, height: containerH };
+  // Crop rect in container-local stage pixels.
+  const cropLeft = cf.left + region.x * cf.width;
+  const cropTop = cf.top + region.y * cf.height;
+  const cropW = region.width * cf.width;
+  const cropH = region.height * cf.height;
+  // Original container center in stage coords.
+  const containerCenterX = value.x * seqW + containerW / 2;
+  const containerCenterY = value.y * seqH + containerH / 2;
+  // Crop rect center offset from container center (container-local).
+  const offsetLocalX = cropLeft + cropW / 2 - containerW / 2;
+  const offsetLocalY = cropTop + cropH / 2 - containerH / 2;
+  // Rotate the offset into stage coords.
+  const rad = (value.rotation * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const offsetStageX = cos * offsetLocalX - sin * offsetLocalY;
+  const offsetStageY = sin * offsetLocalX + cos * offsetLocalY;
+  // New container center in stage coords.
+  const newCenterX = containerCenterX + offsetStageX;
+  const newCenterY = containerCenterY + offsetStageY;
+  return {
+    x: (newCenterX - cropW / 2) / seqW,
+    y: (newCenterY - cropH / 2) / seqH,
+    scale_x: cropW / seqW,
+    scale_y: cropH / seqH,
+    rotation: value.rotation,
+  };
+}
+
 export function EditorCanvas({
   sequence,
   tracks,
@@ -137,6 +253,7 @@ export function EditorCanvas({
   const [cropDraft, setCropDraft] = useState<NormalizedRegion | null>(null);
   const [spacePanning, setSpacePanning] = useState(false);
   const [videoDims, setVideoDims] = useState<Record<string, { w: number; h: number }>>({});
+  const [snapGuides, setSnapGuides] = useState<SnapGuides | null>(null);
 
   // Refs for space-key logic (short press = play, long hold = pan)
   const spaceDownRef = useRef<number>(0);
@@ -418,11 +535,20 @@ export function EditorCanvas({
 
     const update = (pointer: PointerEvent) => {
       let next = { ...start };
+      let guides: SnapGuides | null = null;
       if (mode === "move") {
         const dx = (pointer.clientX - startX) / (seqW * zoom);
         const dy = (pointer.clientY - startY) / (seqH * zoom);
         next.x = start.x + dx;
         next.y = start.y + dy;
+        // Snapping: hold Ctrl to disable (Photoshop convention).
+        if (!pointer.ctrlKey) {
+          const rect = { left: next.x * seqW, top: next.y * seqH, width: next.scale_x * seqW, height: next.scale_y * seqH };
+          const snapped = snapMoveRect(rect, seqW, seqH, zoom);
+          next.x = snapped.rect.left / seqW;
+          next.y = snapped.rect.top / seqH;
+          if (snapped.guides.vertical.length || snapped.guides.horizontal.length) guides = snapped.guides;
+        }
       } else if (mode === "rotate") {
         const angle = Math.atan2(pointer.clientY - clipCenterScreenY, pointer.clientX - clipCenterScreenX) * 180 / Math.PI;
         next.rotation = Math.round((start.rotation + angle - startAngle) * 10) / 10;
@@ -431,16 +557,21 @@ export function EditorCanvas({
         // kept fixed in screen space, and the dragged handle follows the cursor
         // along the handle's local axis. Screen deltas are rotated into the
         // clip's local frame so resizing a rotated clip behaves intuitively.
+        //
+        // Alt modifier (Photoshop): scale from the clip's center instead of the
+        // opposite edge — the center stays fixed and the dragged handle mirrors
+        // to the opposite side, so the clip grows symmetrically.
         const handle = mode.slice("resize-".length);
         const sgnX = handle.includes("w") ? -1 : handle.includes("e") ? 1 : 0;
         const sgnY = handle.includes("n") ? -1 : handle.includes("s") ? 1 : 0;
         const rad = (start.rotation * Math.PI) / 180;
         const cos = Math.cos(rad);
         const sin = Math.sin(rad);
-        // Anchor = opposite corner/edge, in container-local stage pixels,
-        // relative to the container center. Its screen position stays fixed.
-        const anchorRelX = (-sgnX * start.scale_x * seqW) / 2;
-        const anchorRelY = (-sgnY * start.scale_y * seqH) / 2;
+        const fromCenter = pointer.altKey;
+        // Anchor = opposite corner/edge (default) or the clip center (Alt).
+        // In container-local stage pixels, relative to the container center.
+        const anchorRelX = fromCenter ? 0 : (-sgnX * start.scale_x * seqW) / 2;
+        const anchorRelY = fromCenter ? 0 : (-sgnY * start.scale_y * seqH) / 2;
         const anchorScreenX = clipCenterScreenX + (cos * anchorRelX - sin * anchorRelY) * zoom;
         const anchorScreenY = clipCenterScreenY + (sin * anchorRelX + cos * anchorRelY) * zoom;
         // Cursor delta from the anchor, rotated into the clip's local frame.
@@ -449,8 +580,11 @@ export function EditorCanvas({
         const dys = pointer.clientY - anchorScreenY;
         const localX = (cos * dxs + sin * dys) / zoom;
         const localY = (-sin * dxs + cos * dys) / zoom;
-        let newW = sgnX !== 0 ? sgnX * localX : start.scale_x * seqW;
-        let newH = sgnY !== 0 ? sgnY * localY : start.scale_y * seqH;
+        // From-center: the handle is half a width/height away from the anchor,
+        // so the cursor-to-anchor distance is half the new size → multiply by 2.
+        const sizeFactor = fromCenter ? 2 : 1;
+        let newW = sgnX !== 0 ? sizeFactor * sgnX * localX : start.scale_x * seqW;
+        let newH = sgnY !== 0 ? sizeFactor * sgnY * localY : start.scale_y * seqH;
         const targetAspect = (start.scale_x * seqW) / Math.max(0.001, start.scale_y * seqH);
         // Proportional (corner handles, Shift not held): lock container aspect.
         if (proportional && sgnX !== 0 && sgnY !== 0) {
@@ -467,9 +601,11 @@ export function EditorCanvas({
           if (sgnX !== 0 && newW < minW) newW = minW;
           if (sgnY !== 0 && newH < minH) newH = minH;
         }
-        // Recompute the container center so the anchor stays fixed in screen space.
-        const newAnchorRelX = (-sgnX * newW) / 2;
-        const newAnchorRelY = (-sgnY * newH) / 2;
+        // Recompute the container center so the anchor stays fixed in screen
+        // space. With Alt (from-center) the anchor is the center itself, so the
+        // new anchor offset is 0 and the center does not move.
+        const newAnchorRelX = fromCenter ? 0 : (-sgnX * newW) / 2;
+        const newAnchorRelY = fromCenter ? 0 : (-sgnY * newH) / 2;
         const newCenterScreenX = anchorScreenX - (cos * newAnchorRelX - sin * newAnchorRelY) * zoom;
         const newCenterScreenY = anchorScreenY - (sin * newAnchorRelX + cos * newAnchorRelY) * zoom;
         const newCenterStageX = (newCenterScreenX - rect.left - viewport.panX) / zoom;
@@ -480,12 +616,14 @@ export function EditorCanvas({
         next.scale_y = newH / seqH;
       }
       latest = next;
+      setSnapGuides(guides);
       setDrafts((current) => ({ ...current, [entry.key]: next }));
     };
 
     const finish = () => {
       window.removeEventListener("pointermove", update);
       window.removeEventListener("pointerup", finish);
+      setSnapGuides(null);
       // Only commit if the transform actually changed — clicking without
       // dragging should NOT create a history entry.
       if (!transformsEqual(latest, start)) {
@@ -689,6 +827,16 @@ export function EditorCanvas({
                 />
               );
             })() : null}
+            {snapGuides ? (
+              <>
+                {snapGuides.vertical.map((x) => (
+                  <div key={`snap-v-${x}`} className="editor-stage-snap-guide editor-stage-snap-guide--v" style={{ left: `${x}px`, width: `${1 / z}px` }} />
+                ))}
+                {snapGuides.horizontal.map((y) => (
+                  <div key={`snap-h-${y}`} className="editor-stage-snap-guide editor-stage-snap-guide--h" style={{ top: `${y}px`, height: `${1 / z}px` }} />
+                ))}
+              </>
+            ) : null}
             {active.filter((entry) => entry.visual).map((entry, index) => {
               const selected = entry.track.id === selectedTrackId && entry.clip.id === selectedClipId;
               const value = drafts[entry.key] ?? transformOf(entry.clip);
@@ -829,7 +977,7 @@ export function EditorCanvas({
           <CanvasTooltip
             title="Verschieben"
             shortcut="V"
-            description="Clips verschieben, skalieren und rotieren. Standardwerkzeug für Positionierung. Shift beim Skalieren hält das Seitenverhältnis nicht."
+            description="Clips verschieben, skalieren und rotieren. Standardwerkzeug für Positionierung. Shift beim Skalieren hält das Seitenverhältnis nicht. Alt beim Skalieren skaliert vom Mittelpunkt aus (symmetrisch). Beim Verschieben wird an Bühnenkanten und -mitte eingerastet — Ctrl gedrückt halten, um Einrasten zu deaktivieren."
           >
             <button type="button" className={toolMode === "move" ? "is-active" : ""} onClick={() => setToolMode("move")}><Move size={15} /></button>
           </CanvasTooltip>
@@ -874,7 +1022,13 @@ export function EditorCanvas({
             <span>Zuschneiden: {(crop.region.width * 100).toFixed(0)}% × {(crop.region.height * 100).toFixed(0)}%</span>
             <button type="button" className="btn btn--primary btn--sm" onClick={() => {
               const entry = active.find((e) => e.key === crop.clipKey);
-              if (entry) onCutRegion?.(crop.trackId, entry.clip, crop.region);
+              if (entry) {
+                const value = drafts[entry.key] ?? transformOf(entry.clip);
+                const targetTransform = computeCropTargetTransform(
+                  value, crop.region, videoDims[entry.key], sequence.width, sequence.height,
+                );
+                onCutRegion?.(crop.trackId, entry.clip, crop.region, targetTransform);
+              }
               setCrop(null);
             }}><Crop size={13} /> Zuschneiden bestätigen</button>
             <button type="button" className="btn btn--ghost btn--sm" onClick={() => setCrop(null)}>Abbrechen</button>

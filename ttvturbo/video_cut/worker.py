@@ -57,11 +57,16 @@ def _run_ffmpeg_crop(
     crop_y: int,
     preserve_audio: bool,
     quality: str,
+    is_image: bool = False,
 ) -> None:
     crf = "28" if quality == "PREVIEW" else "18"
     preset = "veryfast" if quality == "PREVIEW" else "medium"
     cmd = [ffmpeg, "-hide_banner", "-loglevel", "error", "-y"]
-    if start_seconds > 0:
+    # Still images need -loop 1 so ffmpeg produces a video of the requested
+    # duration instead of encoding a single frame.
+    if is_image:
+        cmd += ["-loop", "1"]
+    if start_seconds > 0 and not is_image:
         cmd += ["-ss", f"{start_seconds:.6f}"]
     cmd += ["-i", str(source)]
     if end_seconds is not None:
@@ -106,9 +111,17 @@ def main(argv: list[str] | None = None) -> int:
         src_w = int(meta["width"])
         src_h = int(meta["height"])
         duration = meta["duration_seconds"]
-        effective_end = min(duration, end) if end is not None else duration
-        if effective_end <= start:
-            return fail(job_dir, "requested time range is empty", code="EMPTY_RANGE", retryable=False)
+        # Still images report duration 0 — treat them as single-frame sources.
+        # Ignore the requested time range and produce a short video so the crop
+        # result can be used like any other clip in the editor.
+        is_image = duration <= 0
+        if is_image:
+            start = 0.0
+            effective_end = 1.0
+        else:
+            effective_end = min(duration, end) if end is not None else duration
+            if effective_end <= start:
+                return fail(job_dir, "requested time range is empty", code="EMPTY_RANGE", retryable=False)
 
         region = desc["region"]
         rx = float(region["x"])
@@ -143,6 +156,7 @@ def main(argv: list[str] | None = None) -> int:
             end_seconds=effective_end,
             crop_w=crop_w, crop_h=crop_h, crop_x=crop_x, crop_y=crop_y,
             preserve_audio=preserve_audio, quality=quality,
+            is_image=is_image,
         )
         if not output.is_file() or output.stat().st_size <= 0:
             return fail(job_dir, "cut output is empty")

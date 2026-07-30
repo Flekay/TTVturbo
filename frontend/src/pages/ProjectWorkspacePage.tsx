@@ -136,7 +136,7 @@ export function ProjectWorkspacePage() {
   const [renderJobId, setRenderJobId] = useState<string | null>(null);
   const [savedRenderId, setSavedRenderId] = useState<string | null>(null);
   const [cutJobId, setCutJobId] = useState<string | null>(null);
-  const cutTargetRef = useRef<{ trackId: string; clip: TimelineClip } | null>(null);
+  const cutTargetRef = useRef<{ trackId: string; clip: TimelineClip; targetTransform?: CanvasTransform } | null>(null);
   const [sidePanelWidth, setSidePanelWidth] = useState(350);
   const [timelineHeight, setTimelineHeight] = useState(330);
   const editorGridRef = useRef<HTMLDivElement>(null);
@@ -350,7 +350,7 @@ export function ProjectWorkspacePage() {
         return;
       }
       try {
-        await replaceClipWithCutResult(target.trackId, target.clip, item);
+        await replaceClipWithCutResult(target.trackId, target.clip, item, target.targetTransform);
         setCutJobId(null);
         cutTargetRef.current = null;
       } catch {
@@ -479,7 +479,7 @@ export function ProjectWorkspacePage() {
   }
   addMediaRef.current = addMedia;
 
-  async function replaceClipWithCutResult(trackId: string, oldClip: TimelineClip, newItem: LibraryItem) {
+  async function replaceClipWithCutResult(trackId: string, oldClip: TimelineClip, newItem: LibraryItem, targetTransform?: CanvasTransform) {
     setEditorBusy(true);
     try {
       await serialize(async () => {
@@ -496,15 +496,17 @@ export function ProjectWorkspacePage() {
           headRef.current = attached.commit.id;
           sourceIdsRef.current.add(newItem.id);
         }
-        // Build a new clip that inherits position/transform from the old one
-        // but points at the cut result.
+        // Build a new clip that points at the cut result. The transform is
+        // set so the cropped video occupies the same screen rectangle the crop
+        // region occupied — not the original clip's full-frame transform (which
+        // would stretch the cropped portion to fill the whole stage).
         const newClip: TimelineClip = {
           id: safeId("clip"),
           source_media_item_id: newItem.id,
           source_start_us: 0,
           source_end_us: Math.max(1, Math.round(duration * 1_000_000)),
           timeline_start_us: oldClip.timeline_start_us,
-          transform: oldClip.transform ?? { x: 0, y: 0, scale_x: 1, scale_y: 1, rotation: 0 },
+          transform: targetTransform ?? oldClip.transform ?? { x: 0, y: 0, scale_x: 1, scale_y: 1, rotation: 0 },
           opacity: oldClip.opacity,
           audio_muted: oldClip.audio_muted,
           speed: oldClip.speed,
@@ -532,9 +534,9 @@ export function ProjectWorkspacePage() {
     }
   }
 
-  async function handleCutRegion(trackId: string, clip: TimelineClip, region: NormalizedRegion) {
+  async function handleCutRegion(trackId: string, clip: TimelineClip, region: NormalizedRegion, targetTransform: CanvasTransform) {
     if (!trackId || !clip) return;
-    cutTargetRef.current = { trackId, clip };
+    cutTargetRef.current = { trackId, clip, targetTransform };
     try {
       const job = await startCutJob.mutateAsync({
         media_item_id: clip.source_media_item_id,

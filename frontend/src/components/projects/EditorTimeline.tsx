@@ -154,6 +154,7 @@ export function EditorTimeline({
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const headersRef = useRef<HTMLDivElement | null>(null);
   const [pixelsPerSecond, setPixelsPerSecond] = useState(72);
+  const [viewportWidth, setViewportWidth] = useState(0);
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
   const [trim, setTrim] = useState<TrimState | null>(null);
@@ -168,8 +169,60 @@ export function EditorTimeline({
     }
     return end;
   }, [tracks]);
+
+  // Track the timeline viewport width so zoom bounds can scale to it.
+  useEffect(() => {
+    const viewportEl = viewportRef.current;
+    if (!viewportEl) return;
+    const update = () => {
+      const rect = viewportEl.getBoundingClientRect();
+      if (rect.width > 0) setViewportWidth(rect.width);
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(viewportEl);
+    return () => observer.disconnect();
+  }, []);
+
+  // Dynamic zoom bounds based on the actual timeline length and clip sizes.
+  //  - min: fit the entire timeline in the viewport (whole project visible).
+  //  - max: the shortest clip should still be at least ~240px wide so it stays
+  //    editable; falls back to a duration-based ceiling when there are no clips.
+  const contentSeconds = contentDurationUs / 1_000_000;
+  const { minPps, maxPps, zoomStep } = useMemo(() => {
+    const usableWidth = Math.max(200, viewportWidth - 32);
+    const fitAll = usableWidth / Math.max(1, contentSeconds);
+    let shortestClipSeconds = Infinity;
+    for (const track of tracks) {
+      for (const clip of Object.values(track.clips ?? {})) {
+        shortestClipSeconds = Math.min(shortestClipSeconds, durationUs(clip) / 1_000_000);
+      }
+    }
+    const min = Math.max(4, Math.min(fitAll, 400));
+    const max = Number.isFinite(shortestClipSeconds) && shortestClipSeconds > 0
+      ? Math.max(min + 1, Math.min(240 / shortestClipSeconds, 4000))
+      : Math.max(min + 1, Math.min(usableWidth / Math.max(0.5, contentSeconds / 8), 4000));
+    const step = Math.max(1, Math.round((max - min) / 200));
+    return { minPps: min, maxPps: max, zoomStep: step };
+  }, [contentSeconds, tracks, viewportWidth]);
+
+  // Keep the current zoom inside the dynamic bounds.
+  useEffect(() => {
+    setPixelsPerSecond((current) => Math.max(minPps, Math.min(maxPps, current)));
+  }, [minPps, maxPps]);
+
   const contentWidth = Math.max(900, contentDurationUs / 1_000_000 * pixelsPerSecond);
-  const tickSeconds = pixelsPerSecond >= 110 ? 1 : pixelsPerSecond >= 55 ? 5 : pixelsPerSecond >= 28 ? 10 : 30;
+  // Adaptive ruler tick spacing: aim for ~80px between labels, snapping to a
+  // "nice" interval (1, 2, 5, 10, 15, 30, 60, 120, 300, 600, … seconds).
+  const tickSeconds = useMemo(() => {
+    const target = 80 / pixelsPerSecond;
+    const niceSteps = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1200, 1800, 3600];
+    let chosen = niceSteps[niceSteps.length - 1];
+    for (const step of niceSteps) {
+      if (step >= target) { chosen = step; break; }
+    }
+    return chosen;
+  }, [pixelsPerSecond]);
   const ticks = useMemo(() => {
     const count = Math.ceil(contentDurationUs / 1_000_000 / tickSeconds);
     return Array.from({ length: count + 1 }, (_, index) => index * tickSeconds);
@@ -326,7 +379,7 @@ export function EditorTimeline({
         </div>
         <div className="editor-transport__right">
           <ZoomOut size={14} />
-          <input aria-label="Timeline-Zoom" type="range" min={24} max={180} step={6} value={pixelsPerSecond} onChange={(event) => setPixelsPerSecond(Number(event.target.value))} />
+          <input aria-label="Timeline-Zoom" type="range" min={minPps} max={maxPps} step={zoomStep} value={pixelsPerSecond} onChange={(event) => setPixelsPerSecond(Number(event.target.value))} />
           <ZoomIn size={14} />
           <Button variant="primary" size="sm" onClick={onAddMedia}><Plus size={15} /> Medien hinzufügen</Button>
         </div>
