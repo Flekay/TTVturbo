@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Download, Music, FileVideo, Film, FolderKanban, Sparkles, ImageOff, WandSparkles, Scissors } from "lucide-react";
+import { ArrowLeft, Download, Music, FileVideo, Film, Image as ImageIcon, FolderKanban, Sparkles, ImageOff, WandSparkles, Scissors } from "lucide-react";
 import { Badge, type BadgeVariant } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
@@ -99,7 +99,9 @@ export function LibraryDetailPage() {
   }
 
   const KindIcon = item.source === "vod" ? Film : FileVideo;
-  const videoUrl = libraryItemFileUrl(item.id);
+  const fileType = item.file_type ?? "video";
+  const FileTypeIcon = fileType === "image" ? ImageIcon : fileType === "audio" ? Music : FileVideo;
+  const fileUrl = libraryItemFileUrl(item.id);
 
   return (
     <div className="page">
@@ -112,10 +114,33 @@ export function LibraryDetailPage() {
 
       <section className="library-detail-actions" aria-label="Medienaktionen">
         <Link className="btn btn--primary" to={`/projects?source=${encodeURIComponent(item.id)}`}><FolderKanban size={15} /> Im Editor öffnen</Link>
-        <Link className="btn btn--secondary" to={`/create/video-upscale?source=${encodeURIComponent(item.id)}&persist=1`}><Sparkles size={15} /> Hochskalieren</Link>
-        <Link className="btn btn--secondary" to={`/create/background-removal?source=${encodeURIComponent(item.id)}&persist=1`}><ImageOff size={15} /> Hintergrund entfernen</Link>
-        <Link className="btn btn--secondary" to={`/create/text-edit?source=${encodeURIComponent(item.id)}&persist=1`}><WandSparkles size={15} /> Per Text bearbeiten</Link>
-        <Link className="btn btn--secondary" to={`/create/video-cut?source=${encodeURIComponent(item.id)}&persist=1`}><Scissors size={15} /> Bereich ausschneiden</Link>
+        {fileType === "video" && (
+          <>
+            <Link className="btn btn--secondary" to={`/create/video-upscale?source=${encodeURIComponent(item.id)}&persist=1`}><Sparkles size={15} /> Hochskalieren</Link>
+            <Link className="btn btn--secondary" to={`/create/background-removal?source=${encodeURIComponent(item.id)}&persist=1`}><ImageOff size={15} /> Hintergrund entfernen</Link>
+            <Link className="btn btn--secondary" to={`/create/text-edit?source=${encodeURIComponent(item.id)}&persist=1`}><WandSparkles size={15} /> Per Text bearbeiten</Link>
+            <Link className="btn btn--secondary" to={`/create/video-cut?source=${encodeURIComponent(item.id)}&persist=1`}><Scissors size={15} /> Bereich ausschneiden</Link>
+          </>
+        )}
+      </section>
+
+      {/* Type-aware media preview. */}
+      <section className="page__section">
+        <h2 className="page__section-title">Vorschau</h2>
+        {fileType === "image" ? (
+          <div className="library-detail__image">
+            <img src={fileUrl} alt={item.title} />
+          </div>
+        ) : fileType === "audio" ? (
+          <div className="library-detail__audio">
+            <Music size={32} />
+            <audio src={fileUrl} controls />
+          </div>
+        ) : (
+          <div className="library-detail__video">
+            <video src={fileUrl} controls preload="metadata" aria-label={item.title} />
+          </div>
+        )}
       </section>
 
       <section className="page__section">
@@ -125,6 +150,10 @@ export function LibraryDetailPage() {
             <div className="vod-detail-card__row">
               <span>Typ</span>
               <span><KindIcon size={12} /> {item.source === "vod" ? "VOD" : "Upload"}</span>
+            </div>
+            <div className="vod-detail-card__row">
+              <span>Medientyp</span>
+              <span><FileTypeIcon size={12} /> {fileType === "image" ? "Bild" : fileType === "audio" ? "Audio" : "Video"}</span>
             </div>
             {item.twitch_video_id && (
               <div className="vod-detail-card__row">
@@ -153,9 +182,9 @@ export function LibraryDetailPage() {
               <span>{formatDateTime(item.created_at)}</span>
             </div>
           </div>
-          <a href={videoUrl} download className="vod-detail-card__download">
+          <a href={fileUrl} download className="vod-detail-card__download">
             <Download size={14} />
-            Video herunterladen
+            {fileType === "image" ? "Bild herunterladen" : fileType === "audio" ? "Audio herunterladen" : "Video herunterladen"}
           </a>
         </Card>
       </section>
@@ -183,7 +212,7 @@ export function LibraryDetailPage() {
             )}
           </div>
           <TranscriptPlayer
-            videoUrl={videoUrl}
+            videoUrl={fileUrl}
             transcriptionId={activeTranscription.id}
             transcriptLabel={`${activeTranscription.model} · ${activeTranscription.language ?? "auto"}`}
           />

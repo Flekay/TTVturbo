@@ -259,3 +259,168 @@ def test_expired_temporary_item_is_removed(library_service):
 def test_invalid_lifecycle_is_rejected(library_service):
     with pytest.raises(LibraryValidationError):
         library_service.create_upload_item(file_name="bad.mp4", lifecycle="FOREVER")
+
+
+# --------------------------------------------------------------------- file_type
+def test_create_item_defaults_file_type_from_container(library_service):
+    item = library_service.create_item(
+        source="vod", title="VOD", file_name="source.mp4", container="mp4"
+    )
+    assert item["file_type"] == "video"
+    assert item["schema_version"] == 2
+
+
+def test_create_item_derives_file_type_from_filename(library_service):
+    item = library_service.create_item(
+        source="upload", title="Photo", file_name="photo.jpg", container="jpg"
+    )
+    assert item["file_type"] == "image"
+    assert item["container"] == "jpg"
+
+
+def test_create_upload_item_audio(tmp_path):
+    from ttvturbo.library import LibraryService, LibraryStorage
+    storage = LibraryStorage(tmp_path / "lib_audio")
+    svc = LibraryService(storage)
+    item = svc.create_upload_item(file_name="track.mp3", title="Track")
+    assert item["file_type"] == "audio"
+    assert item["container"] == "mp3"
+    svc.delete_item(item["id"])
+
+
+def test_create_upload_item_image(tmp_path):
+    from ttvturbo.library import LibraryService, LibraryStorage
+    storage = LibraryStorage(tmp_path / "lib_image")
+    svc = LibraryService(storage)
+    item = svc.create_upload_item(file_name="pic.png")
+    assert item["file_type"] == "image"
+    assert item["container"] == "png"
+    svc.delete_item(item["id"])
+
+
+def test_create_upload_item_unknown_extension_defaults_to_video(tmp_path):
+    from ttvturbo.library import LibraryService, LibraryStorage
+    storage = LibraryStorage(tmp_path / "lib_unknown")
+    svc = LibraryService(storage)
+    item = svc.create_upload_item(file_name="data.xyz")
+    # Unknown extension falls back to mp4/video for backward compat.
+    assert item["file_type"] == "video"
+    assert item["container"] == "mp4"
+    svc.delete_item(item["id"])
+
+
+def test_create_item_rejects_invalid_file_type(library_service):
+    with pytest.raises(LibraryValidationError):
+        library_service.create_item(
+            source="upload", title="Bad", file_name="x.mp4", file_type="document"
+        )
+
+
+def test_list_items_filter_by_file_type(library_service):
+    library_service.create_upload_item(file_name="a.mp4")
+    library_service.create_upload_item(file_name="b.mp3")
+    library_service.create_upload_item(file_name="c.png")
+    videos = library_service.list_items(file_type="video")
+    audios = library_service.list_items(file_type="audio")
+    images = library_service.list_items(file_type="image")
+    assert {i["file_name"] for i in videos} == {"a.mp4"}
+    assert {i["file_name"] for i in audios} == {"b.mp3"}
+    assert {i["file_name"] for i in images} == {"c.png"}
+
+
+def test_list_items_rejects_invalid_file_type(library_service):
+    with pytest.raises(LibraryValidationError):
+        library_service.list_items(file_type="document")
+
+
+def test_v1_item_backfills_file_type_lazily(library_service):
+    """A v1 item (no file_type) is backfilled on read without writing."""
+    item = library_service.create_item(
+        source="vod", title="VOD", file_name="source.mp4", container="mp4"
+    )
+    # Simulate a v1 item by stripping file_type and downgrading schema_version.
+    item["schema_version"] = 1
+    item.pop("file_type")
+    library_service.storage.save_item(item)
+    loaded = library_service.get_item(item["id"])
+    assert loaded["file_type"] == "video"
+    # The on-disk record is still v1 (lazy backfill is in-memory only).
+    raw = library_service.storage.load_item(item["id"])
+    assert raw.get("schema_version") == 1
+    assert "file_type" not in raw
+
+
+def test_sanitize_container_accepts_audio_and_image():
+    from ttvturbo.library.storage import sanitize_container
+    assert sanitize_container("mp3") == "mp3"
+    assert sanitize_container("png") == "png"
+    assert sanitize_container("wav") == "wav"
+    assert sanitize_container("xyz") == "mp4"
+    assert sanitize_container(".MP4") == "mp4"
+
+
+def test_file_type_for_extension():
+    from ttvturbo.library import file_type_for_extension, file_type_for_filename
+    assert file_type_for_extension("mp4") == "video"
+    assert file_type_for_extension("mp3") == "audio"
+    assert file_type_for_extension("png") == "image"
+    assert file_type_for_extension("xyz") is None
+    assert file_type_for_filename("track.mp3") == "audio"
+    assert file_type_for_filename("photo.jpeg") == "image"
+    assert file_type_for_filename("noext") is None
+
+
+def test_migrate_library_file_types_upgrades_v1_items(library_service, tmp_path):
+    from ttvturbo.migrate_library_file_types import migrate_library_items
+    # Create a v1-style item (no file_type, schema_version=1).
+    item = library_service.create_item(
+        source="vod", title="Old VOD", file_name="source.mkv", container="mkv"
+    )
+    item["schema_version"] = 1
+    item.pop("file_type", None)
+    library_service.storage.save_item(item)
+
+    upgraded, skipped = migrate_library_items(
+        library_service.storage.library_dir, dry_run=False, backup=True
+    )
+    assert upgraded == 1
+    raw = library_service.storage.load_item(item["id"])
+    assert raw["schema_version"] == 2
+    assert raw["file_type"] == "video"
+    # Backup created.
+    bak = library_service.storage.item_dir(item["id"]) / "metadata.json.bak"
+    assert bak.is_file()
+
+
+def test_migrate_library_file_types_skips_v2_items(library_service):
+    from ttvturbo.migrate_library_file_types import migrate_library_items
+    # A freshly created item is already v2 with file_type.
+    item = library_service.create_item(
+        source="upload", title="New", file_name="pic.png", container="png"
+    )
+    upgraded, skipped = migrate_library_items(
+        library_service.storage.library_dir, dry_run=False, backup=False
+    )
+    assert upgraded == 0
+    assert skipped >= 1
+
+
+def test_migrate_library_file_types_dry_run(library_service):
+    from ttvturbo.migrate_library_file_types import migrate_library_items
+    item = library_service.create_item(
+        source="upload", title="Audio", file_name="track.mp3", container="mp3"
+    )
+    item["schema_version"] = 1
+    item.pop("file_type", None)
+    library_service.storage.save_item(item)
+
+    upgraded, _ = migrate_library_items(
+        library_service.storage.library_dir, dry_run=True, backup=False
+    )
+    assert upgraded == 1
+    # Nothing written in dry-run.
+    raw = library_service.storage.load_item(item["id"])
+    assert raw.get("schema_version") == 1
+    assert "file_type" not in raw
+
+

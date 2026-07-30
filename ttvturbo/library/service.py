@@ -23,12 +23,16 @@ from .schemas import (
     LIFECYCLE_PERSISTENT,
     LIFECYCLE_TEMPORARY,
     SUPPORTED_LIFECYCLES,
+    SUPPORTED_FILE_TYPES,
+    FILE_TYPE_VIDEO,
+    file_type_for_extension,
+    file_type_for_filename,
     LibraryConflictError,
     LibraryNotFoundError,
     LibraryStorageError,
     LibraryValidationError,
 )
-from .storage import LibraryStorage, _now_iso, sanitize_container
+from .storage import LibraryStorage, _now_iso, sanitize_container, SUPPORTED_CONTAINERS
 
 logger = logging.getLogger("ttvturbo.library.service")
 
@@ -66,11 +70,17 @@ class LibraryService:
         vod_id: Optional[str] = None,
         lifecycle: str = LIFECYCLE_PERSISTENT,
         expires_at: Optional[str] = None,
+        file_type: Optional[str] = None,
     ) -> dict:
         """Create a new library item record (metadata only).
 
         The caller is responsible for placing the source file into the
         item directory (typically via ``storage.source_file_path(id, container)``).
+
+        ``file_type`` (``video`` | ``audio`` | ``image``) is derived from
+        the ``container``/``file_name`` extension when not supplied. It is
+        stored on the item so the API and UI can sort and filter by media
+        type.
         """
         if source not in ("vod", "upload"):
             raise LibraryValidationError(
@@ -88,6 +98,17 @@ class LibraryService:
             expires_at = self._temporary_expiry()
         if lifecycle == LIFECYCLE_PERSISTENT:
             expires_at = None
+        # Resolve file_type: explicit arg > filename extension > container.
+        resolved_file_type = (
+            file_type
+            or file_type_for_filename(file_name)
+            or file_type_for_extension(container)
+            or FILE_TYPE_VIDEO
+        )
+        if resolved_file_type not in SUPPORTED_FILE_TYPES:
+            raise LibraryValidationError(
+                f"file_type must be one of {sorted(SUPPORTED_FILE_TYPES)}, got {resolved_file_type!r}"
+            )
         item_id = str(uuid.uuid4())
         now = _now_iso()
         meta = {
@@ -98,6 +119,7 @@ class LibraryService:
             "file_name": file_name,
             "file_size_bytes": file_size_bytes,
             "duration_seconds": duration_seconds,
+            "file_type": resolved_file_type,
             "container": container,
             "twitch_video_id": twitch_video_id,
             "vod_id": vod_id,
@@ -136,7 +158,7 @@ class LibraryService:
         # source.mp4 but recorded as source.mov and become unlocatable.
         source_extension = source_file.suffix.lstrip(".").lower()
         container = sanitize_container(
-            source_extension if source_extension in ("mp4", "mkv", "webm", "mov") else container
+            source_extension if source_extension in SUPPORTED_CONTAINERS else container
         )
         # Duplication check.
         existing = self.find_by_twitch_video_id(twitch_video_id)
@@ -184,10 +206,14 @@ class LibraryService:
 
         Returns the metadata; the caller must write the actual file into
         the item directory (the file keeps its original name).
+
+        The ``file_type`` (video/audio/image) is derived from the
+        extension. Unknown extensions fall back to ``video`` with an
+        ``mp4`` container for backward compatibility.
         """
-        # Determine container from extension.
+        # Determine container/extension from the filename.
         ext = Path(file_name).suffix.lstrip(".").lower() or "mp4"
-        container = ext if ext in ("mp4", "mkv", "webm", "mov") else "mp4"
+        container = sanitize_container(ext)
         meta = self.create_item(
             source="upload",
             title=title or file_name,
@@ -208,8 +234,17 @@ class LibraryService:
             raise LibraryStorageError(f"could not move {src} -> {dest}: {exc}") from exc
 
     # ------------------------------------------------------------------ read
-    def list_items(self, *, include_temporary: bool = False) -> list[dict]:
+    def list_items(
+        self,
+        *,
+        include_temporary: bool = False,
+        file_type: Optional[str] = None,
+    ) -> list[dict]:
         self.cleanup_expired()
+        if file_type is not None and file_type not in SUPPORTED_FILE_TYPES:
+            raise LibraryValidationError(
+                f"file_type must be one of {sorted(SUPPORTED_FILE_TYPES)}, got {file_type!r}"
+            )
         results = list(self.storage.iter_items())
         if not include_temporary:
             results = [
@@ -217,7 +252,10 @@ class LibraryService:
                 if meta.get("lifecycle", LIFECYCLE_PERSISTENT) == LIFECYCLE_PERSISTENT
             ]
         for meta in results:
+            self._ensure_file_type(meta)
             self.storage.enrich_with_file_info(meta)
+        if file_type is not None:
+            results = [meta for meta in results if meta.get("file_type") == file_type]
         results.sort(key=lambda m: m.get("created_at", ""), reverse=True)
         return results
 
@@ -226,7 +264,29 @@ class LibraryService:
         if self._is_expired(meta):
             self.storage.delete_item(item_id)
             raise LibraryNotFoundError(f"library item expired: {item_id}")
+        self._ensure_file_type(meta)
         self.storage.enrich_with_file_info(meta)
+        return meta
+
+    @staticmethod
+    def _ensure_file_type(meta: dict) -> dict:
+        """Backfill ``file_type`` on v1 items (lazy, in-memory only).
+
+        v1 items written before the file-aware refactor have no
+        ``file_type`` field. We derive it from the ``container``/
+        ``file_name`` so callers always see a populated field without
+        needing a migration. The one-time migration script upgrades
+        items on disk; this helper covers items that haven't been
+        migrated yet.
+        """
+        if meta.get("file_type") in SUPPORTED_FILE_TYPES:
+            return meta
+        derived = (
+            file_type_for_filename(meta.get("file_name", ""))
+            or file_type_for_extension(meta.get("container"))
+            or FILE_TYPE_VIDEO
+        )
+        meta["file_type"] = derived
         return meta
 
     def promote_item(self, item_id: str) -> dict:
@@ -239,6 +299,7 @@ class LibraryService:
         meta["expires_at"] = None
         meta["updated_at"] = _now_iso()
         self.storage.save_item(meta)
+        self._ensure_file_type(meta)
         self.storage.enrich_with_file_info(meta)
         return meta
 

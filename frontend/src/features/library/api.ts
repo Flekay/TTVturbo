@@ -1,11 +1,18 @@
 import { apiClient } from "../../api/client";
 import { libraryItemListResponseSchema, libraryItemSchema } from "./schemas";
-import type { LibraryItemListResponse, LibraryItem } from "./schemas";
+import type { LibraryItemListResponse, LibraryItem, FileType } from "./schemas";
 
 const LIBRARY = "/api/library";
 
-export function fetchLibraryItems(signal?: AbortSignal): Promise<LibraryItemListResponse> {
-  return apiClient.get(`${LIBRARY}/items`, { schema: libraryItemListResponseSchema, signal });
+export function fetchLibraryItems(
+  fileType?: FileType,
+  signal?: AbortSignal,
+): Promise<LibraryItemListResponse> {
+  const search = fileType ? `?file_type=${encodeURIComponent(fileType)}` : "";
+  return apiClient.get(`${LIBRARY}/items${search}`, {
+    schema: libraryItemListResponseSchema,
+    signal,
+  });
 }
 
 export function fetchLibraryItem(itemId: string, signal?: AbortSignal): Promise<LibraryItem> {

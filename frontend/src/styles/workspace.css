@@ -637,6 +637,34 @@
 /* Library contextual actions */
 .library-detail-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 
+/* Library detail type-aware preview */
+.library-detail__video,
+.library-detail__image,
+.library-detail__audio {
+  width: 100%;
+  max-width: 960px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background-color: #000;
+}
+.library-detail__video video,
+.library-detail__image img {
+  width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+  display: block;
+}
+.library-detail__audio {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 2rem 1.5rem;
+  color: var(--color-text-muted);
+}
+.library-detail__audio audio { width: 100%; max-width: 480px; }
+
 /* Global active job dock */
 .job-dock { position: fixed; z-index: 1000; right: var(--space-5); bottom: var(--space-5); width: min(360px, calc(100vw - 32px)); overflow: hidden; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg-panel); box-shadow: var(--shadow-lg); }
 .job-dock__header { display: flex; align-items: center; justify-content: space-between; padding: var(--space-3); border-bottom: 1px solid var(--color-border); font-size: 12px; font-weight: 600; }

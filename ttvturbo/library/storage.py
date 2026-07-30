@@ -27,6 +27,8 @@ from ttvturbo.storage_utils import (
 from .schemas import (
     SCHEMA_VERSION,
     SUPPORTED_SCHEMA_VERSIONS,
+    EXTENSIONS_BY_FILE_TYPE,
+    FILE_TYPE_VIDEO,
     LibraryNotFoundError,
     LibraryStorageError,
     LibraryUploadTooLargeError,
@@ -37,18 +39,30 @@ logger = logging.getLogger("ttvturbo.library.storage")
 ITEM_FILENAME = "metadata.json"
 TMP_SUFFIX = ".tmp"
 SOURCE_BASENAME = "source"
-SUPPORTED_CONTAINERS = ("mp4", "mkv", "webm", "mov")
+# Historical video containers — kept for backward compatibility with
+# callers that only deal with video (e.g. media_capabilities).
+SUPPORTED_CONTAINERS = tuple(EXTENSIONS_BY_FILE_TYPE[FILE_TYPE_VIDEO])
+# All extensions accepted by the library, across every file_type.
+SUPPORTED_EXTENSIONS = frozenset().union(*EXTENSIONS_BY_FILE_TYPE.values())
 
 
 def sanitize_container(container: str) -> str:
-    """Normalise a container name to one of the supported on-disk extensions.
+    """Normalise a container/extension name to a supported on-disk extension.
 
-    ``source_file_path`` silently rewrites unsupported containers to ``mp4``,
+    ``source_file_path`` silently rewrites unknown extensions to ``mp4``,
     so callers that record the file name in metadata must apply the same
-    rule — otherwise the recorded ``file_name`` won't match the file on disk
-    and ``item_file_path`` will fail to locate it.
+    rule — otherwise the recorded ``file_name`` won't match the file on
+    disk and ``item_file_path`` will fail to locate it.
+
+    Accepts any video / audio / image extension (schema v2); unknown
+    extensions fall back to ``mp4`` for backward compatibility.
     """
-    return container if container in SUPPORTED_CONTAINERS else "mp4"
+    ext = (container or "").lstrip(".").lower()
+    return ext if ext in SUPPORTED_EXTENSIONS else "mp4"
+
+
+# Alias reflecting the broader meaning since schema v2.
+sanitize_extension = sanitize_container
 
 
 def _now_iso() -> str:

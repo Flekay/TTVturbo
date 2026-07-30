@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { Download, Upload, Trash2, AlertCircle, Loader2, Film, FileVideo, Search, MoreVertical, Sparkles, ImageOff, WandSparkles, FolderKanban, Scissors } from "lucide-react";
+import { Download, Upload, Trash2, AlertCircle, Loader2, Film, FileVideo, Search, MoreVertical, Sparkles, ImageOff, WandSparkles, FolderKanban, Scissors, Image as ImageIcon, Music } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "../components/ui/Button";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog";
@@ -18,7 +18,11 @@ import {
   useDeleteLibraryItemMutation,
 } from "../features/library/hooks";
 import { libraryItemFileUrl } from "../features/library/api";
-import type { LibraryItem as LibraryItemRecord } from "../features/library/schemas";
+import {
+  ACCEPTED_UPLOAD_ALL,
+  type LibraryItem as LibraryItemRecord,
+  type FileType,
+} from "../features/library/schemas";
 
 function isTransient(status: string): boolean {
   return status === "DOWNLOADING" || status === "QUEUED" || status === "VERIFYING";
@@ -28,6 +32,7 @@ function isTransient(status: string): boolean {
 interface LibraryItem {
   id: string;
   kind: "vod" | "upload";
+  fileType: FileType;
   title: string;
   subtitle: string;
   thumbnailUrl: string | null;
@@ -48,6 +53,7 @@ function vodToItem(vod: TwitchVod): LibraryItem {
   return {
     id: vod.id,
     kind: "vod",
+    fileType: "video",
     title: vod.title || `VOD ${vod.twitch_video_id}`,
     subtitle: `#${vod.twitch_video_id}`,
     thumbnailUrl: vod.thumbnail_url || null,
@@ -67,6 +73,7 @@ function libraryRecordToItem(rec: LibraryItemRecord): LibraryItem {
   return {
     id: rec.id,
     kind: rec.source === "vod" ? "vod" : "upload",
+    fileType: rec.file_type ?? "video",
     title: rec.title,
     subtitle: rec.source === "vod" ? (rec.twitch_video_id ? `#${rec.twitch_video_id}` : "VOD") : "Upload",
     thumbnailUrl: null,
@@ -84,9 +91,10 @@ function libraryRecordToItem(rec: LibraryItemRecord): LibraryItem {
 
 type KindFilter = "all" | "vod" | "upload";
 type StatusFilter = "all" | "ready" | "downloading";
+type FileTypeFilter = "all" | FileType;
 
 const KIND_FILTER_LABELS: Record<KindFilter, string> = {
-  all: "Alle Typen",
+  all: "Alle Quellen",
   vod: "VODs",
   upload: "Uploads",
 };
@@ -95,6 +103,13 @@ const STATUS_FILTER_LABELS: Record<StatusFilter, string> = {
   all: "Alle Status",
   ready: "Bereit",
   downloading: "Wird geladen",
+};
+
+const FILE_TYPE_FILTER_LABELS: Record<FileTypeFilter, string> = {
+  all: "Alle Medientypen",
+  video: "Videos",
+  audio: "Audio",
+  image: "Bilder",
 };
 
 export function LibraryPage() {
@@ -108,6 +123,7 @@ export function LibraryPage() {
   const [search, setSearch] = useState("");
   const [kindFilter, setKindFilter] = useState<KindFilter>("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [fileTypeFilter, setFileTypeFilter] = useState<FileTypeFilter>("all");
 
   const allVods = vodsQuery.data?.vods ?? [];
   const libraryRecords = libraryQuery.data?.items ?? [];
@@ -158,6 +174,7 @@ export function LibraryPage() {
     const q = search.trim().toLowerCase();
     return items.filter((item) => {
       if (kindFilter !== "all" && item.kind !== kindFilter) return false;
+      if (fileTypeFilter !== "all" && item.fileType !== fileTypeFilter) return false;
       if (statusFilter === "ready" && item.status !== "ready") return false;
       if (statusFilter === "downloading" && !(item.status === "downloading" || item.status === "queued" || item.status === "verifying")) return false;
       if (q) {
@@ -166,7 +183,7 @@ export function LibraryPage() {
       }
       return true;
     });
-  }, [items, search, kindFilter, statusFilter]);
+  }, [items, search, kindFilter, statusFilter, fileTypeFilter]);
 
   const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -211,7 +228,7 @@ export function LibraryPage() {
           <input
             ref={fileInputRef}
             type="file"
-            accept="video/*,audio/*"
+            accept={ACCEPTED_UPLOAD_ALL}
             onChange={handleFileSelected}
             style={{ display: "none" }}
             aria-label="Datei hochladen"
@@ -253,17 +270,31 @@ export function LibraryPage() {
           />
         </div>
         <label htmlFor="library-kind-filter" className="sr-only">
-          Typ filtern
+          Quelle filtern
         </label>
         <select
           id="library-kind-filter"
           className="list-controls__select"
           value={kindFilter}
           onChange={(e) => setKindFilter(e.target.value as KindFilter)}
-          aria-label="Typ filtern"
+          aria-label="Quelle filtern"
         >
           {(Object.keys(KIND_FILTER_LABELS) as KindFilter[]).map((k) => (
             <option key={k} value={k}>{KIND_FILTER_LABELS[k]}</option>
+          ))}
+        </select>
+        <label htmlFor="library-filetype-filter" className="sr-only">
+          Medientyp filtern
+        </label>
+        <select
+          id="library-filetype-filter"
+          className="list-controls__select"
+          value={fileTypeFilter}
+          onChange={(e) => setFileTypeFilter(e.target.value as FileTypeFilter)}
+          aria-label="Medientyp filtern"
+        >
+          {(Object.keys(FILE_TYPE_FILTER_LABELS) as FileTypeFilter[]).map((t) => (
+            <option key={t} value={t}>{FILE_TYPE_FILTER_LABELS[t]}</option>
           ))}
         </select>
         <label htmlFor="library-status-filter" className="sr-only">
@@ -301,12 +332,12 @@ export function LibraryPage() {
       {items.length === 0 ? (
         <EmptyState
           title="Bibliothek ist leer"
-          description="Lade VODs über den VOD Downloader herunter oder lade eine Datei hoch, um sie hier zu sehen."
+          description="Lade VODs über den VOD Downloader herunter oder lade eine Video-, Audio- oder Bilddatei hoch, um sie hier zu sehen."
         />
       ) : filteredItems.length === 0 ? (
         <EmptyState
           title="Keine Treffer"
-          description="Keine Videos entsprechen den aktuellen Filtern."
+          description="Keine Medien entsprechen den aktuellen Filtern."
         />
       ) : (
         <ul className="library-grid">
@@ -375,10 +406,12 @@ function LibraryCard({
       : undefined;
 
   const KindIcon = item.kind === "vod" ? Film : FileVideo;
+  // Icon representing the media type (video/audio/image).
+  const FileTypeIcon = item.fileType === "image" ? ImageIcon : item.fileType === "audio" ? Music : FileVideo;
 
   return (
     <li className="library-card">
-      {/* Media area: video player when ready, progress thumbnail when downloading */}
+      {/* Media area: type-aware preview when ready, progress thumbnail when downloading */}
       {isDownloading ? (
         item.thumbnailUrl ? (
           <div className="library-card__thumb library-card__thumb--progress">
@@ -393,18 +426,29 @@ function LibraryCard({
           </div>
         )
       ) : item.fileUrl ? (
-        <div className="library-card__video">
-          <video
-            src={item.fileUrl}
-            poster={item.thumbnailUrl ?? undefined}
-            controls
-            preload="metadata"
-            aria-label={item.title}
-          />
-        </div>
+        item.fileType === "image" ? (
+          <div className="library-card__image">
+            <img src={item.fileUrl} alt={item.title} loading="lazy" aria-label={item.title} />
+          </div>
+        ) : item.fileType === "audio" ? (
+          <div className="library-card__audio">
+            <Music size={32} />
+            <audio src={item.fileUrl} controls preload="metadata" aria-label={item.title} />
+          </div>
+        ) : (
+          <div className="library-card__video">
+            <video
+              src={item.fileUrl}
+              poster={item.thumbnailUrl ?? undefined}
+              controls
+              preload="metadata"
+              aria-label={item.title}
+            />
+          </div>
+        )
       ) : (
         <div className="library-card__thumb library-card__thumb--placeholder">
-          <KindIcon size={32} />
+          <FileTypeIcon size={32} />
         </div>
       )}
 

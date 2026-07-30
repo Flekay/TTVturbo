@@ -62,9 +62,15 @@ def build_library_router(
     router = APIRouter(prefix="/api/library", tags=["library"])
 
     @router.get("/items")
-    def list_items(include_temporary: bool = Query(False)) -> JSONResponse:
+    def list_items(
+        include_temporary: bool = Query(False),
+        file_type: Optional[str] = Query(None),
+    ) -> JSONResponse:
         try:
-            items = service.list_items(include_temporary=include_temporary)
+            items = service.list_items(
+                include_temporary=include_temporary,
+                file_type=file_type,
+            )
         except Exception as exc:
             return _map_error(exc)
         return JSONResponse(content={"items": items})
