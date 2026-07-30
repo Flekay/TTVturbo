@@ -92,6 +92,28 @@ function transformsEqual(a: CanvasTransform, b: CanvasTransform): boolean {
   return a.x === b.x && a.y === b.y && a.scale_x === b.scale_x && a.scale_y === b.scale_y && a.rotation === b.rotation;
 }
 
+// Compute the visible (letterboxed) content rectangle for a video/image of the
+// given intrinsic dimensions inside a container of size (scaleX*seqW, scaleY*seqH).
+// Returns left/top/width/height in stage pixels, relative to the container origin.
+function computeContentFrame(
+  scaleX: number,
+  scaleY: number,
+  dims: { w: number; h: number },
+  seqW: number,
+  seqH: number,
+): { left: number; top: number; width: number; height: number } {
+  const containerW = scaleX * seqW;
+  const containerH = scaleY * seqH;
+  const videoAspect = dims.w / dims.h;
+  const containerAspect = containerW / containerH;
+  if (videoAspect > containerAspect) {
+    const height = containerW / videoAspect;
+    return { left: 0, top: (containerH - height) / 2, width: containerW, height };
+  }
+  const width = containerH * videoAspect;
+  return { left: (containerW - width) / 2, top: 0, width, height: containerH };
+}
+
 export function EditorCanvas({
   sequence,
   tracks,
@@ -357,61 +379,105 @@ export function EditorCanvas({
     const viewportEl = viewportRef.current;
     if (!viewportEl) return;
     const rect = viewportEl.getBoundingClientRect();
-    const start = drafts[entry.key] ?? transformOf(entry.clip);
+    const seqW = sequence.width;
+    const seqH = sequence.height;
+    const zoom = viewport.zoom;
+    let start = drafts[entry.key] ?? transformOf(entry.clip);
+
+    // The selection border + handles are attached to the visible (letterboxed)
+    // content frame, but the stored transform describes the container. When a
+    // clip is letterboxed (e.g. a 16:9 video on a 9:16 sequence — the default,
+    // since new clips fill the whole sequence), resizing the container would
+    // make the handles drift away from the cursor. For resize operations we
+    // therefore rebase `start` onto the current content frame so the container
+    // and the visible video share the same rectangle. The rebase is only
+    // committed if the user actually drags.
+    if (mode.startsWith("resize-")) {
+      const dims = videoDims[entry.key];
+      const stretched = Math.abs(start.scale_x - start.scale_y) > 0.01;
+      if (dims && !stretched) {
+        const cf = computeContentFrame(start.scale_x, start.scale_y, dims, seqW, seqH);
+        const rebased = {
+          ...start,
+          x: start.x + cf.left / seqW,
+          y: start.y + cf.top / seqH,
+          scale_x: cf.width / seqW,
+          scale_y: cf.height / seqH,
+        };
+        if (!transformsEqual(rebased, start)) start = rebased;
+      }
+    }
+
     const startX = event.clientX;
     const startY = event.clientY;
-    const clipCenterScreenX = rect.left + viewport.panX + (start.x + start.scale_x / 2) * sequence.width * viewport.zoom;
-    const clipCenterScreenY = rect.top + viewport.panY + (start.y + start.scale_y / 2) * sequence.height * viewport.zoom;
+    const clipCenterScreenX = rect.left + viewport.panX + (start.x + start.scale_x / 2) * seqW * zoom;
+    const clipCenterScreenY = rect.top + viewport.panY + (start.y + start.scale_y / 2) * seqH * zoom;
     const startAngle = Math.atan2(event.clientY - clipCenterScreenY, event.clientX - clipCenterScreenX) * 180 / Math.PI;
     let latest = start;
     const proportional = !event.shiftKey;
 
     const update = (pointer: PointerEvent) => {
-      const dx = (pointer.clientX - startX) / (sequence.width * viewport.zoom);
-      const dy = (pointer.clientY - startY) / (sequence.height * viewport.zoom);
       let next = { ...start };
       if (mode === "move") {
+        const dx = (pointer.clientX - startX) / (seqW * zoom);
+        const dy = (pointer.clientY - startY) / (seqH * zoom);
         next.x = start.x + dx;
         next.y = start.y + dy;
       } else if (mode === "rotate") {
         const angle = Math.atan2(pointer.clientY - clipCenterScreenY, pointer.clientX - clipCenterScreenX) * 180 / Math.PI;
         next.rotation = Math.round((start.rotation + angle - startAngle) * 10) / 10;
       } else {
-        const west = mode.endsWith("w");
-        const east = mode.endsWith("e");
-        const north = mode.includes("n");
-        const south = mode.includes("s");
-        let newScaleX = start.scale_x;
-        let newScaleY = start.scale_y;
-        let newX = start.x;
-        let newY = start.y;
-        if (west) {
-          newScaleX = Math.max(0.03, start.scale_x - dx);
-          newX = start.x + start.scale_x - newScaleX;
+        // Resize — rotation-aware. The opposite corner/edge (the "anchor") is
+        // kept fixed in screen space, and the dragged handle follows the cursor
+        // along the handle's local axis. Screen deltas are rotated into the
+        // clip's local frame so resizing a rotated clip behaves intuitively.
+        const handle = mode.slice("resize-".length);
+        const sgnX = handle.includes("w") ? -1 : handle.includes("e") ? 1 : 0;
+        const sgnY = handle.includes("n") ? -1 : handle.includes("s") ? 1 : 0;
+        const rad = (start.rotation * Math.PI) / 180;
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+        // Anchor = opposite corner/edge, in container-local stage pixels,
+        // relative to the container center. Its screen position stays fixed.
+        const anchorRelX = (-sgnX * start.scale_x * seqW) / 2;
+        const anchorRelY = (-sgnY * start.scale_y * seqH) / 2;
+        const anchorScreenX = clipCenterScreenX + (cos * anchorRelX - sin * anchorRelY) * zoom;
+        const anchorScreenY = clipCenterScreenY + (sin * anchorRelX + cos * anchorRelY) * zoom;
+        // Cursor delta from the anchor, rotated into the clip's local frame.
+        // Rot(-R) = [cos, sin; -sin, cos].
+        const dxs = pointer.clientX - anchorScreenX;
+        const dys = pointer.clientY - anchorScreenY;
+        const localX = (cos * dxs + sin * dys) / zoom;
+        const localY = (-sin * dxs + cos * dys) / zoom;
+        let newW = sgnX !== 0 ? sgnX * localX : start.scale_x * seqW;
+        let newH = sgnY !== 0 ? sgnY * localY : start.scale_y * seqH;
+        const targetAspect = (start.scale_x * seqW) / Math.max(0.001, start.scale_y * seqH);
+        // Proportional (corner handles, Shift not held): lock container aspect.
+        if (proportional && sgnX !== 0 && sgnY !== 0) {
+          if (newW / Math.max(0.001, newH) > targetAspect) newH = newW / targetAspect;
+          else newW = newH * targetAspect;
         }
-        if (east) newScaleX = Math.max(0.03, start.scale_x + dx);
-        if (north) {
-          newScaleY = Math.max(0.03, start.scale_y - dy);
-          newY = start.y + start.scale_y - newScaleY;
+        // Clamp to minimum size (preserve aspect when proportional).
+        const minW = 0.03 * seqW;
+        const minH = 0.03 * seqH;
+        if (proportional && sgnX !== 0 && sgnY !== 0) {
+          if (newW < minW) { newW = minW; newH = newW / targetAspect; }
+          if (newH < minH) { newH = minH; newW = newH * targetAspect; }
+        } else {
+          if (sgnX !== 0 && newW < minW) newW = minW;
+          if (sgnY !== 0 && newH < minH) newH = minH;
         }
-        if (south) newScaleY = Math.max(0.03, start.scale_y + dy);
-        // Proportional: lock aspect ratio unless Shift is held.
-        if (proportional && (east || west) && (north || south)) {
-          const ratio = start.scale_x / Math.max(0.001, start.scale_y);
-          if (newScaleX / Math.max(0.001, newScaleY) > ratio) {
-            const targetY = newScaleX / ratio;
-            if (north) newY = start.y + start.scale_y - targetY;
-            newScaleY = targetY;
-          } else {
-            const targetX = newScaleY * ratio;
-            if (west) newX = start.x + start.scale_x - targetX;
-            newScaleX = targetX;
-          }
-        }
-        next.x = newX;
-        next.y = newY;
-        next.scale_x = newScaleX;
-        next.scale_y = newScaleY;
+        // Recompute the container center so the anchor stays fixed in screen space.
+        const newAnchorRelX = (-sgnX * newW) / 2;
+        const newAnchorRelY = (-sgnY * newH) / 2;
+        const newCenterScreenX = anchorScreenX - (cos * newAnchorRelX - sin * newAnchorRelY) * zoom;
+        const newCenterScreenY = anchorScreenY - (sin * newAnchorRelX + cos * newAnchorRelY) * zoom;
+        const newCenterStageX = (newCenterScreenX - rect.left - viewport.panX) / zoom;
+        const newCenterStageY = (newCenterScreenY - rect.top - viewport.panY) / zoom;
+        next.x = (newCenterStageX - newW / 2) / seqW;
+        next.y = (newCenterStageY - newH / 2) / seqH;
+        next.scale_x = newW / seqW;
+        next.scale_y = newH / seqH;
       }
       latest = next;
       setDrafts((current) => ({ ...current, [entry.key]: next }));
@@ -635,15 +701,11 @@ export function EditorCanvas({
               const dims = videoDims[entry.key];
               let contentLeft = 0, contentTop = 0, contentWidth = containerW, contentHeight = containerH;
               if (dims && !isStretched) {
-                const videoAspect = dims.w / dims.h;
-                const containerAspect = containerW / containerH;
-                if (videoAspect > containerAspect) {
-                  contentHeight = containerW / videoAspect;
-                  contentTop = (containerH - contentHeight) / 2;
-                } else {
-                  contentWidth = containerH * videoAspect;
-                  contentLeft = (containerW - contentWidth) / 2;
-                }
+                const cf = computeContentFrame(value.scale_x, value.scale_y, dims, sequence.width, sequence.height);
+                contentLeft = cf.left;
+                contentTop = cf.top;
+                contentWidth = cf.width;
+                contentHeight = cf.height;
               }
               return (
                 <div
