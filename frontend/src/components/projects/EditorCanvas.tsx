@@ -43,6 +43,7 @@ interface EditorCanvasProps {
   selectedTrackId: string | null;
   selectedClipId: string | null;
   mediaTitles: Record<string, string>;
+  mediaFileTypes?: Record<string, string>;
   onSelect: (trackId: string, clipId: string) => void;
   onTransformCommit: (trackId: string, clipId: string, transform: CanvasTransform) => Promise<void> | void;
   onAddMedia?: () => void;
@@ -99,6 +100,7 @@ export function EditorCanvas({
   selectedTrackId,
   selectedClipId,
   mediaTitles,
+  mediaFileTypes,
   onSelect,
   onTransformCommit,
   onCutRegion,
@@ -629,6 +631,7 @@ export function EditorCanvas({
               const isStretched = Math.abs(value.scale_x - value.scale_y) > 0.01;
               const containerW = value.scale_x * sequence.width;
               const containerH = value.scale_y * sequence.height;
+              const isImage = mediaFileTypes?.[entry.clip.source_media_item_id] === "image";
               const dims = videoDims[entry.key];
               let contentLeft = 0, contentTop = 0, contentWidth = containerW, contentHeight = containerH;
               if (dims && !isStretched) {
@@ -659,21 +662,35 @@ export function EditorCanvas({
                   onPointerDown={(event) => handleClipPointerDown(event, entry)}
                   onDoubleClick={() => onSelect(entry.track.id, entry.clip.id)}
                 >
-                  <video
-                    ref={(node) => { if (node) mediaRefs.current.set(entry.key, node); else mediaRefs.current.delete(entry.key); }}
-                    src={libraryItemFileUrl(entry.clip.source_media_item_id)}
-                    muted={Boolean(entry.clip.audio_muted)}
-                    playsInline
-                    preload="auto"
-                    draggable={false}
-                    onLoadedMetadata={(e) => {
-                      const v = e.currentTarget;
-                      if (v.videoWidth && v.videoHeight) {
-                        setVideoDims((prev) => prev[entry.key] ? prev : { ...prev, [entry.key]: { w: v.videoWidth, h: v.videoHeight } });
-                      }
-                    }}
-                    style={{ objectFit: isStretched ? "fill" : "contain" }}
-                  />
+                  {isImage ? (
+                    <img
+                      src={libraryItemFileUrl(entry.clip.source_media_item_id)}
+                      draggable={false}
+                      onLoad={(e) => {
+                        const img = e.currentTarget;
+                        if (img.naturalWidth && img.naturalHeight) {
+                          setVideoDims((prev) => prev[entry.key]?.w === img.naturalWidth && prev[entry.key]?.h === img.naturalHeight ? prev : { ...prev, [entry.key]: { w: img.naturalWidth, h: img.naturalHeight } });
+                        }
+                      }}
+                      style={{ objectFit: isStretched ? "fill" : "contain" }}
+                    />
+                  ) : (
+                    <video
+                      ref={(node) => { if (node) mediaRefs.current.set(entry.key, node); else mediaRefs.current.delete(entry.key); }}
+                      src={libraryItemFileUrl(entry.clip.source_media_item_id)}
+                      muted={Boolean(entry.clip.audio_muted)}
+                      playsInline
+                      preload="auto"
+                      draggable={false}
+                      onLoadedMetadata={(e) => {
+                        const v = e.currentTarget;
+                        if (v.videoWidth && v.videoHeight) {
+                          setVideoDims((prev) => prev[entry.key] ? prev : { ...prev, [entry.key]: { w: v.videoWidth, h: v.videoHeight } });
+                        }
+                      }}
+                      style={{ objectFit: isStretched ? "fill" : "contain" }}
+                    />
+                  )}
                   {/* Content frame: border + handles match the actual video display area */}
                   <div
                     data-content-frame

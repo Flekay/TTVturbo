@@ -7,8 +7,12 @@ const LIBRARY = "/api/library";
 export function fetchLibraryItems(
   fileType?: FileType,
   signal?: AbortSignal,
+  options?: { includeTemporary?: boolean },
 ): Promise<LibraryItemListResponse> {
-  const search = fileType ? `?file_type=${encodeURIComponent(fileType)}` : "";
+  const params = new URLSearchParams();
+  if (fileType) params.set("file_type", fileType);
+  if (options?.includeTemporary) params.set("include_temporary", "true");
+  const search = params.toString() ? `?${params.toString()}` : "";
   return apiClient.get(`${LIBRARY}/items${search}`, {
     schema: libraryItemListResponseSchema,
     signal,
@@ -30,6 +34,13 @@ export async function uploadToLibrary(file: File): Promise<LibraryItem> {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("lifecycle", "PERSISTENT");
+  return apiClient.post(`${LIBRARY}/uploads`, { body: formData, schema: libraryItemSchema });
+}
+
+export async function uploadToLibraryTemporary(file: File): Promise<LibraryItem> {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("lifecycle", "TEMPORARY");
   return apiClient.post(`${LIBRARY}/uploads`, { body: formData, schema: libraryItemSchema });
 }
 

@@ -47,11 +47,20 @@ function clipDurationUs(clip: TimelineClip): number {
 }
 
 function mediaIsAudio(item: LibraryItem): boolean {
-  return /\.(mp3|wav|flac|aac|m4a|ogg|opus)$/i.test(item.file_name);
+  return item.file_type === "audio";
 }
+
+function mediaIsImage(item: LibraryItem): boolean {
+  return item.file_type === "image";
+}
+
+/** Default duration (in seconds) for still images that have no intrinsic duration. */
+const DEFAULT_IMAGE_DURATION_SECONDS = 5;
 
 async function resolveDurationSeconds(item: LibraryItem): Promise<number> {
   if (item.duration_seconds && item.duration_seconds > 0) return item.duration_seconds;
+  // Images have no intrinsic duration — use a sensible default.
+  if (mediaIsImage(item)) return DEFAULT_IMAGE_DURATION_SECONDS;
   return new Promise<number>((resolve, reject) => {
     const element = document.createElement(mediaIsAudio(item) ? "audio" : "video");
     const timeout = window.setTimeout(() => {
@@ -107,7 +116,8 @@ export function ProjectWorkspacePage() {
   const project = useProject(projectId);
   const commits = useProjectCommits(projectId);
   const commitState = useCommitState(projectId, project.data?.checkout_commit_id);
-  const library = useLibraryItemsQuery();
+  // Include temporary items so mediaTitles/mediaFileTypes cover editor uploads.
+  const library = useLibraryItemsQuery(undefined, { includeTemporary: true });
   const createCommit = useCreateCommit(projectId!);
   const addProjectSource = useAddProjectSource(projectId!);
   const checkoutBranch = useCheckoutBranch(projectId!);
@@ -227,6 +237,7 @@ export function ProjectWorkspacePage() {
   const activeBranch = project.data?.branches.find((branch) => branch.id === project.data?.active_branch_id);
   const commitItems = useMemo(() => commits.data?.pages.flatMap((page) => page.commits) ?? [], [commits.data]);
   const mediaTitles = useMemo(() => Object.fromEntries((library.data?.items ?? []).map((item) => [item.id, item.title])), [library.data?.items]);
+  const mediaFileTypes = useMemo(() => Object.fromEntries((library.data?.items ?? []).map((item) => [item.id, item.file_type ?? "video"])), [library.data?.items]);
 
   const timelineEndUs = useMemo(() => {
     let end = 0;
@@ -931,6 +942,7 @@ export function ProjectWorkspacePage() {
             selectedTrackId={selectedTrackId}
             selectedClipId={selectedClipId}
             mediaTitles={mediaTitles}
+            mediaFileTypes={mediaFileTypes}
             onSelect={(trackId, clipId) => { setSelectedTrackId(trackId); setSelectedClipId(clipId); }}
             onTransformCommit={(trackId, clipId, transform) => runEditorAction(() => commitTransform(trackId, clipId, transform))}
             onAddMedia={() => setAddMediaOpen(true)}
