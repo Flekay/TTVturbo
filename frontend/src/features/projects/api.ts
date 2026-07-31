@@ -26,8 +26,32 @@ export interface EditSequence {
   layout?: unknown;
 }
 
+export type TimelineElementKind = "VIDEO" | "AUDIO" | "IMAGE" | "TEXT";
+
+export type TimelineEffectAnchor = "START" | "END";
+
+export interface TimelineEffect {
+  id: string;
+  type: string;
+  anchor: TimelineEffectAnchor;
+  duration_us: number;
+  enabled?: boolean;
+  parameters?: Record<string, unknown>;
+}
+
+export interface TimelineTextContent {
+  content: string;
+  font_size?: number;
+  font_family?: string;
+  color?: string;
+  background_color?: string;
+  font_weight?: number | string;
+  align?: "left" | "center" | "right";
+}
+
 export interface TimelineClip {
   id: string;
+  kind?: TimelineElementKind;
   source_media_item_id: string;
   source_asset_id?: string | null;
   source_start_us: number;
@@ -41,6 +65,11 @@ export interface TimelineClip {
     rotation?: number;
   };
   opacity?: number;
+  speed?: number;
+  audio_gain?: number;
+  audio_muted?: boolean;
+  text?: TimelineTextContent;
+  effects?: TimelineEffect[];
   [key: string]: unknown;
 }
 

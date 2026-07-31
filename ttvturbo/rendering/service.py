@@ -83,7 +83,9 @@ class RenderingService(SubprocessCapabilityService):
             "modes": ["PREVIEW", "FINAL"],
             "video_codecs": ["libx264", "libx265", "h264_nvenc", "hevc_nvenc"],
             "audio_codecs": ["aac", "libopus"],
-            "supported_tracks": ["VIDEO", "AUDIO", "GAMEPLAY", "FACECAM", "CAPTIONS", "OVERLAY"],
+            "supported_tracks": ["UNIVERSAL", "VIDEO", "AUDIO", "GAMEPLAY", "FACECAM", "CAPTIONS", "OVERLAY"],
+            "supported_elements": ["VIDEO", "AUDIO", "IMAGE", "TEXT"],
+            "supported_effects": ["FADE"],
             "supports_alpha_inputs": True,
             "supports_historical_commits": True,
             "reasons": status["reasons"],
@@ -131,15 +133,20 @@ class RenderingService(SubprocessCapabilityService):
         for source_ref in projection.get("source_references") or []:
             media_id = source_ref["media_item_id"]
             try:
-                _, path = resolve_library_media(self.library_service, media_id, source_ref.get("asset_id"))
+                library_meta, path = resolve_library_media(self.library_service, media_id, source_ref.get("asset_id"))
             except Exception as exc:
                 raise RenderingNotFoundError(str(exc)) from exc
             actual_hash = sha256_file(path)
             if actual_hash != source_ref["sha256"]:
                 raise RenderingConflictError(f"source changed since project import: {media_id}")
-            from ttvturbo.media_capabilities.utils import video_metadata
-            metadata = video_metadata(self.ffprobe_path, path)
-            source_files[media_id] = {"path": str(path), "sha256": actual_hash, **metadata}
+            from ttvturbo.media_capabilities.utils import media_metadata
+            metadata = media_metadata(self.ffprobe_path, path)
+            source_files[media_id] = {
+                "path": str(path),
+                "sha256": actual_hash,
+                "file_type": library_meta.get("file_type"),
+                **metadata,
+            }
 
         # Idempotent cache: an exact projection+settings already rendered in
         # the requested mode can be reused without another encode.

@@ -16,6 +16,7 @@ from .errors import EditConflictError, EditNotFoundError, EditStorageError, Edit
 from .merge import find_merge_base, set_path, state_diff, three_way_merge
 from .operations import OperationEngine, canonical_json, empty_state, state_hash, validate_sequence
 from .schemas import FormatProfile, SNAPSHOT_INTERVAL
+from .timeline_migration import migrate_universal_timeline_state
 
 
 def _uuid() -> str:
@@ -99,7 +100,7 @@ class EditProjectService:
             result.append(item)
         return result
 
-    def _reconstruct_conn(self, conn: sqlite3.Connection, project_id: str, commit_id: str) -> dict[str, Any]:
+    def _reconstruct_raw_conn(self, conn: sqlite3.Connection, project_id: str, commit_id: str) -> dict[str, Any]:
         target = self._require_commit(conn, project_id, commit_id)
         chain: list[str] = []
         cursor: Optional[str] = commit_id
@@ -126,6 +127,14 @@ class EditProjectService:
                 f"state hash mismatch for commit {commit_id}: expected {target['state_hash']}, got {actual}"
             )
         return state
+
+    def _reconstruct_conn(self, conn: sqlite3.Connection, project_id: str, commit_id: str) -> dict[str, Any]:
+        # Verify the persisted historical state in its exact original shape,
+        # then expose a deterministic universal/non-overlapping runtime view.
+        # The first later write stores this migration as an internal state patch.
+        raw_state = self._reconstruct_raw_conn(conn, project_id, commit_id)
+        migrated_state, _ = migrate_universal_timeline_state(raw_state)
+        return migrated_state
 
     def reconstruct_state(self, project_id: str, commit_id: str) -> dict[str, Any]:
         with self.db.read() as conn:
@@ -201,8 +210,17 @@ class EditProjectService:
             raise EditConflictError(
                 f"branch head changed: expected {expected_head_commit_id}, current {branch['head_commit_id']}"
             )
-        state = self._reconstruct_conn(conn, project_id, branch["head_commit_id"])
+        # Start from the exact persisted parent so the migration itself can be
+        # recorded once and future reconstruction remains hash-verifiable.
+        state = self._reconstruct_raw_conn(conn, project_id, branch["head_commit_id"])
         records: list[dict[str, Any]] = []
+        migrated_state, migration_required = migrate_universal_timeline_state(state)
+        if migration_required:
+            records.append(self.engine.apply(
+                state,
+                {"type": "APPLY_STATE_PATCH", "payload": {"state": migrated_state}},
+                allow_internal=True,
+            ))
         for operation in operations:
             records.append(self.engine.apply(state, operation, allow_internal=allow_internal_operations))
         if not records:
@@ -317,7 +335,11 @@ class EditProjectService:
         if not checked:
             raise EditValidationError("at least one sequence is required")
         project_id = _uuid(); commit_id = _uuid(); branch_id = _uuid(); ts = now_iso()
-        state = empty_state(project_id, resolved_sources); records = []
+        state = empty_state(project_id, resolved_sources)
+        # Projects created by this version start directly on the universal
+        # timeline schema and therefore never need a synthetic migration commit.
+        state["schema_version"] = 2
+        records = []
         for seq in checked:
             records.append(self.engine.apply(state, {"type":"CREATE_SEQUENCE", "payload":{"sequence":seq}}))
         digest = state_hash(state)

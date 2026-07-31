@@ -16,7 +16,8 @@ import { fetchLibraryItem, libraryItemFileUrl } from "../features/library/api";
 import { useLibraryItemsQuery } from "../features/library/hooks";
 import type { LibraryItem } from "../features/library/schemas";
 import { useUIStore } from "../stores/uiStore";
-import { parseEditorCommand, startRender, type EditCommit, type EditorCommandContext, type EditorCommandIntent, type EditSequence, type TimelineClip, type TimelineTrack } from "../features/projects/api";
+import { parseEditorCommand, startRender, type EditCommit, type EditorCommandContext, type EditorCommandIntent, type EditSequence, type TimelineClip, type TimelineEffect, type TimelineElementKind, type TimelineTrack } from "../features/projects/api";
+import { canPlace, clipDurationUs, firstAvailableLayerAt, firstAvailableStartAtOrAfter } from "../features/projects/timelineLogic";
 import type { NormalizedRegion } from "../features/videoCut";
 import {
   useAddProjectSource,
@@ -42,10 +43,6 @@ function safeId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function clipDurationUs(clip: TimelineClip): number {
-  return Math.max(1, (clip.source_end_us - clip.source_start_us) / Math.max(0.05, Number(clip.speed ?? 1)));
-}
-
 function mediaIsAudio(item: LibraryItem): boolean {
   return item.file_type === "audio";
 }
@@ -54,18 +51,57 @@ function mediaIsImage(item: LibraryItem): boolean {
   return item.file_type === "image";
 }
 
+function elementKindForMode(mode: AddMediaMode): TimelineElementKind {
+  if (mode === "AUDIO") return "AUDIO";
+  if (mode === "IMAGE") return "IMAGE";
+  return "VIDEO";
+}
+
 /** Default duration (in seconds) for still images that have no intrinsic duration. */
 const DEFAULT_IMAGE_DURATION_SECONDS = 5;
 
-async function resolveDurationSeconds(item: LibraryItem): Promise<number> {
-  if (item.duration_seconds && item.duration_seconds > 0) return item.duration_seconds;
-  // Images have no intrinsic duration — use a sensible default.
-  if (mediaIsImage(item)) return DEFAULT_IMAGE_DURATION_SECONDS;
-  return new Promise<number>((resolve, reject) => {
+interface ResolvedMediaMetadata {
+  durationSeconds: number;
+  width?: number;
+  height?: number;
+}
+
+async function resolveMediaMetadata(item: LibraryItem): Promise<ResolvedMediaMetadata> {
+  const knownDuration = item.duration_seconds && item.duration_seconds > 0 ? item.duration_seconds : null;
+  if (mediaIsAudio(item) && knownDuration) return { durationSeconds: knownDuration };
+
+  if (mediaIsImage(item)) {
+    return new Promise<ResolvedMediaMetadata>((resolve, reject) => {
+      const image = new Image();
+      const timeout = window.setTimeout(() => {
+        cleanup();
+        reject(new Error("Die Bildgröße konnte nicht gelesen werden."));
+      }, 15_000);
+      const cleanup = () => {
+        window.clearTimeout(timeout);
+        image.onload = null;
+        image.onerror = null;
+      };
+      image.onload = () => {
+        const width = image.naturalWidth;
+        const height = image.naturalHeight;
+        cleanup();
+        if (!width || !height) reject(new Error("Ungültige Bildgröße."));
+        else resolve({ durationSeconds: knownDuration ?? DEFAULT_IMAGE_DURATION_SECONDS, width, height });
+      };
+      image.onerror = () => {
+        cleanup();
+        reject(new Error("Das Bild konnte nicht geöffnet werden."));
+      };
+      image.src = libraryItemFileUrl(item.id);
+    });
+  }
+
+  return new Promise<ResolvedMediaMetadata>((resolve, reject) => {
     const element = document.createElement(mediaIsAudio(item) ? "audio" : "video");
     const timeout = window.setTimeout(() => {
       cleanup();
-      reject(new Error("Die Dauer des Mediums konnte nicht gelesen werden."));
+      reject(new Error("Die Metadaten des Mediums konnten nicht gelesen werden."));
     }, 15_000);
     const cleanup = () => {
       window.clearTimeout(timeout);
@@ -74,10 +110,17 @@ async function resolveDurationSeconds(item: LibraryItem): Promise<number> {
     };
     element.preload = "metadata";
     element.onloadedmetadata = () => {
-      const duration = element.duration;
+      const durationSeconds = knownDuration ?? element.duration;
+      const width = element instanceof HTMLVideoElement ? element.videoWidth : undefined;
+      const height = element instanceof HTMLVideoElement ? element.videoHeight : undefined;
       cleanup();
-      if (!Number.isFinite(duration) || duration <= 0) reject(new Error("Ungültige Mediendauer."));
-      else resolve(duration);
+      if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+        reject(new Error("Ungültige Mediendauer."));
+      } else if (element instanceof HTMLVideoElement && (!width || !height)) {
+        reject(new Error("Ungültige Videogröße."));
+      } else {
+        resolve({ durationSeconds, width, height });
+      }
     };
     element.onerror = () => {
       cleanup();
@@ -85,6 +128,28 @@ async function resolveDurationSeconds(item: LibraryItem): Promise<number> {
     };
     element.src = libraryItemFileUrl(item.id);
   });
+}
+
+function defaultVisualTransform(metadata: ResolvedMediaMetadata, sequence: EditSequence): CanvasTransform | undefined {
+  const sourceWidth = Number(metadata.width ?? 0);
+  const sourceHeight = Number(metadata.height ?? 0);
+  if (sourceWidth <= 0 || sourceHeight <= 0) return undefined;
+  const fitScale = Math.min(1, sequence.width / sourceWidth, sequence.height / sourceHeight);
+  const width = Math.max(1, sourceWidth * fitScale);
+  const height = Math.max(1, sourceHeight * fitScale);
+  const scaleX = width / sequence.width;
+  const scaleY = height / sequence.height;
+  return {
+    x: (1 - scaleX) / 2,
+    y: (1 - scaleY) / 2,
+    scale_x: scaleX,
+    scale_y: scaleY,
+    rotation: 0,
+  };
+}
+
+function isTimelineOverlapError(error: unknown): boolean {
+  return errorMessage(error).toLocaleLowerCase("en-US").includes("timeline overlap");
 }
 
 function getOrderedTracks(sequence: EditSequence | undefined): TimelineTrack[] {
@@ -249,10 +314,12 @@ export function ProjectWorkspacePage() {
   const branchRef = useRef<string>("");
   const detachedRef = useRef<string | null>(null);
   const playheadRef = useRef(0);
+  const layersRef = useRef<TimelineTrack[]>([]);
   const commitQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const sourceIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => { playheadRef.current = playheadUs; }, [playheadUs]);
+  useEffect(() => { layersRef.current = tracks; }, [tracks]);
   useEffect(() => { sourceIdsRef.current = new Set(stateSources.filter((source) => !source.asset_id).map((source) => source.media_item_id)); }, [stateSources]);
 
   useEffect(() => {
@@ -380,6 +447,13 @@ export function ProjectWorkspacePage() {
     void action().catch((error) => toast.show({ title, description: errorMessage(error), variant: "error" }));
   }
 
+  function seekTimeline(timeUs: number): void {
+    const value = Math.max(0, timeUs);
+    playheadRef.current = value;
+    setPlayheadUs(value);
+    setPlaying(false);
+  }
+
   function serialize<T>(task: () => Promise<T>): Promise<T> {
     const next = commitQueueRef.current.then(task, task);
     commitQueueRef.current = next.then(() => undefined, () => undefined);
@@ -428,7 +502,7 @@ export function ProjectWorkspacePage() {
     setEditorBusy(true);
     try {
       await serialize(async () => {
-        const duration = await resolveDurationSeconds(item);
+        const metadata = await resolveMediaMetadata(item);
         const branch = await ensureWritableBranchNow();
         const sourceExists = sourceIdsRef.current.has(item.id);
         if (!sourceExists) {
@@ -442,31 +516,67 @@ export function ProjectWorkspacePage() {
           sourceIdsRef.current.add(item.id);
         }
 
-        const desiredType = mode === "AUDIO" ? "AUDIO" : "VIDEO";
-        let targetTrack = selectedTrack?.type === desiredType ? selectedTrack : tracks.find((track) => track.type === desiredType);
-        const operations: Array<Record<string, unknown>> = [];
-        if (!targetTrack) {
-          const trackId = safeId(desiredType.toLowerCase());
-          targetTrack = { id: trackId, type: desiredType, name: desiredType === "AUDIO" ? "Audio" : "Video", clips: {} };
-          operations.push({ type: "ADD_TRACK", sequence_id: readySequence.id, payload: { track: targetTrack } });
+        const kind = elementKindForMode(mode);
+        const durationUs = Math.max(1, Math.round(metadata.durationSeconds * 1_000_000));
+        const timelineStartUs = Math.max(0, Math.round(playheadRef.current));
+        const currentLayers = layersRef.current;
+        let targetLayer = firstAvailableLayerAt(currentLayers, timelineStartUs, durationUs, selectedTrackId);
+        let createdLayer = false;
+        if (!targetLayer) {
+          targetLayer = { id: safeId("layer"), type: "UNIVERSAL", name: `Layer ${currentLayers.length + 1}`, clips: {} };
+          createdLayer = true;
         }
+
         const clip: TimelineClip = {
           id: safeId("clip"),
+          kind,
           source_media_item_id: item.id,
           source_start_us: 0,
-          source_end_us: Math.max(1, Math.round(duration * 1_000_000)),
-          timeline_start_us: Math.round(playheadRef.current),
+          source_end_us: durationUs,
+          timeline_start_us: timelineStartUs,
+          transform: kind === "VIDEO" || kind === "IMAGE" ? defaultVisualTransform(metadata, readySequence) : undefined,
           audio_muted: false,
+          effects: [],
         };
-        operations.push({ type: "ADD_CLIP", sequence_id: readySequence.id, payload: { track_id: targetTrack.id, clip } });
-        const result = await createCommit.mutateAsync({
-          branch_id: branchRef.current,
-          expected_head_commit_id: headRef.current,
-          message: `${item.title} zur Timeline hinzugefügt`,
-          operations,
-        });
+
+        const commitInsertion = async (layer: TimelineTrack, addLayer: boolean): Promise<EditCommit> => {
+          const operations: Array<Record<string, unknown>> = [];
+          if (addLayer) operations.push({ type: "ADD_TRACK", sequence_id: readySequence.id, payload: { track: layer } });
+          operations.push({
+            type: "ADD_CLIP",
+            sequence_id: readySequence.id,
+            payload: { track_id: layer.id, clip, placement: "EXACT" },
+          });
+          return createCommit.mutateAsync({
+            branch_id: branchRef.current,
+            expected_head_commit_id: headRef.current,
+            message: `${item.title} zur Timeline hinzugefügt`,
+            operations,
+          });
+        };
+
+        let result: EditCommit;
+        try {
+          result = await commitInsertion(targetLayer, createdLayer);
+        } catch (error) {
+          // A freshly attached source or another local commit can make the
+          // browser snapshot stale. Preserve the exact playhead position by
+          // retrying in a new layer instead of shifting the element in time.
+          if (createdLayer || !isTimelineOverlapError(error)) throw error;
+          targetLayer = { id: safeId("layer"), type: "UNIVERSAL", name: `Layer ${currentLayers.length + 1}`, clips: {} };
+          createdLayer = true;
+          result = await commitInsertion(targetLayer, true);
+        }
+
         headRef.current = result.id;
-        setSelectedTrackId(targetTrack.id);
+        const layerWithClip: TimelineTrack = {
+          ...targetLayer,
+          clips: { ...(targetLayer.clips ?? {}), [clip.id]: clip },
+        };
+        layersRef.current = createdLayer
+          ? [...currentLayers, layerWithClip]
+          : currentLayers.map((layer) => layer.id === targetLayer.id ? layerWithClip : layer);
+        setSelectedTrackId(targetLayer.id);
         setSelectedClipId(clip.id);
       });
       toast.show({ title: "Medium zur Timeline hinzugefügt", variant: "success" });
@@ -477,13 +587,14 @@ export function ProjectWorkspacePage() {
       setEditorBusy(false);
     }
   }
+
   addMediaRef.current = addMedia;
 
   async function replaceClipWithCutResult(trackId: string, oldClip: TimelineClip, newItem: LibraryItem, targetTransform?: CanvasTransform) {
     setEditorBusy(true);
     try {
       await serialize(async () => {
-        const duration = await resolveDurationSeconds(newItem);
+        const metadata = await resolveMediaMetadata(newItem);
         const branch = await ensureWritableBranchNow();
         const sourceExists = sourceIdsRef.current.has(newItem.id);
         if (!sourceExists) {
@@ -502,14 +613,16 @@ export function ProjectWorkspacePage() {
         // would stretch the cropped portion to fill the whole stage).
         const newClip: TimelineClip = {
           id: safeId("clip"),
+          kind: "VIDEO",
           source_media_item_id: newItem.id,
           source_start_us: 0,
-          source_end_us: Math.max(1, Math.round(duration * 1_000_000)),
+          source_end_us: Math.max(1, Math.round(metadata.durationSeconds * 1_000_000)),
           timeline_start_us: oldClip.timeline_start_us,
           transform: targetTransform ?? oldClip.transform ?? { x: 0, y: 0, scale_x: 1, scale_y: 1, rotation: 0 },
           opacity: oldClip.opacity,
           audio_muted: oldClip.audio_muted,
           speed: oldClip.speed,
+          effects: oldClip.effects ?? [],
         };
         const operations: Array<Record<string, unknown>> = [
           { type: "REMOVE_CLIP", sequence_id: readySequence.id, payload: { track_id: trackId, clip_id: oldClip.id } },
@@ -554,19 +667,33 @@ export function ProjectWorkspacePage() {
     }
   }
 
-  async function addTrack(type: "VIDEO" | "AUDIO") {
-    const count = tracks.filter((track) => track.type === type).length + 1;
-    await commitOperations(`${type === "AUDIO" ? "Audio" : "Video"}spur hinzugefügt`, [{
+  async function addTrack() {
+    const count = tracks.length + 1;
+    await commitOperations("Layer hinzugefügt", [{
       type: "ADD_TRACK",
       sequence_id: readySequence.id,
-      payload: { track: { id: safeId(type.toLowerCase()), type, name: `${type === "AUDIO" ? "Audio" : "Video"} ${count}` } },
+      payload: { track: { id: safeId("layer"), type: "UNIVERSAL", name: `Layer ${count}` } },
     }]);
   }
 
   async function deleteTrack(track: TimelineTrack) {
     const count = Object.keys(track.clips ?? {}).length;
-    if (!window.confirm(count ? `Spur und ${count} Clip(s) entfernen?` : "Leere Spur entfernen?")) return;
-    await commitOperations("Spur entfernt", [{ type: "REMOVE_TRACK", sequence_id: readySequence.id, payload: { track_id: track.id } }]);
+    if (!window.confirm(count ? `Layer und ${count} Clip(s) entfernen?` : "Leeren Layer entfernen?")) return;
+    await commitOperations("Layer entfernt", [{ type: "REMOVE_TRACK", sequence_id: readySequence.id, payload: { track_id: track.id } }]);
+  }
+
+  async function renameTrack(track: TimelineTrack, name: string) {
+    const normalized = name.trim();
+    if (!normalized) throw new Error("Der Layername darf nicht leer sein.");
+    await commitOperations("Layer umbenannt", [{ type: "RENAME_TRACK", sequence_id: readySequence.id, payload: { track_id: track.id, name: normalized } }]);
+  }
+
+  async function reorderTracks(trackIds: string[]) {
+    const currentIds = tracks.map((track) => track.id);
+    if (trackIds.length !== currentIds.length || trackIds.some((id) => !currentIds.includes(id))) {
+      throw new Error("Die Layer-Reihenfolge ist nicht mehr aktuell.");
+    }
+    await commitOperations("Layer neu angeordnet", [{ type: "REORDER_TRACK", sequence_id: readySequence.id, payload: { order: trackIds } }]);
   }
 
   async function moveClip(trackId: string, clip: TimelineClip, targetTrackId: string, timelineStartUs: number) {
@@ -583,16 +710,25 @@ export function ProjectWorkspacePage() {
   }
 
   async function trimClip(trackId: string, clip: TimelineClip, sourceStartUs: number, sourceEndUs: number, timelineStartUs: number) {
-    const operations: Array<Record<string, unknown>> = [{
+    const trimOperation: Record<string, unknown> = {
       type: "TRIM_CLIP",
       sequence_id: readySequence.id,
       payload: { track_id: trackId, clip_id: clip.id, source_start_us: Math.round(sourceStartUs), source_end_us: Math.round(sourceEndUs) },
-    }];
-    if (timelineStartUs !== clip.timeline_start_us) operations.push({
+    };
+    const moveOperation: Record<string, unknown> = {
       type: "MOVE_CLIP",
       sequence_id: readySequence.id,
       payload: { track_id: trackId, clip_id: clip.id, timeline_start_us: Math.round(timelineStartUs) },
-    });
+    };
+    const timelineChanged = Math.round(timelineStartUs) !== Math.round(clip.timeline_start_us);
+    // Extending the left edge must move the currently-shorter clip first and
+    // only then restore its source range. Otherwise the temporary intermediate
+    // state grows to the right and can overlap the following clip.
+    const operations: Array<Record<string, unknown>> = !timelineChanged
+      ? [trimOperation]
+      : timelineStartUs < clip.timeline_start_us
+        ? [moveOperation, trimOperation]
+        : [trimOperation, moveOperation];
     await commitOperations("Clip getrimmt", operations);
   }
 
@@ -612,13 +748,23 @@ export function ProjectWorkspacePage() {
   }
 
   async function separateAudio(trackId: string, clip: TimelineClip) {
-    let audioTrack = tracks.find((track) => track.type === "AUDIO");
+    const durationUs = clipDurationUs(clip);
+    let audioTrack = tracks.find((track) => track.id !== trackId && canPlace(track, clip.timeline_start_us, durationUs));
     const operations: Array<Record<string, unknown>> = [];
     if (!audioTrack) {
-      audioTrack = { id: safeId("audio"), type: "AUDIO", name: "Audio", clips: {} };
+      audioTrack = { id: safeId("layer"), type: "UNIVERSAL", name: `Layer ${tracks.length + 1}`, clips: {} };
       operations.push({ type: "ADD_TRACK", sequence_id: readySequence.id, payload: { track: audioTrack } });
     }
-    const audioClip = { ...clip, id: safeId("audio-clip"), audio_muted: false };
+    const audioClip: TimelineClip = {
+      ...clip,
+      id: safeId("audio-clip"),
+      kind: "AUDIO",
+      audio_muted: false,
+      transform: undefined,
+      crop: undefined,
+      opacity: 1,
+      effects: [...(clip.effects ?? [])],
+    };
     operations.push({ type: "ADD_CLIP", sequence_id: readySequence.id, payload: { track_id: audioTrack.id, clip: audioClip } });
     operations.push({ type: "SET_AUDIO_MUTE", sequence_id: readySequence.id, payload: { track_id: trackId, clip_id: clip.id, value: true } });
     await commitOperations("Video und Audio getrennt", operations);
@@ -627,10 +773,79 @@ export function ProjectWorkspacePage() {
   }
 
   async function duplicateClip(trackId: string, clip: TimelineClip) {
-    const copy = { ...clip, id: safeId("clip"), timeline_start_us: Math.round(clip.timeline_start_us + clipDurationUs(clip)) };
-    await commitOperations("Clip dupliziert", [{ type: "ADD_CLIP", sequence_id: readySequence.id, payload: { track_id: trackId, clip: copy } }]);
+    const track = tracks.find((item) => item.id === trackId);
+    if (!track) throw new Error("Layer wurde nicht gefunden.");
+    const startUs = firstAvailableStartAtOrAfter(track, Math.round(clip.timeline_start_us + clipDurationUs(clip)), clipDurationUs(clip));
+    const copy: TimelineClip = { ...clip, id: safeId("clip"), timeline_start_us: startUs, effects: [...(clip.effects ?? [])] };
+    await commitOperations("Element dupliziert", [{ type: "ADD_CLIP", sequence_id: readySequence.id, payload: { track_id: trackId, clip: copy } }]);
     setSelectedTrackId(trackId);
     setSelectedClipId(copy.id);
+  }
+
+  async function addTextElement(preferredTrackId?: string, requestedStartUs?: number) {
+    const content = window.prompt("Textinhalt", "Neuer Text");
+    if (content === null || !content.trim()) return;
+    const operations: Array<Record<string, unknown>> = [];
+    const durationUs = 5_000_000;
+    const startUs = Math.max(0, Math.round(requestedStartUs ?? playheadRef.current));
+    const currentLayers = layersRef.current;
+    let targetTrack = firstAvailableLayerAt(currentLayers, startUs, durationUs, preferredTrackId ?? selectedTrackId);
+    if (!targetTrack) {
+      targetTrack = { id: safeId("layer"), type: "UNIVERSAL", name: `Layer ${currentLayers.length + 1}`, clips: {} };
+      operations.push({ type: "ADD_TRACK", sequence_id: readySequence.id, payload: { track: targetTrack } });
+    }
+    const clip: TimelineClip = {
+      id: safeId("text"),
+      kind: "TEXT",
+      source_media_item_id: "",
+      source_start_us: 0,
+      source_end_us: durationUs,
+      timeline_start_us: startUs,
+      text: { content: content.trim(), font_size: 64, color: "#ffffff", font_weight: 700, align: "center" },
+      transform: { x: 0.15, y: 0.4, scale_x: 0.7, scale_y: 0.2, rotation: 0 },
+      opacity: 1,
+      effects: [],
+    };
+    operations.push({ type: "ADD_CLIP", sequence_id: readySequence.id, payload: { track_id: targetTrack.id, clip } });
+    await commitOperations("Text hinzugefügt", operations);
+    setSelectedTrackId(targetTrack.id);
+    setSelectedClipId(clip.id);
+  }
+
+  async function editTextElement(trackId: string, clip: TimelineClip) {
+    const content = window.prompt("Text bearbeiten", clip.text?.content ?? "");
+    if (content === null || !content.trim()) return;
+    await commitOperations("Text bearbeitet", [{
+      type: "SET_TEXT",
+      sequence_id: readySequence.id,
+      payload: { track_id: trackId, clip_id: clip.id, value: { ...(clip.text ?? {}), content: content.trim() } },
+    }]);
+  }
+
+  async function addEffect(trackId: string, clip: TimelineClip, anchor: "START" | "END") {
+    const durationUs = Math.min(1_000_000, Math.max(100_000, Math.round(clipDurationUs(clip) / 2)));
+    const effect: TimelineEffect = { id: safeId("effect"), type: "FADE", anchor, duration_us: durationUs, enabled: true, parameters: {} };
+    await commitOperations(`${anchor === "START" ? "Fade-In" : "Fade-Out"} hinzugefügt`, [{
+      type: "ADD_EFFECT",
+      sequence_id: readySequence.id,
+      payload: { track_id: trackId, clip_id: clip.id, effect },
+    }]);
+  }
+
+  async function updateEffectDuration(trackId: string, clip: TimelineClip, effect: TimelineEffect, durationUs: number) {
+    await commitOperations("Effektdauer geändert", [{
+      type: "UPDATE_EFFECT",
+      sequence_id: readySequence.id,
+      payload: { track_id: trackId, clip_id: clip.id, effect_id: effect.id, updates: { duration_us: Math.round(durationUs) } },
+    }]);
+  }
+
+  async function removeEffect(trackId: string, clip: TimelineClip, effect: TimelineEffect) {
+    await commitOperations("Effekt entfernt", [{
+      type: "REMOVE_EFFECT",
+      sequence_id: readySequence.id,
+      payload: { track_id: trackId, clip_id: clip.id, effect_id: effect.id },
+    }]);
   }
 
   async function removeClip(trackId: string, clip: TimelineClip) {
@@ -821,23 +1036,22 @@ export function ProjectWorkspacePage() {
           }
         }
         if (!target) {
-          if (trackType && emptyOnly) throw new Error(`Keine leere ${trackType}-Spur gefunden.`);
-          if (trackType) throw new Error(`Keine ${trackType}-Spur gefunden.`);
-          throw new Error("Keine Spur ausgewählt.");
+          if (trackType && emptyOnly) throw new Error(`Keine leere ${trackType}-Layer gefunden.`);
+          if (trackType) throw new Error(`Keine ${trackType}-Layer gefunden.`);
+          throw new Error("Kein Layer ausgewählt.");
         }
         if (emptyOnly && Object.keys(target.clips ?? {}).length > 0) {
-          throw new Error("Die Spur ist nicht leer.");
+          throw new Error("Der Layer ist nicht leer.");
         }
         await deleteTrack(target);
-        return "Spur entfernt.";
+        return "Layer entfernt.";
       }
       case "add_track": {
-        const trackType = (String(intent.track_type ?? "audio").toLowerCase() || "audio") as "audio" | "video";
-        const newTrack = { id: safeId(trackType), type: trackType.toUpperCase(), name: trackType === "audio" ? "Audio" : "Video", clips: {} };
-        await commitOperations("Spur angelegt", [{ type: "ADD_TRACK", sequence_id: readySequence.id, payload: { track: newTrack } }]);
-        setSelectedTrackId(newTrack.id);
+        const newLayer = { id: safeId("layer"), type: "UNIVERSAL", name: `Layer ${tracks.length + 1}`, clips: {} };
+        await commitOperations("Layer angelegt", [{ type: "ADD_TRACK", sequence_id: readySequence.id, payload: { track: newLayer } }]);
+        setSelectedTrackId(newLayer.id);
         setSelectedClipId(null);
-        return "Spur hinzugefügt.";
+        return "Layer hinzugefügt.";
       }
       case "undo": {
         const currentId = readyProject.checkout_commit_id;
@@ -985,9 +1199,12 @@ export function ProjectWorkspacePage() {
           selectedTrackId={selectedTrackId}
           selectedClipId={selectedClipId}
           mediaTitles={mediaTitles}
+          mediaFileTypes={mediaFileTypes}
           onPlayToggle={() => setPlaying((value) => !value)}
-          onSeek={(value) => { setPlayheadUs(Math.max(0, value)); setPlaying(false); }}
+          onSeek={seekTimeline}
           onAddMedia={() => setAddMediaOpen(true)}
+          onAddText={(trackId, timeUs) => runEditorAction(() => addTextElement(trackId, timeUs), "Text konnte nicht hinzugefügt werden")}
+          onEditText={(trackId, clip) => runEditorAction(() => editTextElement(trackId, clip), "Text konnte nicht bearbeitet werden")}
           onSelect={(trackId, clipId) => { setSelectedTrackId(trackId); setSelectedClipId(clipId); }}
           onTrackSelect={(trackId) => { setSelectedTrackId(trackId); setSelectedClipId(null); }}
           onSplit={(trackId, clip) => runEditorAction(() => splitClip(trackId, clip), "Clip konnte nicht geteilt werden")}
@@ -997,8 +1214,27 @@ export function ProjectWorkspacePage() {
           onToggleMute={(trackId, clip) => runEditorAction(() => toggleMute(trackId, clip), "Ton konnte nicht geändert werden")}
           onMoveClip={(trackId, clip, targetTrackId, timeUs) => runEditorAction(() => moveClip(trackId, clip, targetTrackId, timeUs), "Clip konnte nicht verschoben werden")}
           onTrimClip={(trackId, clip, sourceStartUs, sourceEndUs, timelineStartUs) => runEditorAction(() => trimClip(trackId, clip, sourceStartUs, sourceEndUs, timelineStartUs), "Clip konnte nicht getrimmt werden")}
-          onAddTrack={(type) => runEditorAction(() => addTrack(type), "Spur konnte nicht hinzugefügt werden")}
-          onDeleteTrack={(track) => runEditorAction(() => deleteTrack(track), "Spur konnte nicht entfernt werden")}
+          onAddTrack={() => runEditorAction(() => addTrack(), "Layer konnte nicht hinzugefügt werden")}
+          onDeleteTrack={(track) => runEditorAction(() => deleteTrack(track), "Layer konnte nicht entfernt werden")}
+          onRenameTrack={async (track, name) => {
+            try {
+              await renameTrack(track, name);
+            } catch (error) {
+              toast.show({ title: "Layer konnte nicht umbenannt werden", description: errorMessage(error), variant: "error" });
+              throw error;
+            }
+          }}
+          onReorderTracks={async (trackIds) => {
+            try {
+              await reorderTracks(trackIds);
+            } catch (error) {
+              toast.show({ title: "Layer konnten nicht verschoben werden", description: errorMessage(error), variant: "error" });
+              throw error;
+            }
+          }}
+          onAddEffect={(trackId, clip, anchor) => runEditorAction(() => addEffect(trackId, clip, anchor), "Effekt konnte nicht hinzugefügt werden")}
+          onUpdateEffect={(trackId, clip, effect, durationUs) => runEditorAction(() => updateEffectDuration(trackId, clip, effect, durationUs), "Effekt konnte nicht geändert werden")}
+          onRemoveEffect={(trackId, clip, effect) => runEditorAction(() => removeEffect(trackId, clip, effect), "Effekt konnte nicht entfernt werden")}
         />
       </div>
 

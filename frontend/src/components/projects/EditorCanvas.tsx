@@ -4,10 +4,12 @@ import {
   Hand,
   Move,
   RotateCw,
+  Scan,
   ZoomIn,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
-import type { EditSequence, TimelineClip, TimelineTrack } from "../../features/projects/api";
+import type { EditSequence, TimelineClip, TimelineElementKind, TimelineTrack } from "../../features/projects/api";
+import { elementKind, fadeMultiplier } from "../../features/projects/timelineLogic";
 import { libraryItemFileUrl } from "../../features/library/api";
 import type { NormalizedRegion } from "../../features/videoCut";
 import { CanvasTooltip } from "./CanvasTooltip";
@@ -55,14 +57,13 @@ interface ActiveClip {
   key: string;
   track: TimelineTrack;
   clip: TimelineClip;
+  kind: TimelineElementKind;
   visual: boolean;
+  audible: boolean;
 }
 
 type InteractionMode = "move" | "resize-nw" | "resize-ne" | "resize-sw" | "resize-se" | "rotate";
 type CropHandle = "move" | "n" | "s" | "e" | "w" | "nw" | "ne" | "sw" | "se";
-
-const VISUAL_TRACKS = new Set(["VIDEO", "GAMEPLAY", "FACECAM", "OVERLAY"]);
-const AUDIO_TRACKS = new Set(["VIDEO", "GAMEPLAY", "FACECAM", "AUDIO"]);
 
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 8;
@@ -254,10 +255,25 @@ export function EditorCanvas({
   const [spacePanning, setSpacePanning] = useState(false);
   const [videoDims, setVideoDims] = useState<Record<string, { w: number; h: number }>>({});
   const [snapGuides, setSnapGuides] = useState<SnapGuides | null>(null);
+  const [outsideOverlayEnabled, setOutsideOverlayEnabled] = useState(() => {
+    try {
+      return window.localStorage.getItem("ttvturbo.editor.outsideOverlay") !== "off";
+    } catch {
+      return true;
+    }
+  });
 
   // Refs for space-key logic (short press = play, long hold = pan)
   const spaceDownRef = useRef<number>(0);
   const spacePanArmedRef = useRef(false);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("ttvturbo.editor.outsideOverlay", outsideOverlayEnabled ? "on" : "off");
+    } catch {
+      // Storage can be unavailable in private or sandboxed contexts.
+    }
+  }, [outsideOverlayEnabled]);
 
   const active = useMemo<ActiveClip[]>(() => {
     const entries: ActiveClip[] = [];
@@ -265,13 +281,14 @@ export function EditorCanvas({
       for (const clip of Object.values(track.clips ?? {})) {
         const end = clip.timeline_start_us + clipDurationUs(clip);
         if (playheadUs < clip.timeline_start_us || playheadUs >= end) continue;
-        const visual = VISUAL_TRACKS.has(track.type);
-        if (!visual && !AUDIO_TRACKS.has(track.type)) continue;
-        entries.push({ key: `${track.id}:${clip.id}`, track, clip, visual });
+        const kind = elementKind(clip, track, mediaFileTypes ?? {});
+        const visual = kind === "VIDEO" || kind === "IMAGE" || kind === "TEXT";
+        const audible = kind === "VIDEO" || kind === "AUDIO";
+        entries.push({ key: `${track.id}:${clip.id}`, track, clip, kind, visual, audible });
       }
     }
     return entries;
-  }, [playheadUs, tracks]);
+  }, [mediaFileTypes, playheadUs, tracks]);
 
   useEffect(() => {
     const activeKeys = new Set(active.map((entry) => entry.key));
@@ -287,6 +304,7 @@ export function EditorCanvas({
       const speed = Math.max(0.05, Number(entry.clip.speed ?? 1));
       const target = entry.clip.source_start_us / 1_000_000 + ((playheadUs - entry.clip.timeline_start_us) / 1_000_000) * speed;
       element.playbackRate = speed;
+      element.volume = Math.min(1, Math.max(0, Number(entry.clip.audio_gain ?? 1) * fadeMultiplier(entry.clip, playheadUs)));
       if (!Number.isFinite(element.currentTime) || Math.abs(element.currentTime - target) > (playing ? 0.22 : 0.035)) {
         try { element.currentTime = Math.max(0, target); } catch { /* metadata may not be ready yet */ }
       }
@@ -649,6 +667,11 @@ export function EditorCanvas({
   // --- Crop tool (select tool = crop) ---
 
   function startCropForClip(entry: ActiveClip) {
+    if (entry.kind !== "VIDEO" && entry.kind !== "IMAGE") {
+      onSelect(entry.track.id, entry.clip.id);
+      setCrop(null);
+      return;
+    }
     onSelect(entry.track.id, entry.clip.id);
     setCrop({
       clipKey: entry.key,
@@ -810,7 +833,7 @@ export function EditorCanvas({
       >
         <div className="editor-stage-world" style={worldStyle}>
           <div
-            className="editor-stage"
+            className={`editor-stage${outsideOverlayEnabled ? " editor-stage--outside-overlay" : ""}`}
             style={{ width: `${sequence.width}px`, height: `${sequence.height}px` }}
           >
             {sequence.safe_area_enabled !== false ? (() => {
@@ -845,7 +868,8 @@ export function EditorCanvas({
               const isStretched = Math.abs(value.scale_x - value.scale_y) > 0.01;
               const containerW = value.scale_x * sequence.width;
               const containerH = value.scale_y * sequence.height;
-              const isImage = mediaFileTypes?.[entry.clip.source_media_item_id] === "image";
+              const isImage = entry.kind === "IMAGE";
+              const isText = entry.kind === "TEXT";
               const dims = videoDims[entry.key];
               let contentLeft = 0, contentTop = 0, contentWidth = containerW, contentHeight = containerH;
               if (dims && !isStretched) {
@@ -866,13 +890,25 @@ export function EditorCanvas({
                     width: `${containerW}px`,
                     height: `${containerH}px`,
                     transform: `rotate(${value.rotation}deg)`,
-                    opacity: Number(entry.clip.opacity ?? 1),
+                    opacity: Number(entry.clip.opacity ?? 1) * fadeMultiplier(entry.clip, playheadUs),
                     zIndex: index + 1,
                   }}
-                  onPointerDown={(event) => handleClipPointerDown(event, entry)}
-                  onDoubleClick={() => onSelect(entry.track.id, entry.clip.id)}
                 >
-                  {isImage ? (
+                  {isText ? (
+                    <div
+                      className="editor-stage-text"
+                      style={{
+                        color: entry.clip.text?.color ?? "#ffffff",
+                        background: entry.clip.text?.background_color ?? "transparent",
+                        fontFamily: entry.clip.text?.font_family ?? "Inter, sans-serif",
+                        fontSize: `${Math.max(8, Number(entry.clip.text?.font_size ?? 64))}px`,
+                        fontWeight: entry.clip.text?.font_weight ?? 700,
+                        textAlign: entry.clip.text?.align ?? "center",
+                      }}
+                    >
+                      {entry.clip.text?.content ?? "Text"}
+                    </div>
+                  ) : isImage ? (
                     <img
                       src={libraryItemFileUrl(entry.clip.source_media_item_id)}
                       draggable={false}
@@ -905,6 +941,8 @@ export function EditorCanvas({
                   <div
                     data-content-frame
                     className="editor-stage-item__content"
+                    onPointerDown={(event) => handleClipPointerDown(event, entry)}
+                    onDoubleClick={() => onSelect(entry.track.id, entry.clip.id)}
                     style={{
                       left: `${contentLeft}px`,
                       top: `${contentTop}px`,
@@ -915,7 +953,7 @@ export function EditorCanvas({
                   >
                     {selected && effectiveTool === "move" ? (
                       <>
-                        <span className="editor-stage-item__label" style={{ fontSize: `${labelFontSize}px`, padding: `${labelPadding}px ${labelPadding * 2}px`, borderRadius: `${labelRadius}px`, gap: `${labelGap}px`, maxWidth: `${labelMaxWidth}px`, bottom: `calc(100% + ${labelPadding * 1.5}px)` }}><Move size={12 / z} /> {mediaTitles[entry.clip.source_media_item_id] ?? "Clip"}</span>
+                        <span className="editor-stage-item__label" style={{ fontSize: `${labelFontSize}px`, padding: `${labelPadding}px ${labelPadding * 2}px`, borderRadius: `${labelRadius}px`, gap: `${labelGap}px`, maxWidth: `${labelMaxWidth}px`, bottom: `calc(100% + ${labelPadding * 1.5}px)` }}><Move size={12 / z} /> {entry.kind === "TEXT" ? (entry.clip.text?.content ?? "Text") : (mediaTitles[entry.clip.source_media_item_id] ?? "Clip")}</span>
                         <button type="button" className="editor-stage-handle editor-stage-handle--nw" aria-label="Oben links skalieren" style={handleStyle({ left: `${-handleOffset}px`, top: `${-handleOffset}px` })} onPointerDown={(event) => { event.stopPropagation(); beginInteraction(event, entry, "resize-nw"); }} />
                         <button type="button" className="editor-stage-handle editor-stage-handle--ne" aria-label="Oben rechts skalieren" style={handleStyle({ right: `${-handleOffset}px`, top: `${-handleOffset}px` })} onPointerDown={(event) => { event.stopPropagation(); beginInteraction(event, entry, "resize-ne"); }} />
                         <button type="button" className="editor-stage-handle editor-stage-handle--sw" aria-label="Unten links skalieren" style={handleStyle({ left: `${-handleOffset}px`, bottom: `${-handleOffset}px` })} onPointerDown={(event) => { event.stopPropagation(); beginInteraction(event, entry, "resize-sw"); }} />
@@ -952,7 +990,7 @@ export function EditorCanvas({
               );
             })}
 
-            {active.filter((entry) => !entry.visual).map((entry) => (
+            {active.filter((entry) => entry.audible && !entry.visual).map((entry) => (
               <audio
                 key={entry.key}
                 ref={(node) => { if (node) mediaRefs.current.set(entry.key, node); else mediaRefs.current.delete(entry.key); }}
@@ -1002,6 +1040,18 @@ export function EditorCanvas({
             description="Die Arbeitsfläche verschieben. Auch mit gedrückter Leertaste oder mittlerer Maustaste in jedem Werkzeug verfügbar."
           >
             <button type="button" className={toolMode === "pan" ? "is-active" : ""} onClick={() => setToolMode("pan")}><Hand size={15} /></button>
+          </CanvasTooltip>
+          <span className="editor-canvas-toolbar__divider" />
+          <CanvasTooltip
+            title="Außenbereich abdunkeln"
+            description="Blendet außerhalb der eigentlichen Bildschirmfläche eine 50% dunklere Maske ein. Das Overlay beeinflusst den finalen Render nicht."
+          >
+            <button
+              type="button"
+              className={outsideOverlayEnabled ? "is-active" : ""}
+              aria-pressed={outsideOverlayEnabled}
+              onClick={() => setOutsideOverlayEnabled((value) => !value)}
+            ><Scan size={15} /></button>
           </CanvasTooltip>
         </div>
 

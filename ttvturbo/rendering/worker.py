@@ -13,8 +13,7 @@ from typing import Any
 from ttvturbo.media_capabilities.frame_pipeline import fail, load_worker_job, save_result, update_job
 from ttvturbo.media_capabilities.utils import sha256_file, video_metadata
 
-VISUAL_TRACKS = {"VIDEO", "GAMEPLAY", "FACECAM", "OVERLAY"}
-AUDIO_TRACKS = {"VIDEO", "GAMEPLAY", "FACECAM", "AUDIO"}
+ELEMENT_KINDS = {"VIDEO", "AUDIO", "IMAGE", "TEXT"}
 
 
 def _seconds(us: int | float) -> float:
@@ -91,13 +90,62 @@ def _timeline_duration(projection: dict[str, Any]) -> float:
     return end
 
 
+def _element_kind(clip: dict[str, Any], track_type: str | None, source: dict[str, Any] | None) -> str:
+    explicit = str(clip.get("kind") or "").upper()
+    if explicit in ELEMENT_KINDS:
+        return explicit
+    if clip.get("text"):
+        return "TEXT"
+    file_type = str((source or {}).get("file_type") or "").lower()
+    if file_type == "audio" or track_type == "AUDIO":
+        return "AUDIO"
+    if file_type == "image":
+        return "IMAGE"
+    return "VIDEO"
+
+
+def _fade_durations(clip: dict[str, Any]) -> tuple[float, float]:
+    duration = _clip_duration(clip)
+    fade_in = 0.0
+    fade_out = 0.0
+    for effect in clip.get("effects") or []:
+        if str(effect.get("type") or "").upper() != "FADE" or effect.get("enabled") is False:
+            continue
+        value = min(duration, max(0.0, _seconds(int(effect.get("duration_us") or 0))))
+        if str(effect.get("anchor") or "START").upper() == "END":
+            fade_out = value
+        else:
+            fade_in = value
+    return fade_in, fade_out
+
+
+def _escape_drawtext(value: Any) -> str:
+    return (
+        str(value or "")
+        .replace("\\", r"\\")
+        .replace("'", r"\'")
+        .replace(":", r"\:")
+        .replace("\n", r"\n")
+    )
+
+
+def _text_alpha(clip: dict[str, Any], start: float, duration: float, opacity: float) -> str:
+    fade_in, fade_out = _fade_durations(clip)
+    factors = [f"{opacity:.8f}"]
+    if fade_in > 0:
+        factors.append(f"min(1,max(0,(t-{start:.8f})/{fade_in:.8f}))")
+    if fade_out > 0:
+        end = start + duration
+        factors.append(f"min(1,max(0,({end:.8f}-t)/{fade_out:.8f}))")
+    return "*".join(factors)
+
+
 def _compile(desc: dict[str, Any], job_dir: Path) -> tuple[list[str], Path, float]:
     projection = desc["projection"]
     settings = desc["settings"]
     output = projection["output_settings"]
     width = int(output["width"]); height = int(output["height"])
     fps_num = int(output.get("fps_numerator") or 30); fps_den = int(output.get("fps_denominator") or 1)
-    fps = fps_num / fps_den
     duration = _timeline_duration(projection)
 
     cmd = [desc["ffmpeg_path"], "-hide_banner", "-loglevel", "warning", "-y"]
@@ -110,46 +158,109 @@ def _compile(desc: dict[str, Any], job_dir: Path) -> tuple[list[str], Path, floa
 
     for track_id in projection.get("track_order") or list(tracks):
         track = tracks.get(track_id) or {}
-        track_type = track.get("type")
+        track_type = str(track.get("type") or "")
         for clip_id in track.get("clip_order") or list((track.get("clips") or {}).keys()):
             clip = (track.get("clips") or {}).get(clip_id)
             if not clip:
                 continue
             media_id = str(clip.get("source_media_item_id") or "")
-            source = source_files.get(media_id)
-            if not source:
-                raise RuntimeError(f"clip {clip_id} references unresolved source {media_id}")
-            source_path = source["path"]
+            source = source_files.get(media_id) if media_id else None
+            kind = _element_kind(clip, track_type, source)
+            if kind != "TEXT" and not source:
+                raise RuntimeError(f"element {clip_id} references unresolved source {media_id}")
+
             source_start = _seconds(int(clip["source_start_us"]))
             source_duration = _seconds(int(clip["source_end_us"]) - int(clip["source_start_us"]))
             speed = max(0.05, float(clip.get("speed") or 1.0))
             timeline_start = _seconds(int(clip.get("timeline_start_us") or 0))
             effective_duration = source_duration / speed
-            cmd += ["-ss", f"{source_start:.6f}", "-t", f"{source_duration:.6f}", "-i", source_path]
+            fade_in, fade_out = _fade_durations(clip)
+            current_input: int | None = None
 
-            if track_type in VISUAL_TRACKS:
-                crop = clip.get("crop") or {"x":0,"y":0,"width":1,"height":1}
-                transform = clip.get("transform") or {"x":0,"y":0,"scale_x":1,"scale_y":1,"rotation":0}
+            if source is not None:
+                current_input = input_index
+                if kind == "IMAGE":
+                    cmd += ["-loop", "1", "-framerate", f"{fps_num}/{fps_den}", "-t", f"{source_duration:.6f}", "-i", source["path"]]
+                else:
+                    cmd += ["-ss", f"{source_start:.6f}", "-t", f"{source_duration:.6f}", "-i", source["path"]]
+                input_index += 1
+
+            if kind == "TEXT":
+                text_data = clip.get("text") or {}
+                content = _escape_drawtext(text_data.get("content") or "Text")
+                transform = clip.get("transform") or {"x": 0.0, "y": 0.0, "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0}
+                opacity = max(0.0, min(1.0, float(clip.get("opacity") if clip.get("opacity") is not None else 1.0)))
+                font_size = max(1.0, float(text_data.get("font_size") or 64.0))
+                color = _escape_drawtext(text_data.get("color") or "white")
+                background = str(text_data.get("background_color") or "transparent")
+                align = str(text_data.get("align") or "center")
+                x0 = width * float(transform.get("x") or 0.0)
+                box_width = width * float(transform.get("scale_x") or 1.0)
+                if align == "right":
+                    x_expr = f"{x0 + box_width:.6f}-text_w"
+                elif align == "left":
+                    x_expr = f"{x0:.6f}"
+                else:
+                    x_expr = f"{x0 + box_width / 2:.6f}-text_w/2"
+                y0 = height * float(transform.get("y") or 0.0)
+                box_height = height * float(transform.get("scale_y") or 1.0)
+                y_expr = f"{y0 + box_height / 2:.6f}-text_h/2"
+                alpha = _text_alpha(clip, timeline_start, effective_duration, opacity)
+                draw_options = [
+                    f"text='{content}'",
+                    "expansion=none",
+                    f"x='{x_expr}'",
+                    f"y='{y_expr}'",
+                    f"fontsize={font_size:.6f}",
+                    f"fontcolor='{color}'",
+                    f"alpha='{alpha}'",
+                    f"enable='between(t,{timeline_start:.8f},{timeline_start + effective_duration:.8f})'",
+                ]
+                if background.lower() not in {"", "none", "transparent"}:
+                    draw_options += ["box=1", f"boxcolor='{_escape_drawtext(background)}'", "boxborderw=12"]
+                previous = f"base{visual_index}"
+                next_base = f"base{visual_index + 1}"
+                filters.append(f"[{previous}]drawtext={':'.join(draw_options)}[{next_base}]")
+                visual_index += 1
+
+            elif kind in {"VIDEO", "IMAGE"}:
+                assert current_input is not None and source is not None
+                if not source.get("has_video"):
+                    raise RuntimeError(f"{kind.lower()} element {clip_id} has no visual stream")
+                crop = clip.get("crop") or {"x": 0, "y": 0, "width": 1, "height": 1}
+                transform = clip.get("transform") or {"x": 0, "y": 0, "scale_x": 1, "scale_y": 1, "rotation": 0}
                 opacity = max(0.0, min(1.0, float(clip.get("opacity") if clip.get("opacity") is not None else 1.0)))
                 label = f"vclip{visual_index}"
                 vf = [
                     f"trim=duration={source_duration:.6f}",
-                    f"setpts=(PTS-STARTPTS)/{speed:.8f}+{timeline_start:.6f}/TB",
+                    f"setpts=(PTS-STARTPTS)/{speed:.8f}",
                     f"crop=iw*{float(crop['width']):.8f}:ih*{float(crop['height']):.8f}:iw*{float(crop['x']):.8f}:ih*{float(crop['y']):.8f}",
-                    f"scale=w='max(2,{width}*{float(transform.get('scale_x',1)):.8f})':h='max(2,{height}*{float(transform.get('scale_y',1)):.8f})':force_original_aspect_ratio=decrease",
+                    f"scale=w='max(2,{width}*{float(transform.get('scale_x', 1)):.8f})':h='max(2,{height}*{float(transform.get('scale_y', 1)):.8f})':force_original_aspect_ratio=decrease",
                 ]
                 rotation = float(transform.get("rotation") or 0.0)
                 if abs(rotation) > 1e-6:
                     vf.append(f"rotate={rotation:.8f}*PI/180:ow=rotw(iw):oh=roth(ih):c=none")
                 vf += ["format=rgba", f"colorchannelmixer=aa={opacity:.8f}"]
-                filters.append(f"[{input_index}:v]{','.join(vf)}[{label}]")
+                if fade_in > 0:
+                    vf.append(f"fade=t=in:st=0:d={fade_in:.8f}:alpha=1")
+                if fade_out > 0:
+                    vf.append(f"fade=t=out:st={max(0.0, effective_duration - fade_out):.8f}:d={fade_out:.8f}:alpha=1")
+                vf.append(f"setpts=PTS+{timeline_start:.8f}/TB")
+                filters.append(f"[{current_input}:v]{','.join(vf)}[{label}]")
                 previous = f"base{visual_index}"
-                next_base = f"base{visual_index+1}"
+                next_base = f"base{visual_index + 1}"
                 x = float(transform.get("x") or 0.0); y = float(transform.get("y") or 0.0)
                 filters.append(f"[{previous}][{label}]overlay=x='{width}*{x:.8f}':y='{height}*{y:.8f}':eof_action=pass:repeatlast=0[{next_base}]")
                 visual_index += 1
 
-            if settings.get("include_audio", True) and track_type in AUDIO_TRACKS and source.get("has_audio") and not bool(clip.get("audio_muted")):
+            if (
+                settings.get("include_audio", True)
+                and kind in {"VIDEO", "AUDIO"}
+                and source is not None
+                and source.get("has_audio")
+                and not bool(clip.get("audio_muted"))
+            ):
+                assert current_input is not None
                 gain = max(0.0, float(clip.get("audio_gain") if clip.get("audio_gain") is not None else 1.0))
                 delay = max(0, int(round(timeline_start * 1000)))
                 alabel = f"aclip{len(audio_labels)}"
@@ -158,11 +269,14 @@ def _compile(desc: dict[str, Any], job_dir: Path) -> tuple[list[str], Path, floa
                     "asetpts=PTS-STARTPTS",
                     _atempo_chain(speed),
                     f"volume={gain:.8f}",
-                    f"adelay={delay}|{delay}",
                 ]
-                filters.append(f"[{input_index}:a]{','.join(af)}[{alabel}]")
+                if fade_in > 0:
+                    af.append(f"afade=t=in:st=0:d={fade_in:.8f}")
+                if fade_out > 0:
+                    af.append(f"afade=t=out:st={max(0.0, effective_duration - fade_out):.8f}:d={fade_out:.8f}")
+                af.append(f"adelay={delay}|{delay}")
+                filters.append(f"[{current_input}:a]{','.join(af)}[{alabel}]")
                 audio_labels.append(alabel)
-            input_index += 1
 
     final_video = f"base{visual_index}"
     subtitle_path = _write_subtitles(projection, job_dir)

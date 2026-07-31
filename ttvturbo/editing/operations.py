@@ -124,7 +124,7 @@ def _track(seq: dict[str, Any], track_id: str) -> dict[str, Any]:
     try:
         return seq["tracks"][track_id]
     except KeyError as exc:
-        raise EditValidationError(f"unknown track: {track_id}") from exc
+        raise EditValidationError(f"unknown layer: {track_id}") from exc
 
 
 def _clip(track: dict[str, Any], clip_id: str) -> dict[str, Any]:
@@ -134,28 +134,159 @@ def _clip(track: dict[str, Any], clip_id: str) -> dict[str, Any]:
         raise EditValidationError(f"unknown clip: {clip_id}") from exc
 
 
-def _normalize_track(track: dict[str, Any]) -> dict[str, Any]:
+ELEMENT_KINDS = {"VIDEO", "AUDIO", "IMAGE", "TEXT"}
+EFFECT_ANCHORS = {"START", "END"}
+
+
+def _clip_duration_us(clip: dict[str, Any]) -> int:
+    speed = max(0.05, float(clip.get("speed") or 1.0))
+    return max(1, int(round((int(clip["source_end_us"]) - int(clip["source_start_us"])) / speed)))
+
+
+def _clip_end_us(clip: dict[str, Any]) -> int:
+    return int(clip["timeline_start_us"]) + _clip_duration_us(clip)
+
+
+def _refresh_occupied_ranges(track: dict[str, Any]) -> None:
+    # Occupancy is derived from clips on every validation. It must not become
+    # part of the persisted edit state, otherwise historical commit hashes from
+    # projects created before universal tracks would change during replay.
+    track.pop("occupied_ranges", None)
+
+
+def _assert_track_slot_available(track: dict[str, Any], candidate: dict[str, Any], *, excluding_clip_id: str | None = None) -> None:
+    start = int(candidate["timeline_start_us"])
+    end = _clip_end_us(candidate)
+    for other in (track.get("clips") or {}).values():
+        if other.get("id") == excluding_clip_id:
+            continue
+        other_start = int(other["timeline_start_us"])
+        other_end = _clip_end_us(other)
+        if start < other_end and end > other_start:
+            raise EditValidationError(
+                f"timeline overlap on layer {track.get('id')}: {candidate.get('id')} [{start},{end}) conflicts with {other.get('id')} [{other_start},{other_end})"
+            )
+
+
+def _first_available_start_at_or_after(
+    track: dict[str, Any],
+    requested_start_us: int,
+    duration_us: int,
+    *,
+    excluding_clip_id: str | None = None,
+) -> int:
+    """Return the first free half-open interval on a track.
+
+    This is the authoritative server-side placement path. The browser may be
+    displaying a slightly stale project state while another commit is being
+    attached, so automatic insertions must never rely only on client-side
+    occupancy calculations.
+    """
+    start_us = max(0, int(requested_start_us))
+    ranges: list[tuple[int, int, str]] = []
+    for other in (track.get("clips") or {}).values():
+        if other.get("id") == excluding_clip_id:
+            continue
+        ranges.append((int(other["timeline_start_us"]), _clip_end_us(other), str(other.get("id") or "")))
+    ranges.sort(key=lambda item: (item[0], item[1], item[2]))
+    for other_start, other_end, _ in ranges:
+        if start_us + duration_us <= other_start:
+            return start_us
+        if start_us < other_end:
+            start_us = other_end
+    return start_us
+
+
+def _normalize_effect(effect: dict[str, Any], clip_duration_us: int) -> dict[str, Any]:
+    result = copy.deepcopy(effect)
+    result["id"] = _identifier(result.get("id"), "effect id")
+    effect_type = str(result.get("type") or "").upper()
+    if not effect_type:
+        raise EditValidationError("effect type must not be empty")
+    result["type"] = effect_type
+    anchor = str(result.get("anchor") or "START").upper()
+    if anchor not in EFFECT_ANCHORS:
+        raise EditValidationError(f"unknown effect anchor: {anchor}")
+    result["anchor"] = anchor
+    duration = _int_us(result.get("duration_us"), "effect.duration_us", minimum=1)
+    if duration > clip_duration_us:
+        raise EditValidationError("effect duration must not exceed element duration")
+    result["duration_us"] = duration
+    result["enabled"] = bool(result.get("enabled", True))
+    parameters = result.get("parameters", {})
+    if not isinstance(parameters, dict):
+        raise EditValidationError("effect parameters must be an object")
+    result["parameters"] = copy.deepcopy(parameters)
+    return result
+
+
+def _normalize_text(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise EditValidationError("text must be an object")
+    result = copy.deepcopy(value)
+    content = str(result.get("content") or "").strip()
+    if not content:
+        raise EditValidationError("text content must not be empty")
+    if len(content) > 10000:
+        raise EditValidationError("text content is too long")
+    result["content"] = content
+    if "font_size" in result:
+        result["font_size"] = _number(result["font_size"], "text.font_size", minimum=1, maximum=1000)
+    if "align" in result and result["align"] not in {"left", "center", "right"}:
+        raise EditValidationError("text.align must be left, center or right")
+    return result
+
+
+def _legacy_kind_for_track(track_type: str) -> str:
+    if track_type == TrackType.AUDIO.value:
+        return "AUDIO"
+    return "VIDEO"
+
+
+def _normalize_track(track: dict[str, Any], *, validate_overlaps: bool = True) -> dict[str, Any]:
     result = copy.deepcopy(track)
     for field in ("id", "type", "name"):
         if field not in result:
-            raise EditValidationError(f"track missing {field}")
-    result["id"] = _identifier(result["id"], "track id")
+            raise EditValidationError(f"layer missing {field}")
+    result["id"] = _identifier(result["id"], "layer id")
     if result["type"] not in {t.value for t in TrackType}:
-        raise EditValidationError(f"unknown track type: {result['type']}")
+        raise EditValidationError(f"unknown layer type: {result['type']}")
     result.setdefault("clips", {})
     result.setdefault("clip_order", [])
     result.setdefault("captions", {})
     result.setdefault("caption_order", [])
     result.setdefault("properties", {})
+    if not isinstance(result["clips"], dict):
+        raise EditValidationError("layer clips must be an object")
+    for clip_id, clip in result["clips"].items():
+        if not isinstance(clip, dict):
+            raise EditValidationError("layer clip must be an object")
+        if str(clip.get("id") or clip_id) != str(clip_id):
+            raise EditValidationError("clip map key must match clip id")
+        if validate_overlaps:
+            _assert_track_slot_available(result, clip, excluding_clip_id=str(clip_id))
+    _refresh_occupied_ranges(result)
     return result
 
 
 def _normalize_clip(clip: dict[str, Any]) -> dict[str, Any]:
     result = copy.deepcopy(clip)
-    for field in ("id", "source_media_item_id", "source_start_us", "source_end_us", "timeline_start_us"):
+    for field in ("id", "source_start_us", "source_end_us", "timeline_start_us"):
         if field not in result:
             raise EditValidationError(f"clip missing {field}")
     result["id"] = _identifier(result["id"], "clip id")
+    kind_was_provided = "kind" in result
+    kind = str(result.get("kind") or "VIDEO").upper()
+    if kind not in ELEMENT_KINDS:
+        raise EditValidationError(f"unknown element kind: {kind}")
+    if kind_was_provided:
+        result["kind"] = kind
+    else:
+        result.pop("kind", None)
+    source_media_item_id = str(result.get("source_media_item_id") or "")
+    if kind != "TEXT" and not source_media_item_id:
+        raise EditValidationError("media elements require source_media_item_id")
+    result["source_media_item_id"] = source_media_item_id
     start = _int_us(result["source_start_us"], "source_start_us")
     end = _int_us(result["source_end_us"], "source_end_us")
     timeline = _int_us(result["timeline_start_us"], "timeline_start_us")
@@ -170,6 +301,21 @@ def _normalize_clip(clip: dict[str, Any]) -> dict[str, Any]:
     result.setdefault("audio_muted", False)
     result.setdefault("facecam_variant", None)
     result.setdefault("audio_fades", [])
+    if kind == "TEXT":
+        result["text"] = _normalize_text(result.get("text") or {})
+    effects_were_provided = "effects" in result
+    effects = result.get("effects") or []
+    if not isinstance(effects, list):
+        raise EditValidationError("effects must be a list")
+    duration = _clip_duration_us(result)
+    normalized_effects = [_normalize_effect(effect, duration) for effect in effects]
+    ids = [effect["id"] for effect in normalized_effects]
+    if len(ids) != len(set(ids)):
+        raise EditValidationError("effect ids must be unique per element")
+    if effects_were_provided:
+        result["effects"] = normalized_effects
+    else:
+        result.pop("effects", None)
     return result
 
 
@@ -187,7 +333,14 @@ def _normalized_box(value: dict[str, Any], name: str) -> dict[str, float]:
 class OperationEngine:
     """Apply validated operations and compute their inverse payloads."""
 
-    def apply(self, state: dict[str, Any], operation: dict[str, Any], *, allow_internal: bool = False) -> dict[str, Any]:
+    def apply(
+        self,
+        state: dict[str, Any],
+        operation: dict[str, Any],
+        *,
+        allow_internal: bool = False,
+        validate_timeline_overlaps: bool = True,
+    ) -> dict[str, Any]:
         op_type = str(operation.get("type") or "")
         valid = ALL_OPERATION_TYPES if allow_internal else PUBLIC_OPERATION_TYPES
         if op_type not in valid:
@@ -254,10 +407,10 @@ class OperationEngine:
             return self._record(op_type, sid, sid, new, old, f"sequences.{sid}.format")
 
         if op_type == "ADD_TRACK":
-            track = _normalize_track(payload.get("track") or payload)
+            track = _normalize_track(payload.get("track") or payload, validate_overlaps=validate_timeline_overlaps)
             tid = track["id"]
             if tid in seq["tracks"]:
-                raise EditValidationError(f"track already exists: {tid}")
+                raise EditValidationError(f"layer already exists: {tid}")
             seq["tracks"][tid] = track
             index = payload.get("index")
             if index is None: seq["track_order"].append(tid)
@@ -270,10 +423,29 @@ class OperationEngine:
             del seq["tracks"][tid]; seq["track_order"].remove(tid)
             return self._record(op_type, sid, tid, {"track_id": tid}, {"track": track, "index": index}, f"sequences.{sid}.tracks.{tid}")
 
+        if op_type == "RENAME_TRACK":
+            tid = str(payload.get("track_id") or entity_id or "")
+            track = _track(seq, tid)
+            name = str(payload.get("name") or "").strip()
+            if not name:
+                raise EditValidationError("layer name must not be empty")
+            if len(name) > 120:
+                raise EditValidationError("layer name must be at most 120 characters")
+            old_name = str(track.get("name") or "")
+            track["name"] = name
+            return self._record(
+                op_type,
+                sid,
+                tid,
+                {"track_id": tid, "name": name},
+                {"track_id": tid, "name": old_name},
+                f"sequences.{sid}.tracks.{tid}.name",
+            )
+
         if op_type == "REORDER_TRACK":
             order = list(payload.get("order") or [])
             if set(order) != set(seq["tracks"].keys()) or len(order) != len(seq["tracks"]):
-                raise EditValidationError("track order must contain every track exactly once")
+                raise EditValidationError("layer order must contain every layer exactly once")
             old = list(seq["track_order"]); seq["track_order"] = order
             return self._record(op_type, sid, None, {"order": order}, {"order": old}, f"sequences.{sid}.track_order")
 
@@ -286,24 +458,40 @@ class OperationEngine:
         track = _track(seq, tid)
 
         if op_type == "ADD_CLIP":
-            clip = _normalize_clip(payload.get("clip") or {})
-            source_keys = {(str(src.get("media_item_id")), src.get("asset_id")) for src in state.get("sources", [])}
-            clip_source = (str(clip.get("source_media_item_id")), clip.get("source_asset_id"))
-            if clip_source not in source_keys and (clip_source[0], None) not in source_keys:
-                raise EditValidationError("clip must reference an immutable project source")
+            raw_clip = copy.deepcopy(payload.get("clip") or {})
+            clip = _normalize_clip(raw_clip)
+            clip_kind = str(clip.get("kind") or _legacy_kind_for_track(str(track.get("type") or ""))).upper()
+            if clip_kind != "TEXT":
+                source_keys = {(str(src.get("media_item_id")), src.get("asset_id")) for src in state.get("sources", [])}
+                clip_source = (str(clip.get("source_media_item_id")), clip.get("source_asset_id"))
+                if clip_source not in source_keys and (clip_source[0], None) not in source_keys:
+                    raise EditValidationError("clip must reference an immutable project source")
             cid = clip["id"]
             if cid in track["clips"]:
                 raise EditValidationError(f"clip already exists: {cid}")
+            placement = str(payload.get("placement") or "EXACT").upper()
+            if placement not in {"EXACT", "NEXT_AVAILABLE"}:
+                raise EditValidationError(f"unknown clip placement mode: {placement}")
+            if placement == "NEXT_AVAILABLE":
+                clip["timeline_start_us"] = _first_available_start_at_or_after(
+                    track,
+                    int(clip["timeline_start_us"]),
+                    _clip_duration_us(clip),
+                )
+            elif validate_timeline_overlaps:
+                _assert_track_slot_available(track, clip)
             track["clips"][cid] = clip
             index = payload.get("index")
             if index is None: track["clip_order"].append(cid)
             else: track["clip_order"].insert(max(0, min(int(index), len(track["clip_order"]))), cid)
-            return self._record(op_type, sid, cid, {"track_id": tid, "clip": clip, "index": track["clip_order"].index(cid)}, {"track_id": tid, "clip_id": cid}, f"sequences.{sid}.tracks.{tid}.clips.{cid}", clip["timeline_start_us"], clip["timeline_start_us"] + (clip["source_end_us"] - clip["source_start_us"]))
+            _refresh_occupied_ranges(track)
+            return self._record(op_type, sid, cid, {"track_id": tid, "clip": clip, "index": track["clip_order"].index(cid)}, {"track_id": tid, "clip_id": cid}, f"sequences.{sid}.tracks.{tid}.clips.{cid}", clip["timeline_start_us"], _clip_end_us(clip))
 
         if op_type == "REMOVE_CLIP":
             cid = str(payload.get("clip_id") or entity_id or "")
             clip = copy.deepcopy(_clip(track, cid)); index = track["clip_order"].index(cid)
             del track["clips"][cid]; track["clip_order"].remove(cid)
+            _refresh_occupied_ranges(track)
             return self._record(op_type, sid, cid, {"track_id": tid, "clip_id": cid}, {"track_id": tid, "clip": clip, "index": index}, f"sequences.{sid}.tracks.{tid}.clips.{cid}")
 
         cid = str(payload.get("clip_id") or entity_id or "")
@@ -312,17 +500,27 @@ class OperationEngine:
         if op_type == "MOVE_CLIP":
             old = {"track_id": tid, "clip_id": cid, "timeline_start_us": clip["timeline_start_us"]}
             value = _int_us(payload.get("timeline_start_us"), "timeline_start_us")
+            candidate = copy.deepcopy(clip); candidate["timeline_start_us"] = value
+            if validate_timeline_overlaps:
+                _assert_track_slot_available(track, candidate, excluding_clip_id=cid)
             clip["timeline_start_us"] = value
-            return self._record(op_type, sid, cid, {"track_id": tid, "clip_id": cid, "timeline_start_us": value}, old, f"sequences.{sid}.tracks.{tid}.clips.{cid}.timeline_start_us", value, value + (clip["source_end_us"] - clip["source_start_us"]))
+            _refresh_occupied_ranges(track)
+            return self._record(op_type, sid, cid, {"track_id": tid, "clip_id": cid, "timeline_start_us": value}, old, f"sequences.{sid}.tracks.{tid}.clips.{cid}.timeline_start_us", value, value + _clip_duration_us(clip))
 
         if op_type == "TRIM_CLIP":
             old = {"track_id": tid, "clip_id": cid, "source_start_us": clip["source_start_us"], "source_end_us": clip["source_end_us"]}
             start = _int_us(payload.get("source_start_us", clip["source_start_us"]), "source_start_us")
             end = _int_us(payload.get("source_end_us", clip["source_end_us"]), "source_end_us")
             if end <= start: raise EditValidationError("source_end_us must be greater than source_start_us")
+            candidate = copy.deepcopy(clip); candidate["source_start_us"] = start; candidate["source_end_us"] = end
+            if validate_timeline_overlaps:
+                _assert_track_slot_available(track, candidate, excluding_clip_id=cid)
             clip["source_start_us"] = start; clip["source_end_us"] = end
+            for effect in clip.get("effects", []):
+                effect["duration_us"] = min(effect["duration_us"], _clip_duration_us(clip))
+            _refresh_occupied_ranges(track)
             up = {"track_id": tid, "clip_id": cid, "source_start_us": start, "source_end_us": end}
-            return self._record(op_type, sid, cid, up, old, f"sequences.{sid}.tracks.{tid}.clips.{cid}.trim", clip["timeline_start_us"], clip["timeline_start_us"] + (end-start))
+            return self._record(op_type, sid, cid, up, old, f"sequences.{sid}.tracks.{tid}.clips.{cid}.trim", clip["timeline_start_us"], _clip_end_us(clip))
 
         if op_type == "SPLIT_CLIP":
             split = _int_us(payload.get("split_source_us"), "split_source_us")
@@ -333,9 +531,17 @@ class OperationEngine:
                 raise EditValidationError("split requires two new unique clip ids")
             original = copy.deepcopy(clip); index = track["clip_order"].index(cid)
             left = copy.deepcopy(clip); left.update({"id": left_id, "source_end_us": split})
-            right = copy.deepcopy(clip); right.update({"id": right_id, "source_start_us": split, "timeline_start_us": clip["timeline_start_us"] + (split-clip["source_start_us"])})
+            speed = max(0.05, float(clip.get("speed") or 1.0))
+            right = copy.deepcopy(clip); right.update({"id": right_id, "source_start_us": split, "timeline_start_us": clip["timeline_start_us"] + int(round((split-clip["source_start_us"]) / speed))})
+            if "effects" in clip:
+                left["effects"] = [copy.deepcopy(effect) for effect in clip.get("effects", []) if effect.get("anchor") != "END"]
+                right["effects"] = [copy.deepcopy(effect) for effect in clip.get("effects", []) if effect.get("anchor") != "START"]
+                for part in (left, right):
+                    for effect in part.get("effects", []):
+                        effect["duration_us"] = min(effect["duration_us"], _clip_duration_us(part))
             del track["clips"][cid]; track["clips"][left_id] = left; track["clips"][right_id] = right
             track["clip_order"][index:index+1] = [left_id, right_id]
+            _refresh_occupied_ranges(track)
             up = {"track_id": tid, "clip_id": cid, "split_source_us": split, "left_clip_id": left_id, "right_clip_id": right_id}
             down = {"track_id": tid, "original_clip": original, "left_clip_id": left_id, "right_clip_id": right_id, "index": index}
             return self._record(op_type, sid, cid, up, down, f"sequences.{sid}.tracks.{tid}.clips.{cid}.split")
@@ -357,10 +563,61 @@ class OperationEngine:
             elif op_type == "SET_AUDIO_GAIN": value = _number(value, "audio_gain", minimum=0.0, maximum=8.0)
             elif op_type == "SET_AUDIO_MUTE": value = bool(value)
             elif op_type == "SET_FACECAM_VARIANT" and value is not None and not isinstance(value, str): raise EditValidationError("facecam variant must be a string or null")
+            if op_type == "SET_SPEED":
+                candidate = copy.deepcopy(clip); candidate[key] = value
+                if validate_timeline_overlaps:
+                    _assert_track_slot_available(track, candidate, excluding_clip_id=cid)
             clip[key] = copy.deepcopy(value)
+            if op_type == "SET_SPEED":
+                for effect in clip.get("effects", []):
+                    effect["duration_us"] = min(effect["duration_us"], _clip_duration_us(clip))
+                _refresh_occupied_ranges(track)
             up = {"track_id": tid, "clip_id": cid, "value": value}
             down = {"track_id": tid, "clip_id": cid, "value": old_value}
             return self._record(op_type, sid, cid, up, down, f"sequences.{sid}.tracks.{tid}.clips.{cid}.{key}")
+
+        if op_type == "SET_TEXT":
+            if clip.get("kind") != "TEXT":
+                raise EditValidationError("SET_TEXT requires a TEXT element")
+            old_value = copy.deepcopy(clip.get("text"))
+            value = _normalize_text(payload.get("value"))
+            clip["text"] = value
+            return self._record(op_type, sid, cid, {"track_id":tid,"clip_id":cid,"value":value}, {"track_id":tid,"clip_id":cid,"value":old_value}, f"sequences.{sid}.tracks.{tid}.clips.{cid}.text")
+
+        if op_type == "ADD_EFFECT":
+            effect = _normalize_effect(payload.get("effect") or {}, _clip_duration_us(clip))
+            if any(existing.get("id") == effect["id"] for existing in clip.get("effects", [])):
+                raise EditValidationError("effect already exists")
+            if effect["type"] == "FADE" and any(existing.get("type") == "FADE" and existing.get("anchor") == effect["anchor"] for existing in clip.get("effects", [])):
+                raise EditValidationError(f"element already has a fade at {effect['anchor']}")
+            clip.setdefault("effects", []).append(effect)
+            return self._record(op_type, sid, effect["id"], {"track_id":tid,"clip_id":cid,"effect":effect}, {"track_id":tid,"clip_id":cid,"effect_id":effect["id"]}, f"sequences.{sid}.tracks.{tid}.clips.{cid}.effects.{effect['id']}")
+
+        if op_type == "UPDATE_EFFECT":
+            effect_id = str(payload.get("effect_id") or entity_id or "")
+            effects = clip.setdefault("effects", [])
+            index = next((i for i, effect in enumerate(effects) if effect.get("id") == effect_id), None)
+            if index is None:
+                raise EditValidationError(f"unknown effect: {effect_id}")
+            old_effect = copy.deepcopy(effects[index])
+            merged = copy.deepcopy(old_effect); merged.update(copy.deepcopy(payload.get("updates") or {})); merged["id"] = effect_id
+            effect = _normalize_effect(merged, _clip_duration_us(clip))
+            if effect["type"] == "FADE" and any(
+                i != index and existing.get("type") == "FADE" and existing.get("anchor") == effect["anchor"]
+                for i, existing in enumerate(effects)
+            ):
+                raise EditValidationError(f"element already has a fade at {effect['anchor']}")
+            effects[index] = effect
+            return self._record(op_type, sid, effect_id, {"track_id":tid,"clip_id":cid,"effect_id":effect_id,"updates":effect}, {"track_id":tid,"clip_id":cid,"effect_id":effect_id,"updates":old_effect}, f"sequences.{sid}.tracks.{tid}.clips.{cid}.effects.{effect_id}")
+
+        if op_type == "REMOVE_EFFECT":
+            effect_id = str(payload.get("effect_id") or entity_id or "")
+            effects = clip.setdefault("effects", [])
+            index = next((i for i, effect in enumerate(effects) if effect.get("id") == effect_id), None)
+            if index is None:
+                raise EditValidationError(f"unknown effect: {effect_id}")
+            effect = effects.pop(index)
+            return self._record(op_type, sid, effect_id, {"track_id":tid,"clip_id":cid,"effect_id":effect_id}, {"track_id":tid,"clip_id":cid,"effect":effect,"index":index}, f"sequences.{sid}.tracks.{tid}.clips.{cid}.effects.{effect_id}")
 
         if op_type == "ADD_AUDIO_FADE":
             fade = copy.deepcopy(payload.get("fade") or {})
@@ -374,7 +631,7 @@ class OperationEngine:
 
         if op_type in {"ADD_CAPTION", "UPDATE_CAPTION", "REMOVE_CAPTION", "SET_CAPTION_STYLE"}:
             if track["type"] != TrackType.CAPTIONS.value:
-                raise EditValidationError("caption operations require a CAPTIONS track")
+                raise EditValidationError("caption operations require a CAPTIONS layer")
             if op_type == "ADD_CAPTION":
                 cap = copy.deepcopy(payload.get("caption") or {})
                 for f in ("id","start_us","end_us","text"):
@@ -405,7 +662,7 @@ class OperationEngine:
             return self._record(op_type, sid, cap_id, {"track_id":tid,"caption_id":cap_id,"style":style}, {"track_id":tid,"caption_id":cap_id,"style":old_cap.get("style",{})}, f"sequences.{sid}.tracks.{tid}.captions.{cap_id}.style")
 
         if op_type in {"ADD_OVERLAY", "REMOVE_OVERLAY"}:
-            if track["type"] != TrackType.OVERLAY.value: raise EditValidationError("overlay operations require OVERLAY track")
+            if track["type"] != TrackType.OVERLAY.value: raise EditValidationError("overlay operations require OVERLAY layer")
             overlays = track["properties"].setdefault("overlays", {})
             if op_type == "ADD_OVERLAY":
                 overlay = copy.deepcopy(payload.get("overlay") or {})
@@ -442,9 +699,18 @@ class OperationEngine:
         if op_type == "APPLY_STATE_PATCH":
             state.clear(); state.update(copy.deepcopy(up["state"])); return
         # Reconstruct a public-operation request from its canonical up payload.
-        self.apply(state, {
-            "type": op_type,
-            "sequence_id": record.get("sequence_id"),
-            "entity_id": record.get("entity_id"),
-            "payload": up,
-        }, allow_internal=True)
+        self.apply(
+            state,
+            {
+                "type": op_type,
+                "sequence_id": record.get("sequence_id"),
+                "entity_id": record.get("entity_id"),
+                "payload": up,
+            },
+            allow_internal=True,
+            # Historical commits predate the universal-lane invariant and may
+            # legitimately contain overlaps. Replay must reproduce their exact
+            # persisted state first; the service migrates that state only after
+            # its hash has been verified.
+            validate_timeline_overlaps=False,
+        )
